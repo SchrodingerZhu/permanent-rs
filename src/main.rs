@@ -1,3 +1,4 @@
+pub mod cooling_schedule;
 pub mod dinic;
 pub mod graph;
 
