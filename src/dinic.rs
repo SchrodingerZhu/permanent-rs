@@ -118,19 +118,6 @@ impl DinicGraph {
         self.flow
     }
 
-    pub fn extract_current_flow(&self) -> Box<[(usize, usize, isize)]> {
-        self.edges
-            .iter()
-            .step_by(2)
-            .filter_map(|edge| {
-                if edge.flow < 1 {
-                    return None;
-                }
-                Some((edge.points.0, edge.points.1, edge.flow))
-            })
-            .collect()
-    }
-
     pub fn current_flow(&self) -> impl Iterator<Item = (usize, usize, isize)> + '_ {
         self.edges.iter().step_by(2).filter_map(|edge| {
             if edge.flow < 1 {
@@ -158,6 +145,6 @@ mod test {
         g.add_edge(4, 3, 7);
         g.add_edge(4, 5, 4);
         assert_eq!(g.calculate_flow(), 23);
-        println!("{:?}", g.extract_current_flow());
+        println!("{:?}", g.current_flow().collect::<Box<[_]>>());
     }
 }
