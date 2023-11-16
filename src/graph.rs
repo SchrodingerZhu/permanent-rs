@@ -9,7 +9,7 @@ pub struct Graph {
 }
 
 pub struct Match {
-    edges: Box<[(usize, usize)]>,
+    pub(crate) edges: Box<[(usize, usize)]>,
 }
 
 impl Match {
