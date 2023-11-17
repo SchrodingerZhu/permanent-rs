@@ -1,9 +1,9 @@
 use std::num::NonZeroUsize;
 
-struct CoolingConfig {
-    n: NonZeroUsize,
-    additive_ratio: NonZeroUsize,
-    multiplicative_ratio: NonZeroUsize,
+pub struct CoolingConfig {
+    pub(crate) n: NonZeroUsize,
+    pub(crate) additive_ratio: NonZeroUsize,
+    pub(crate) multiplicative_ratio: NonZeroUsize,
 }
 
 impl CoolingConfig {
@@ -26,7 +26,7 @@ enum CoolingState {
     Infinite,
 }
 
-struct CoolingSchedule {
+pub struct CoolingSchedule {
     config: CoolingConfig,
     state: CoolingState,
 }

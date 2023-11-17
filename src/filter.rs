@@ -1,11 +1,11 @@
 use crate::{cooling_state::State, graph::Match};
 use rand::prelude::{IteratorRandom, SliceRandom};
 
-struct Additive;
+pub(crate) struct Additive;
 
-struct Multiplicative;
+pub(crate) struct Multiplicative;
 
-struct Constant;
+pub(crate)struct Constant;
 
 #[derive(Clone, Copy)]
 pub struct Proposal {
@@ -16,13 +16,14 @@ pub struct Proposal {
 }
 
 pub trait MetropolisFilter {
-    type MatchAttr;
+    type MatchAttr : Send;
     fn ratio(
         attr: &Self::MatchAttr,
         matching: &Match,
         proposal: &Proposal,
         state: &State,
     ) -> (f64, Self::MatchAttr);
+    fn initial_attr(matching: &Match, state: &State) -> Self::MatchAttr;
 }
 
 impl MetropolisFilter for Constant {
@@ -34,6 +35,10 @@ impl MetropolisFilter for Constant {
         _state: &State,
     ) -> (f64, Self::MatchAttr) {
         (1.0, ())
+    }
+
+    fn initial_attr(matching: &Match, state: &State) -> Self::MatchAttr {
+        ()
     }
 }
 
@@ -51,6 +56,15 @@ impl MetropolisFilter for Additive {
         let d = state.weight_of_edge(proposal.u2, proposal.v1);
         ((attr - a - b + c + d) / attr, attr - a - b + c + d)
     }
+
+    fn initial_attr(matching: &Match, state: &State) -> Self::MatchAttr {
+        matching
+            .edges
+            .iter()
+            .map(|x| state.weight_of_edge(x.0, x.1))
+            .sum()
+    }
+    
 }
 
 impl MetropolisFilter for Multiplicative {
@@ -77,6 +91,18 @@ impl MetropolisFilter for Multiplicative {
         new_attr += c * c + d * d - a * a - b * b;
         (new_attr / attr, new_attr)
     }
+
+    fn initial_attr(matching: &Match, state: &State) -> Self::MatchAttr {
+        // sum of pairwise weight products
+        let mut attr = 0.0;
+        for (i, j) in matching.edges.iter().copied() {
+            for (k, l) in matching.edges.iter().copied() {
+                attr += state.weight_of_edge(i, j) * state.weight_of_edge(k, l);
+            }
+        }
+        attr
+    }
+    
 }
 
 pub struct AugmentedMatch<T: MetropolisFilter> {
@@ -124,7 +150,7 @@ impl<T: MetropolisFilter> AugmentedMatch<T> {
             + state.activity_of_edge(proposal.u1, proposal.v2)
             + state.activity_of_edge(proposal.u2, proposal.v1);
         let weight_ratio = next_weight / self.weight;
-        let active_ratio = (state.beta * (next_active_count - self.active_count) as f64).exp();
+        let active_ratio = (state.beta * (next_active_count as isize - self.active_count as isize) as f64).exp();
         let probability = (ratio * weight_ratio * active_ratio).min(1.0);
         if rand::random::<f64>() < probability {
             self.matching.edges[position.0] = (proposal.u1, proposal.v2);

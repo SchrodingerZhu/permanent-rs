@@ -1,3 +1,5 @@
+use crate::graph::{Graph, Match};
+
 pub struct Matrix {
     size: usize,
     data: Box<[f64]>,
@@ -22,14 +24,11 @@ impl Matrix {
     pub fn add(&mut self, u: usize, v: usize, value: f64) {
         self.data[u * self.size + v] += value;
     }
-    pub fn combine(&mut self, other: &Self, ratio: f64) {
-        for (i, j) in self.data.iter_mut().zip(other.data.iter()) {
-            *i = *i * (1.0 - ratio) + *j * ratio;
-        }
-    }
-    pub fn scale(&mut self, ratio: f64) {
-        for i in self.data.iter_mut() {
-            *i *= ratio;
+    pub fn transform(&mut self, f: impl Fn(f64) -> f64) {
+        for i in 0..self.size {
+            for j in 0..self.size {
+                self.data[i * self.size + j] = f(self.data[i * self.size + j]);
+            }
         }
     }
 }
@@ -60,8 +59,25 @@ impl BitMatrix {
 
 pub struct State {
     adjacency: BitMatrix,
-    weight: Matrix,
+    pub weight: Matrix,
     pub beta: f64,
+}
+
+impl<'a> From<&'a Graph> for State {
+    fn from(graph: &'a Graph) -> Self {
+        let mut adjacency = BitMatrix::new(graph.size);
+        let weight = Matrix::new(graph.size, graph.size as f64);
+        for (u, edges) in graph.edges.iter().enumerate() {
+            for v in edges.iter().copied() {
+                adjacency.set(u, v, true);
+            }
+        }
+        State {
+            adjacency,
+            weight,
+            beta: 0.0,
+        }
+    }
 }
 
 impl State {
@@ -73,13 +89,13 @@ impl State {
             0
         }
     }
-    // fn active_count_of_match(&self, matching: &Match) -> usize {
-    //     matching
-    //         .edges
-    //         .iter()
-    //         .filter(|x| self.adjacency.get(x.0, x.1))
-    //         .count()
-    // }
+    pub fn active_count_of_match(&self, matching: &Match) -> usize {
+        matching
+            .edges
+            .iter()
+            .filter(|x| self.adjacency.get(x.0, x.1))
+            .count()
+    }
     // pub fn activity_of_match(&self, matching: &Match, beta: f64) -> f64 {
     //     let n = matching.size();
     //     let m = self.active_count_of_match(matching);
@@ -88,13 +104,13 @@ impl State {
     pub fn weight_of_edge(&self, u: usize, v: usize) -> f64 {
         self.weight.get(u, v)
     }
-    // pub fn weight_of_match(&self, matching: &Match) -> f64 {
-    //     matching
-    //         .edges
-    //         .iter()
-    //         .map(|x| self.weight.get(x.0, x.1))
-    //         .sum()
-    // }
+    pub fn weight_of_match(&self, matching: &Match) -> f64 {
+        matching
+            .edges
+            .iter()
+            .map(|x| self.weight.get(x.0, x.1))
+            .sum()
+    }
 }
 
 #[cfg(test)]

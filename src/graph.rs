@@ -5,8 +5,8 @@ use std::{fs::File, path::Path};
 
 #[derive(Deserialize, Debug)]
 pub struct Graph {
-    size: usize,
-    edges: Box<[Box<[usize]>]>,
+    pub size: usize,
+    pub edges: Box<[Box<[usize]>]>,
 }
 
 pub struct Match {
@@ -28,7 +28,7 @@ impl Match {
 }
 
 impl Graph {
-    fn load<S: AsRef<Path>>(x: S) -> anyhow::Result<Self> {
+    pub fn load<S: AsRef<Path>>(x: S) -> anyhow::Result<Self> {
         let file = File::open(x)?;
         simd_json::from_reader(file).map_err(Into::into)
     }
