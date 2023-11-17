@@ -1,4 +1,5 @@
 use crate::dinic::DinicGraph;
+use rand::seq::SliceRandom;
 use serde::Deserialize;
 use std::{fs::File, path::Path};
 
@@ -15,6 +16,14 @@ pub struct Match {
 impl Match {
     pub fn size(&self) -> usize {
         self.edges.len()
+    }
+    pub fn random(size: usize) -> Self {
+        let mut rng = rand::thread_rng();
+        let mut edges: Box<[usize]> = (0..size).collect();
+        edges.shuffle(&mut rng);
+        Match {
+            edges: edges.iter().copied().enumerate().collect(),
+        }
     }
 }
 
