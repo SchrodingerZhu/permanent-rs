@@ -38,7 +38,7 @@ impl Graph {
         }
         let flow = graph.calculate_flow();
         let mut edges = Vec::with_capacity(flow as usize);
-        for (u, v, _) in graph.current_flow().filter(|x|x.0 < self.size) {
+        for (u, v, _) in graph.current_flow().filter(|x| x.0 < self.size) {
             edges.push((u, v - self.size));
         }
         Match {
