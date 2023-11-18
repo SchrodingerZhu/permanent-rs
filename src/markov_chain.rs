@@ -125,7 +125,6 @@ impl<T: MetropolisFilter + 'static + Send + Sync> MCState<T> {
             println!("beta = {}", self.global_state.beta);
             let ratio = self.evolve(i);
             estimator *= ratio;
-            println!("estimator = {}", estimator);
             self.global_state.beta = i;
         }
         estimator
