@@ -5,7 +5,7 @@ pub(crate) struct Additive;
 
 pub(crate) struct Multiplicative;
 
-pub(crate)struct Constant;
+pub(crate) struct Constant;
 
 #[derive(Clone, Copy)]
 pub struct Proposal {
@@ -16,7 +16,7 @@ pub struct Proposal {
 }
 
 pub trait MetropolisFilter {
-    type MatchAttr : Send;
+    type MatchAttr: Send;
     fn ratio(
         attr: &Self::MatchAttr,
         matching: &Match,
@@ -54,7 +54,8 @@ impl MetropolisFilter for Additive {
         let b = state.weight_of_edge(proposal.u2, proposal.v2);
         let c = state.weight_of_edge(proposal.u1, proposal.v2);
         let d = state.weight_of_edge(proposal.u2, proposal.v1);
-        ((attr - a - b + c + d) / attr, attr - a - b + c + d)
+        let new_attr = *attr - a - b + c + d;
+        (new_attr / attr * (c + d) / (a + b), new_attr)
     }
 
     fn initial_attr(matching: &Match, state: &State) -> Self::MatchAttr {
@@ -64,7 +65,6 @@ impl MetropolisFilter for Additive {
             .map(|x| state.weight_of_edge(x.0, x.1))
             .sum()
     }
-    
 }
 
 impl MetropolisFilter for Multiplicative {
@@ -89,7 +89,7 @@ impl MetropolisFilter for Multiplicative {
             new_attr += state.weight_of_edge(i, j) * d;
         }
         new_attr += c * c + d * d - a * a - b * b;
-        (new_attr / attr, new_attr)
+        (new_attr / attr * (c * d) / (a * b), new_attr)
     }
 
     fn initial_attr(matching: &Match, state: &State) -> Self::MatchAttr {
@@ -102,7 +102,6 @@ impl MetropolisFilter for Multiplicative {
         }
         attr
     }
-    
 }
 
 pub struct AugmentedMatch<T: MetropolisFilter> {
@@ -150,7 +149,8 @@ impl<T: MetropolisFilter> AugmentedMatch<T> {
             + state.activity_of_edge(proposal.u1, proposal.v2)
             + state.activity_of_edge(proposal.u2, proposal.v1);
         let weight_ratio = next_weight / self.weight;
-        let active_ratio = (state.beta * (next_active_count as isize - self.active_count as isize) as f64).exp();
+        let active_ratio =
+            (state.beta * (next_active_count as isize - self.active_count as isize) as f64).exp();
         let probability = (ratio * weight_ratio * active_ratio).min(1.0);
         if rand::random::<f64>() < probability {
             self.matching.edges[position.0] = (proposal.u1, proposal.v2);

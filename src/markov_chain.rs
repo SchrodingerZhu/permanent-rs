@@ -1,10 +1,10 @@
-use std::sync::atomic::AtomicUsize;
-use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 use crate::cooling_schedule::CoolingSchedule;
-use crate::graph::Match;
-use crate::{cooling_state, graph, cooling_schedule};
 use crate::cooling_state::{Matrix, State};
 use crate::filter::{AugmentedMatch, MetropolisFilter};
+use crate::graph::Match;
+use crate::{cooling_schedule, cooling_state, graph};
+use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
+use std::sync::atomic::AtomicUsize;
 
 pub struct Config {
     /// number of chains
@@ -38,14 +38,18 @@ impl AtomicMatrix {
         let mut matrix = Matrix::new(self.size, 0.0);
         for i in 0..self.size {
             for j in 0..self.size {
-                let value = self.data[i * self.size + j].load(std::sync::atomic::Ordering::Relaxed).max(1) as f64;
+                let value = self.data[i * self.size + j]
+                    .load(std::sync::atomic::Ordering::Relaxed)
+                    .max(1) as f64;
                 let value = value / state.weight_of_edge(i, j);
                 matrix.set(i, j, value);
                 sum += value;
             }
         }
         let scale = self.size as f64 / sum;
-        matrix.transform(|x| 1.0 / (x * scale));
+        matrix.transform(|x| {
+            (1.0 / (x * scale)).min(f64::MAX / (4 * self.size * self.size) as f64 - f64::EPSILON)
+        });
         matrix
     }
 }
@@ -60,10 +64,10 @@ pub struct MCState<T: MetropolisFilter> {
 impl Default for Config {
     fn default() -> Self {
         Config {
-            num_of_chains: 128,
-            warmup_times: 4096,
-            sample_intervals: 64,
-            num_of_samples: 64,
+            num_of_chains: 1024,
+            warmup_times: 16384,
+            sample_intervals: 16,
+            num_of_samples: 1024,
         }
     }
 }
@@ -71,18 +75,20 @@ impl Default for Config {
 impl<T: MetropolisFilter + 'static + Send + Sync> MCState<T> {
     pub fn new(graph: &graph::Graph, config: Config) -> Self {
         let global_state = State::from(graph);
-        let chains = (0..config.num_of_chains).map(|_| {
-            let matching = Match::random(graph.size);
-            let attr = T::initial_attr(&matching, &global_state);
-            let weight = global_state.weight_of_match(&matching);
-            let active_count = global_state.active_count_of_match(&matching);
-            AugmentedMatch {
-                matching,
-                attr,
-                weight,
-                active_count,
-            }
-        }).collect();
+        let chains = (0..config.num_of_chains)
+            .map(|_| {
+                let matching = Match::random(graph.size);
+                let attr = T::initial_attr(&matching, &global_state);
+                let weight = global_state.weight_of_match(&matching);
+                let active_count = global_state.active_count_of_match(&matching);
+                AugmentedMatch {
+                    matching,
+                    attr,
+                    weight,
+                    active_count,
+                }
+            })
+            .collect();
         MCState {
             config,
             global_state,
@@ -108,25 +114,23 @@ impl<T: MetropolisFilter + 'static + Send + Sync> MCState<T> {
     }
     pub fn cooling_evolve(&mut self, sequence: CoolingSchedule) {
         for i in sequence {
-            
             self.global_state.beta = i;
             println!("beta = {}", self.global_state.beta);
             self.evolve();
-            
         }
     }
 }
 
 #[cfg(test)]
 mod test {
-    use std::{path::PathBuf, num::NonZeroUsize};
+    use std::{num::NonZeroUsize, path::PathBuf};
 
-    use crate::{graph::Graph, cooling_schedule::CoolingConfig};
+    use crate::{cooling_schedule::CoolingConfig, graph::Graph};
 
     #[test]
     fn box_example() {
         let path: PathBuf = env!("PWD").into();
-        let path = path.join("data").join("box.json");
+        let path = path.join("data").join("4-cycles.json");
         let graph = Graph::load(path).unwrap();
         println!("{:?}", graph);
         let config = super::Config::default();
@@ -135,15 +139,15 @@ mod test {
         println!("warmup done");
         let cooling_cfg = CoolingConfig {
             n: NonZeroUsize::new(graph.size).unwrap(),
-            additive_ratio: NonZeroUsize::new(1).unwrap(),
-            multiplicative_ratio: NonZeroUsize::new(1).unwrap(),
+            additive_ratio: NonZeroUsize::new(4).unwrap(),
+            multiplicative_ratio: NonZeroUsize::new(4).unwrap(),
         };
         let schedule = crate::cooling_schedule::CoolingSchedule::from(cooling_cfg);
         state.cooling_evolve(schedule);
         for i in 0..graph.size {
             for j in 0..graph.size {
                 // print state.global_state.weight.get(i, j)
-                print!("{:e} ", state.global_state.weight.get(i, j));
+                print!("{:.2e} ", state.global_state.weight.get(i, j));
             }
             println!();
         }
