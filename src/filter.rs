@@ -130,6 +130,13 @@ impl<T: MetropolisFilter> AugmentedMatch<T> {
             self.transit(self.choose_edge_pairs(), state);
         }
     }
+    pub fn num_of_non_edges(&self, state: &State) -> usize {
+        self.matching
+            .edges
+            .iter()
+            .filter(|(u, v)| state.activity_of_edge(*u, *v) == 0)
+            .count()
+    }
     pub fn transit(&mut self, position: (usize, usize), state: &State) -> bool {
         let proposal = Proposal {
             u1: self.matching.edges[position.0].0,

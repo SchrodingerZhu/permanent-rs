@@ -101,23 +101,34 @@ impl<T: MetropolisFilter + 'static + Send + Sync> MCState<T> {
             x.transit_n_times(&self.global_state, self.config.warmup_times);
         });
     }
-    fn evolve(&mut self) {
+    fn evolve(&mut self, next_beta: f64) -> f64 {
         let matrix = AtomicMatrix::new(self.size);
-        self.chains.par_iter_mut().for_each(|x| {
+        let diff = self.global_state.beta - next_beta;
+        let global_sum = self.chains.par_iter_mut().map(|x| {
+            let mut local_sum = 0.0;
             for _ in 0..self.config.num_of_samples {
                 x.transit_n_times(&self.global_state, self.config.sample_intervals);
                 let sample = x.choose_weighted_edge(&self.global_state);
                 matrix.inc(sample.0, sample.1);
+                let non_edges = self.size - x.active_count;
+                local_sum += (diff * non_edges as f64).exp()
             }
-        });
+            local_sum
+        }).sum::<f64>();
         self.global_state.weight = matrix.finish(&self.global_state);
+        global_sum / self.config.num_of_chains as f64 / self.config.num_of_samples as f64
     }
-    pub fn cooling_evolve(&mut self, sequence: CoolingSchedule) {
+    pub fn cooling_evolve(&mut self, mut sequence: CoolingSchedule) -> f64 {
+        let mut estimator = (1..=self.size).product::<usize>() as f64;
+        sequence.next();
         for i in sequence {
-            self.global_state.beta = i;
             println!("beta = {}", self.global_state.beta);
-            self.evolve();
+            let ratio = self.evolve(i);
+            estimator *= ratio;
+            println!("estimator = {}", estimator);
+            self.global_state.beta = i;
         }
+        estimator
     }
 }
 
@@ -130,7 +141,7 @@ mod test {
     #[test]
     fn box_example() {
         let path: PathBuf = env!("PWD").into();
-        let path = path.join("data").join("4-cycles.json");
+        let path = path.join("data").join("box.json");
         let graph = Graph::load(path).unwrap();
         println!("{:?}", graph);
         let config = super::Config::default();
