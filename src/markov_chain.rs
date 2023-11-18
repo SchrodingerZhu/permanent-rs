@@ -111,7 +111,7 @@ impl<T: MetropolisFilter + 'static + Send + Sync> MCState<T> {
                 let sample = x.choose_weighted_edge(&self.global_state);
                 matrix.inc(sample.0, sample.1);
                 let non_edges = self.size - x.active_count;
-                local_sum += (diff * non_edges as f64).exp()
+                local_sum += (diff * non_edges as f64).exp();
             }
             local_sum
         }).sum::<f64>();
@@ -141,7 +141,7 @@ mod test {
     #[test]
     fn box_example() {
         let path: PathBuf = env!("PWD").into();
-        let path = path.join("data").join("box.json");
+        let path = path.join("data").join("choice.json");
         let graph = Graph::load(path).unwrap();
         println!("{:?}", graph);
         let config = super::Config::default();
