@@ -104,17 +104,23 @@ impl<T: MetropolisFilter + 'static + Send + Sync> MCState<T> {
     fn evolve(&mut self, next_beta: f64) -> f64 {
         let matrix = AtomicMatrix::new(self.size);
         let diff = self.global_state.beta - next_beta;
-        let global_sum = self.chains.par_iter_mut().map(|x| {
-            let mut local_sum = 0.0;
-            for _ in 0..self.config.num_of_samples {
-                x.transit_n_times(&self.global_state, self.config.sample_intervals);
-                let sample = x.choose_weighted_edge(&self.global_state);
-                matrix.inc(sample.0, sample.1);
-                let non_edges = self.size - x.active_count;
-                local_sum += (diff * non_edges as f64).exp();
-            }
-            local_sum
-        }).sum::<f64>();
+        let global_sum = self
+            .chains
+            .par_iter_mut()
+            .map(|x| {
+                x.weight = self.global_state.weight_of_match(&x.matching);
+                x.attr = T::initial_attr(&x.matching, &self.global_state);
+                let mut local_sum = 0.0;
+                for _ in 0..self.config.num_of_samples {
+                    x.transit_n_times(&self.global_state, self.config.sample_intervals);
+                    let sample = x.choose_weighted_edge(&self.global_state);
+                    matrix.inc(sample.0, sample.1);
+                    let non_edges = self.size - x.active_count;
+                    local_sum += (diff * non_edges as f64).exp();
+                }
+                local_sum
+            })
+            .sum::<f64>();
         self.global_state.weight = matrix.finish(&self.global_state);
         global_sum / self.config.num_of_chains as f64 / self.config.num_of_samples as f64
     }
