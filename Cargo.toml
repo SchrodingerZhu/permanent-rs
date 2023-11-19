@@ -15,3 +15,7 @@ simd-json = "0.13.4"
 tracing = "0.1.40"
 tracing-subscriber = "0.3.18"
 stacker = "0.1.15"
+mimalloc = "0.1.39"
+
+[profile.release]
+lto = "thin"

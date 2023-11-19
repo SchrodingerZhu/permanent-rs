@@ -5,6 +5,10 @@ pub mod filter;
 pub mod graph;
 
 pub mod markov_chain;
+
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 fn main() {
     println!("Hello, world!");
 }
