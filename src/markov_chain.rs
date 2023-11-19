@@ -66,8 +66,8 @@ impl Default for Config {
         Config {
             num_of_chains: 1024,
             warmup_times: 16384,
-            sample_intervals: 16,
-            num_of_samples: 1024,
+            sample_intervals: 8,
+            num_of_samples: 2048,
         }
     }
 }
@@ -101,15 +101,17 @@ impl<T: MetropolisFilter + 'static + Send + Sync> MCState<T> {
             x.transit_n_times(&self.global_state, self.config.warmup_times);
         });
     }
-    fn evolve(&mut self, next_beta: f64) -> f64 {
+    fn evolve(&mut self, next_beta: f64, recompute: bool) -> f64 {
         let matrix = AtomicMatrix::new(self.size);
         let diff = self.global_state.beta - next_beta;
         let global_sum = self
             .chains
             .par_iter_mut()
             .map(|x| {
-                x.weight = self.global_state.weight_of_match(&x.matching);
-                x.attr = T::initial_attr(&x.matching, &self.global_state);
+                if recompute {
+                   x.weight = self.global_state.weight_of_match(&x.matching);
+                   x.attr = T::initial_attr(&x.matching, &self.global_state);
+                }
                 let mut local_sum = 0.0;
                 for _ in 0..self.config.num_of_samples {
                     x.transit_n_times(&self.global_state, self.config.sample_intervals);
@@ -124,12 +126,12 @@ impl<T: MetropolisFilter + 'static + Send + Sync> MCState<T> {
         self.global_state.weight = matrix.finish(&self.global_state);
         global_sum / self.config.num_of_chains as f64 / self.config.num_of_samples as f64
     }
-    pub fn cooling_evolve(&mut self, mut sequence: CoolingSchedule) -> f64 {
+    pub fn cooling_evolve(&mut self, mut sequence: CoolingSchedule, recompute: bool) -> f64 {
         let mut estimator = (1..=self.size).product::<usize>() as f64;
         sequence.next();
         for i in sequence {
             println!("beta = {}", self.global_state.beta);
-            let ratio = self.evolve(i);
+            let ratio = self.evolve(i, recompute);
             estimator *= ratio;
             self.global_state.beta = i;
         }
@@ -146,7 +148,7 @@ mod test {
     #[test]
     fn box_example() {
         let path: PathBuf = env!("PWD").into();
-        let path = path.join("data").join("choice.json");
+        let path = path.join("data").join("cycle.json");
         let graph = Graph::load(path).unwrap();
         println!("{:?}", graph);
         let config = super::Config::default();
@@ -159,11 +161,11 @@ mod test {
             multiplicative_ratio: NonZeroUsize::new(4).unwrap(),
         };
         let schedule = crate::cooling_schedule::CoolingSchedule::from(cooling_cfg);
-        state.cooling_evolve(schedule);
+        state.cooling_evolve(schedule, false);
         for i in 0..graph.size {
             for j in 0..graph.size {
                 // print state.global_state.weight.get(i, j)
-                print!("{:.2e} ", state.global_state.weight.get(i, j));
+                print!("{:.2} ", 1.0/state.global_state.weight.get(i, j));
             }
             println!();
         }
