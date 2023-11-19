@@ -19,3 +19,4 @@ mimalloc = "0.1.39"
 
 [profile.release]
 lto = "thin"
+debug = true

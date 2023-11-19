@@ -148,7 +148,7 @@ mod test {
     #[test]
     fn box_example() {
         let path: PathBuf = env!("PWD").into();
-        let path = path.join("data").join("choice.json");
+        let path = path.join("data").join("reverse.json");
         let graph = Graph::load(path).unwrap();
         println!("{:?}", graph);
         let config = super::Config::default();
