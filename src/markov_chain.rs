@@ -1,9 +1,9 @@
 use crate::cooling_schedule::CoolingSchedule;
 use crate::cooling_state::{Matrix, State};
 use crate::filter::{AugmentedMatch, MetropolisFilter};
+use crate::graph;
 use crate::graph::Match;
-use crate::{cooling_schedule, cooling_state, graph};
-use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
+use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 use std::sync::atomic::AtomicUsize;
 
 pub struct Config {
@@ -34,18 +34,23 @@ impl AtomicMatrix {
     }
     pub fn finish(self, state: &State) -> Matrix {
         std::sync::atomic::fence(std::sync::atomic::Ordering::SeqCst);
-        let mut sum = 0.0;
         let mut matrix = Matrix::new(self.size, 0.0);
-        for i in 0..self.size {
-            for j in 0..self.size {
-                let value = self.data[i * self.size + j]
-                    .load(std::sync::atomic::Ordering::Relaxed)
-                    .max(1) as f64;
-                let value = value / state.weight_of_edge(i, j);
-                matrix.set(i, j, value);
-                sum += value;
-            }
-        }
+        let sum = matrix
+            .par_mut_rows()
+            .enumerate()
+            .map(|(i, row)| {
+                let mut sum = 0.0;
+                for (j, item) in row.iter_mut().enumerate() {
+                    let value = self.data[i * self.size + j]
+                        .load(std::sync::atomic::Ordering::Relaxed)
+                        .max(1) as f64;
+                    let value = value / state.weight_of_edge(i, j);
+                    *item = value;
+                    sum += value;
+                }
+                sum
+            })
+            .sum::<f64>();
         let scale = self.size as f64 / sum;
         matrix.transform(|x| {
             (1.0 / (x * scale)).min(f64::MAX / (4 * self.size * self.size) as f64 - f64::EPSILON)
@@ -109,8 +114,8 @@ impl<T: MetropolisFilter + 'static + Send + Sync> MCState<T> {
             .par_iter_mut()
             .map(|x| {
                 if recompute {
-                   x.weight = self.global_state.weight_of_match(&x.matching);
-                   x.attr = T::initial_attr(&x.matching, &self.global_state);
+                    x.weight = self.global_state.weight_of_match(&x.matching);
+                    x.attr = T::initial_attr(&x.matching, &self.global_state);
                 }
                 let mut local_sum = 0.0;
                 for _ in 0..self.config.num_of_samples {
@@ -165,7 +170,7 @@ mod test {
         for i in 0..graph.size {
             for j in 0..graph.size {
                 // print state.global_state.weight.get(i, j)
-                print!("{:.2} ", 1.0/state.global_state.weight.get(i, j));
+                print!("{:.2} ", 1.0 / state.global_state.weight.get(i, j));
             }
             println!();
         }

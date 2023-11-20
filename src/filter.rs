@@ -37,9 +37,7 @@ impl MetropolisFilter for Constant {
         (1.0, ())
     }
 
-    fn initial_attr(matching: &Match, state: &State) -> Self::MatchAttr {
-        ()
-    }
+    fn initial_attr(_matching: &Match, _state: &State) -> Self::MatchAttr {}
 }
 
 impl MetropolisFilter for Additive {

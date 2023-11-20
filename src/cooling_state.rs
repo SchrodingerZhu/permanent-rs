@@ -1,3 +1,8 @@
+use rayon::{
+    iter::ParallelIterator,
+    slice::{ChunksMut, ParallelSliceMut},
+};
+
 use crate::graph::{Graph, Match};
 
 pub struct Matrix {
@@ -15,6 +20,9 @@ impl Matrix {
     pub fn dimension(&self) -> usize {
         self.size
     }
+    pub fn par_mut_rows(&mut self) -> ChunksMut<f64> {
+        self.data.par_chunks_mut(self.size)
+    }
     pub fn get(&self, u: usize, v: usize) -> f64 {
         self.data[u * self.size + v]
     }
@@ -24,12 +32,12 @@ impl Matrix {
     pub fn add(&mut self, u: usize, v: usize, value: f64) {
         self.data[u * self.size + v] += value;
     }
-    pub fn transform(&mut self, f: impl Fn(f64) -> f64) {
-        for i in 0..self.size {
-            for j in 0..self.size {
-                self.data[i * self.size + j] = f(self.data[i * self.size + j]);
+    pub fn transform(&mut self, f: impl Fn(f64) -> f64 + Sync) {
+        self.par_mut_rows().for_each(|row| {
+            for x in row.iter_mut() {
+                *x = f(*x);
             }
-        }
+        });
     }
 }
 
