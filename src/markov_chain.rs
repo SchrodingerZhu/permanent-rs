@@ -4,6 +4,7 @@ use crate::filter::{AugmentedMatch, MetropolisFilter};
 use crate::graph;
 use crate::graph::Match;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
+use std::iter::Sum;
 use std::sync::atomic::AtomicUsize;
 
 pub struct Config {
@@ -13,8 +14,10 @@ pub struct Config {
     pub warmup_times: usize,
     /// potential relaxation time of the chain
     pub sample_intervals: usize,
-    /// number of samples to from each chain for each cooling step
-    pub num_of_samples: usize,
+    /// number of samples to from each chain for weight estimation
+    pub num_of_weight_estimations: usize,
+    /// number of samples to from each chain for estimator estimation
+    pub num_of_estimator_estimations: usize,
 }
 
 struct AtomicMatrix {
@@ -72,8 +75,16 @@ impl Default for Config {
             num_of_chains: 1024,
             warmup_times: 16384,
             sample_intervals: 8,
-            num_of_samples: 2048,
+            num_of_weight_estimations: 2048,
+            num_of_estimator_estimations: 128,
         }
+    }
+}
+
+struct AddPair(f64, f64);
+impl Sum  for AddPair {
+    fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
+        iter.reduce(|x, y| AddPair(x.0 + y.0, x.1 + y.1)).unwrap_or(AddPair(0.0, 0.0))
     }
 }
 
@@ -106,7 +117,7 @@ impl<T: MetropolisFilter + 'static + Send + Sync> MCState<T> {
             x.transit_n_times(&self.global_state, self.config.warmup_times);
         });
     }
-    fn evolve(&mut self, next_beta: f64, recompute: bool) -> f64 {
+    fn evolve(&mut self, next_beta: f64, recompute: bool, estimator : f64) -> f64 {
         let matrix = AtomicMatrix::new(self.size);
         let diff = self.global_state.beta - next_beta;
         let global_sum = self
@@ -117,26 +128,33 @@ impl<T: MetropolisFilter + 'static + Send + Sync> MCState<T> {
                     x.weight = self.global_state.weight_of_match(&x.matching);
                     x.attr = T::initial_attr(&x.matching, &self.global_state);
                 }
-                let mut local_sum = 0.0;
-                for _ in 0..self.config.num_of_samples {
+                for _ in 0..self.config.num_of_weight_estimations {
                     x.transit_n_times(&self.global_state, self.config.sample_intervals);
                     let sample = x.choose_weighted_edge(&self.global_state);
                     matrix.inc(sample.0, sample.1);
-                    let non_edges = self.size - x.active_count;
-                    local_sum += (diff * non_edges as f64).exp();
                 }
-                local_sum
+                let mut local_sample_count = 0.0;
+                let mut local_sum = 0.0;
+                for _ in 0..self.config.num_of_estimator_estimations {
+                    if let Some(sample) = x.rejection_sample(&self.global_state, self.config.sample_intervals) {
+                        let importance = (x.active_count as f64).exp() ;
+                        local_sample_count += importance;
+                        local_sum += (diff * sample as f64).exp() * importance as f64;
+                    }
+                }
+                AddPair(local_sample_count, local_sum)
             })
-            .sum::<f64>();
+            .sum::<AddPair>();
         self.global_state.weight = matrix.finish(&self.global_state);
-        global_sum / self.config.num_of_chains as f64 / self.config.num_of_samples as f64
+        global_sum.1 / global_sum.0.max(1.0)
     }
     pub fn cooling_evolve(&mut self, mut sequence: CoolingSchedule, recompute: bool) -> f64 {
         let mut estimator = (1..=self.size).product::<usize>() as f64;
         sequence.next();
         for i in sequence {
-            println!("beta = {}", self.global_state.beta);
-            let ratio = self.evolve(i, recompute);
+            
+            let ratio = self.evolve(i, recompute, estimator);
+            println!("beta = {:.5}, estimator: {:.5}, ratio: {:.5}", self.global_state.beta, estimator, ratio);
             estimator *= ratio;
             self.global_state.beta = i;
         }
@@ -153,7 +171,7 @@ mod test {
     #[test]
     fn box_example() {
         let path: PathBuf = env!("PWD").into();
-        let path = path.join("data").join("4-cycles.json");
+        let path = path.join("data").join("box.json");
         let graph = Graph::load(path).unwrap();
         println!("{:?}", graph);
         let config = super::Config::default();

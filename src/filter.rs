@@ -135,6 +135,15 @@ impl<T: MetropolisFilter> AugmentedMatch<T> {
             .filter(|(u, v)| state.activity_of_edge(*u, *v) == 0)
             .count()
     }
+    pub fn rejection_sample(&mut self, state: &State, n: usize) -> Option<usize> {
+        for _ in 0..2 * n * n {
+            self.transit_n_times(state, n);
+            if rand::random::<f64>() < 1.0/self.weight as f64 {
+                return Some(state.weight.dimension() - self.active_count);
+            }
+        }
+        None
+    }
     pub fn transit(&mut self, position: (usize, usize), state: &State) -> bool {
         let proposal = Proposal {
             u1: self.matching.edges[position.0].0,
