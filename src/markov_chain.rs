@@ -55,14 +55,13 @@ impl AtomicMatrix {
             })
             .sum::<f64>();
         let scale = self.size as f64 / sum;
-        matrix.transform(|x| {
-            (1.0 / (x * scale)).min(f64::MAX / ( (2 * self.size) as f64))
-        });
+        matrix.transform(|x| (1.0 / (x * scale)).min(f64::MAX / ((2 * self.size) as f64)));
         matrix
     }
 }
 
 pub struct MCState<T: MetropolisFilter> {
+    graph: graph::Graph,
     size: usize,
     config: Config,
     global_state: State,
@@ -82,15 +81,17 @@ impl Default for Config {
 }
 
 struct AddPair(f64, f64);
-impl Sum  for AddPair {
+impl Sum for AddPair {
     fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
-        iter.reduce(|x, y| AddPair(x.0 + y.0, x.1 + y.1)).unwrap_or(AddPair(0.0, 0.0))
+        iter.reduce(|x, y| AddPair(x.0 + y.0, x.1 + y.1))
+            .unwrap_or(AddPair(0.0, 0.0))
     }
 }
 
 impl<T: MetropolisFilter + 'static + Send + Sync> MCState<T> {
-    pub fn new(graph: &graph::Graph, config: Config) -> Self {
-        let global_state = State::from(graph);
+    pub fn new(graph: graph::Graph, config: Config) -> Self {
+        let global_state = State::from(&graph);
+        let size = graph.size;
         let chains = (0..config.num_of_chains)
             .map(|_| {
                 let matching = Match::random(graph.size);
@@ -106,10 +107,11 @@ impl<T: MetropolisFilter + 'static + Send + Sync> MCState<T> {
             })
             .collect();
         MCState {
+            graph,
             config,
             global_state,
             chains,
-            size: graph.size,
+            size,
         }
     }
     pub fn warmup(&mut self) {
@@ -117,7 +119,7 @@ impl<T: MetropolisFilter + 'static + Send + Sync> MCState<T> {
             x.transit_n_times(&self.global_state, self.config.warmup_times);
         });
     }
-    fn evolve(&mut self, next_beta: f64, recompute: bool, estimator : f64) -> f64 {
+    fn evolve(&mut self, next_beta: f64, recompute: bool, estimator: f64) -> f64 {
         let matrix = AtomicMatrix::new(self.size);
         let diff = self.global_state.beta - next_beta;
         let global_sum = self
@@ -136,8 +138,10 @@ impl<T: MetropolisFilter + 'static + Send + Sync> MCState<T> {
                 let mut local_sample_count = 0.0;
                 let mut local_sum = 0.0;
                 for _ in 0..self.config.num_of_estimator_estimations {
-                    if let Some(sample) = x.rejection_sample(&self.global_state, self.config.sample_intervals) {
-                        let importance = (x.active_count as f64).exp() ;
+                    if let Some(sample) =
+                        x.rejection_sample(&self.global_state, self.config.sample_intervals)
+                    {
+                        let importance = (x.active_count as f64).exp();
                         local_sample_count += importance;
                         local_sum += (diff * sample as f64).exp() * importance as f64;
                     }
@@ -152,9 +156,11 @@ impl<T: MetropolisFilter + 'static + Send + Sync> MCState<T> {
         let mut estimator = (1..=self.size).product::<usize>() as f64;
         sequence.next();
         for i in sequence {
-            
             let ratio = self.evolve(i, recompute, estimator);
-            println!("beta = {:.5}, estimator: {:.5}, ratio: {:.5}", self.global_state.beta, estimator, ratio);
+            println!(
+                "beta = {:.5}, estimator: {:.5}, ratio: {:.5}",
+                self.global_state.beta, estimator, ratio
+            );
             estimator *= ratio;
             self.global_state.beta = i;
         }
@@ -175,18 +181,19 @@ mod test {
         let graph = Graph::load(path).unwrap();
         println!("{:?}", graph);
         let config = super::Config::default();
-        let mut state = super::MCState::<crate::filter::Additive>::new(&graph, config);
+        let mut state = super::MCState::<crate::filter::Additive>::new(graph, config);
         state.warmup();
         println!("warmup done");
+        let size = state.size;
         let cooling_cfg = CoolingConfig {
-            n: NonZeroUsize::new(graph.size).unwrap(),
+            n: NonZeroUsize::new(size).unwrap(),
             additive_ratio: NonZeroUsize::new(4).unwrap(),
             multiplicative_ratio: NonZeroUsize::new(4).unwrap(),
         };
         let schedule = crate::cooling_schedule::CoolingSchedule::from(cooling_cfg);
         state.cooling_evolve(schedule, false);
-        for i in 0..graph.size {
-            for j in 0..graph.size {
+        for i in 0..size {
+            for j in 0..size {
                 // print state.global_state.weight.get(i, j)
                 print!("{:.2} ", 1.0 / state.global_state.weight.get(i, j));
             }

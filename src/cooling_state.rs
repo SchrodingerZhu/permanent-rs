@@ -104,11 +104,6 @@ impl State {
             .filter(|x| self.adjacency.get(x.0, x.1))
             .count()
     }
-    // pub fn activity_of_match(&self, matching: &Match, beta: f64) -> f64 {
-    //     let n = matching.size();
-    //     let m = self.active_count_of_match(matching);
-    //     (beta * (m - n) as f64).exp()
-    // }
     pub fn weight_of_edge(&self, u: usize, v: usize) -> f64 {
         self.weight.get(u, v)
     }
