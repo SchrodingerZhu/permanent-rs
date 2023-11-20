@@ -53,7 +53,7 @@ impl AtomicMatrix {
             .sum::<f64>();
         let scale = self.size as f64 / sum;
         matrix.transform(|x| {
-            (1.0 / (x * scale)).min(f64::MAX / (4 * self.size * self.size) as f64 - f64::EPSILON)
+            (1.0 / (x * scale)).min(f64::MAX / ( (2 * self.size) as f64))
         });
         matrix
     }
