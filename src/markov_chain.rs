@@ -119,7 +119,7 @@ impl<T: MetropolisFilter + 'static + Send + Sync> MCState<T> {
             x.transit_n_times(&self.global_state, self.config.warmup_times);
         });
     }
-    fn evolve(&mut self, next_beta: f64, recompute: bool, estimator: f64) -> f64 {
+    fn evolve(&mut self, next_beta: f64, recompute: bool, penalty: f64) -> f64 {
         let matrix = AtomicMatrix::new(self.size);
         let diff = self.global_state.beta - next_beta;
         let global_sum = self
@@ -141,7 +141,7 @@ impl<T: MetropolisFilter + 'static + Send + Sync> MCState<T> {
                     if let Some(sample) =
                         x.rejection_sample(&self.global_state, self.config.sample_intervals)
                     {
-                        let importance = (x.active_count as f64).exp();
+                        let importance = (x.active_count as f64 * penalty).exp();
                         local_sample_count += importance;
                         local_sum += (diff * sample as f64).exp() * importance as f64;
                     }
@@ -153,10 +153,11 @@ impl<T: MetropolisFilter + 'static + Send + Sync> MCState<T> {
         global_sum.1 / global_sum.0.max(1.0)
     }
     pub fn cooling_evolve(&mut self, mut sequence: CoolingSchedule, recompute: bool) -> f64 {
-        let mut estimator = (1..=self.size).product::<usize>() as f64;
+        let factorial =  (1..=self.size).product::<usize>() as f64;
+        let mut estimator = factorial;
         sequence.next();
         for i in sequence {
-            let ratio = self.evolve(i, recompute, estimator);
+            let ratio = self.evolve(i, recompute, (factorial / estimator).ln());
             println!(
                 "beta = {:.5}, estimator: {:.5}, ratio: {:.5}",
                 self.global_state.beta, estimator, ratio
@@ -177,7 +178,7 @@ mod test {
     #[test]
     fn box_example() {
         let path: PathBuf = env!("PWD").into();
-        let path = path.join("data").join("box.json");
+        let path = path.join("data").join("4-cycles.json");
         let graph = Graph::load(path).unwrap();
         println!("{:?}", graph);
         let config = super::Config::default();
