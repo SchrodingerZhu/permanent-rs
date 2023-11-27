@@ -150,14 +150,18 @@ impl<T: MetropolisFilter + 'static + Send + Sync> MCState<T> {
             })
             .sum::<AddPair>();
         self.global_state.weight = matrix.finish(&self.global_state);
-        global_sum.1 / global_sum.0.max(1.0)
+        if global_sum.1 >= global_sum.0 {
+            1.0
+        } else {
+            global_sum.1 / global_sum.0
+        }
     }
     pub fn cooling_evolve(&mut self, mut sequence: CoolingSchedule, recompute: bool) -> f64 {
         let factorial =  (1..=self.size).product::<usize>() as f64;
         let mut estimator = factorial;
         sequence.next();
         for i in sequence {
-            let ratio = self.evolve(i, recompute, (factorial / estimator).ln());
+            let ratio = self.evolve(i, recompute, 1.0);
             println!(
                 "beta = {:.5}, estimator: {:.5}, ratio: {:.5}",
                 self.global_state.beta, estimator, ratio
