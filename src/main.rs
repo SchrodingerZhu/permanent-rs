@@ -103,6 +103,15 @@ fn main() {
         )
         .init();
     let cli = Cli::parse();
+    let thd_cnt = cli.num_of_threads.unwrap_or_else(|| {
+        std::thread::available_parallelism()
+            .map(|x| x.get())
+            .unwrap_or(1)
+    });
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(thd_cnt)
+        .build_global()
+        .unwrap();
     let graph = Graph::load(cli.graph_path).unwrap();
     info!("Graph loaded: {:?}", graph);
     if graph.find_match().size() != graph.size {
