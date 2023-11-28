@@ -6,6 +6,7 @@ use crate::graph::Match;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 use std::iter::Sum;
 use std::sync::atomic::AtomicUsize;
+use tracing::info;
 
 pub struct Config {
     /// number of chains
@@ -13,7 +14,9 @@ pub struct Config {
     /// potential mixing time of initial runs
     pub warmup_times: usize,
     /// potential relaxation time of the chain
-    pub sample_intervals: usize,
+    pub weight_sample_intervals: usize,
+    /// potential relaxation time of the chain
+    pub estimator_sample_intervals: usize,
     /// number of samples to from each chain for weight estimation
     pub num_of_weight_estimations: usize,
     /// number of samples to from each chain for estimator estimation
@@ -61,10 +64,11 @@ impl AtomicMatrix {
 }
 
 pub struct MCState<T: MetropolisFilter> {
+    #[allow(dead_code)]
     graph: graph::Graph,
     size: usize,
     config: Config,
-    global_state: State,
+    pub global_state: State,
     chains: Vec<AugmentedMatch<T>>,
 }
 
@@ -73,9 +77,10 @@ impl Default for Config {
         Config {
             num_of_chains: 1024,
             warmup_times: 16384,
-            sample_intervals: 8,
+            weight_sample_intervals: 8,
+            estimator_sample_intervals: 128,
             num_of_weight_estimations: 2048,
-            num_of_estimator_estimations: 128,
+            num_of_estimator_estimations: 16,
         }
     }
 }
@@ -131,16 +136,17 @@ impl<T: MetropolisFilter + 'static + Send + Sync> MCState<T> {
                     x.attr = T::initial_attr(&x.matching, &self.global_state);
                 }
                 for _ in 0..self.config.num_of_weight_estimations {
-                    x.transit_n_times(&self.global_state, self.config.sample_intervals);
+                    x.transit_n_times(&self.global_state, self.config.weight_sample_intervals);
                     let sample = x.choose_weighted_edge(&self.global_state);
                     matrix.inc(sample.0, sample.1);
                 }
                 let mut local_sample_count = 0.0;
                 let mut local_sum = 0.0;
                 for _ in 0..self.config.num_of_estimator_estimations {
-                    if let Some(sample) =
-                        x.rejection_sample(&self.global_state, self.config.sample_intervals)
-                    {
+                    if let Some(sample) = x.rejection_sample(
+                        &self.global_state,
+                        self.config.estimator_sample_intervals,
+                    ) {
                         let importance = (x.active_count as f64 * penalty).exp();
                         local_sample_count += importance;
                         local_sum += (diff * sample as f64).exp() * importance as f64;
@@ -157,12 +163,12 @@ impl<T: MetropolisFilter + 'static + Send + Sync> MCState<T> {
         }
     }
     pub fn cooling_evolve(&mut self, mut sequence: CoolingSchedule, recompute: bool) -> f64 {
-        let factorial =  (1..=self.size).product::<usize>() as f64;
+        let factorial = (1..=self.size).product::<usize>() as f64;
         let mut estimator = factorial;
         sequence.next();
         for i in sequence {
-            let ratio = self.evolve(i, recompute, 1.0);
-            println!(
+            let ratio = self.evolve(i, recompute, 0.0);
+            info!(
                 "beta = {:.5}, estimator: {:.5}, ratio: {:.5}",
                 self.global_state.beta, estimator, ratio
             );
@@ -192,8 +198,8 @@ mod test {
         let size = state.size;
         let cooling_cfg = CoolingConfig {
             n: NonZeroUsize::new(size).unwrap(),
-            additive_ratio: NonZeroUsize::new(4).unwrap(),
-            multiplicative_ratio: NonZeroUsize::new(4).unwrap(),
+            additive_ratio: NonZeroUsize::new(16).unwrap(),
+            multiplicative_ratio: NonZeroUsize::new(16).unwrap(),
         };
         let schedule = crate::cooling_schedule::CoolingSchedule::from(cooling_cfg);
         state.cooling_evolve(schedule, false);

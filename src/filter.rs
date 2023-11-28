@@ -138,7 +138,7 @@ impl<T: MetropolisFilter> AugmentedMatch<T> {
     pub fn rejection_sample(&mut self, state: &State, n: usize) -> Option<usize> {
         for _ in 0..2 * state.weight.dimension() * state.weight.dimension() {
             self.transit_n_times(state, n);
-            if rand::random::<f64>() < 1.0 / self.weight as f64 {
+            if rand::random::<f64>() < 1.0 / self.weight as f64 + 2.0 * f64::EPSILON {
                 return Some(state.weight.dimension() - self.active_count);
             }
         }

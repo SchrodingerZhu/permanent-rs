@@ -13,7 +13,7 @@ rayon = "1.8.0"
 serde = { version = "1.0.192", features = ["derive"] }
 simd-json = "0.13.4"
 tracing = "0.1.40"
-tracing-subscriber = "0.3.18"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 stacker = "0.1.15"
 mimalloc = "0.1.39"
 
