@@ -8,6 +8,7 @@ use std::iter::Sum;
 use std::sync::atomic::AtomicUsize;
 use tracing::info;
 
+#[derive(Debug, Clone, Copy)]
 pub struct Config {
     /// number of chains
     pub num_of_chains: usize,

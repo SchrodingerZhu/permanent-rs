@@ -49,11 +49,11 @@ pub struct Cli {
     #[arg(short = 't', long)]
     pub num_of_threads: Option<usize>,
     /// Slow down factor of the additive increment.
-    #[arg(long, default_value_t = NonZeroUsize::new(1).unwrap())]
+    #[arg(long, default_value_t = NonZeroUsize::new(4).unwrap())]
     pub additive_slow_down: NonZeroUsize,
     /// Slow down factor of the multiplicative increment.
-    #[arg(long, default_value_t = NonZeroUsize::new(1).unwrap())]
-    pub mutiplicative_slow_down: NonZeroUsize,
+    #[arg(long, default_value_t = NonZeroUsize::new(4).unwrap())]
+    pub multiplicative_slow_down: NonZeroUsize,
     /// Metroplis filter to use.
     #[arg(short = 'f', long, default_value = "additive")]
     pub filter: Filter,
@@ -108,6 +108,7 @@ fn main() {
             .map(|x| x.get())
             .unwrap_or(1)
     });
+    info!("Using {} threads", thd_cnt);
     rayon::ThreadPoolBuilder::new()
         .num_threads(thd_cnt)
         .build_global()
@@ -126,24 +127,33 @@ fn main() {
         num_of_weight_estimations: cli.num_of_weight_estimations,
         num_of_estimator_estimations: cli.num_of_estimator_estimations,
     };
+    info!(
+        "additive increment is slow down by {}",
+        cli.additive_slow_down
+    );
+    info!(
+        "multiplicative increment is slow down by {}",
+        cli.multiplicative_slow_down
+    );
+    info!("{:#?}", config);
     match cli.filter {
         Filter::Additive => run_chain::<filter::Additive>(
             graph,
             config,
             cli.additive_slow_down,
-            cli.mutiplicative_slow_down,
+            cli.multiplicative_slow_down,
         ),
         Filter::Multiplicative => run_chain::<filter::Multiplicative>(
             graph,
             config,
             cli.additive_slow_down,
-            cli.mutiplicative_slow_down,
+            cli.multiplicative_slow_down,
         ),
         Filter::Constant => run_chain::<filter::Constant>(
             graph,
             config,
             cli.additive_slow_down,
-            cli.mutiplicative_slow_down,
+            cli.multiplicative_slow_down,
         ),
     }
 }
