@@ -20,7 +20,7 @@ impl Matrix {
     pub fn dimension(&self) -> usize {
         self.size
     }
-    pub fn par_mut_rows(&mut self) -> ChunksMut<f64> {
+    pub fn par_mut_rows(&mut self) -> ChunksMut<'_, f64> {
         self.data.par_chunks_mut(self.size)
     }
     pub fn get(&self, u: usize, v: usize) -> f64 {

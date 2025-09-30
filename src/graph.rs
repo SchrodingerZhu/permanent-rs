@@ -18,7 +18,7 @@ impl Match {
         self.edges.len()
     }
     pub fn random(size: usize) -> Self {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let mut edges: Box<[usize]> = (0..size).collect();
         edges.shuffle(&mut rng);
         Match {
@@ -59,7 +59,7 @@ impl Graph {
         let sink = 2 * self.size + 1;
         let mut graph = DinicGraph::new(2 * self.size + 2, src, sink);
         let shuffle_vector = {
-            let mut rng = rand::thread_rng();
+            let mut rng = rand::rng();
             let mut shuffle_vector: Box<[usize]> = (0..self.size).collect();
             shuffle_vector.shuffle(&mut rng);
             shuffle_vector

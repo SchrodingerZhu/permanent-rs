@@ -1,6 +1,5 @@
 use crate::{cooling_state::State, graph::Match};
-use rand::prelude::{IteratorRandom, SliceRandom};
-
+use rand::prelude::{IndexedRandom, IteratorRandom};
 pub(crate) struct Additive;
 
 pub(crate) struct Multiplicative;
@@ -111,7 +110,7 @@ pub struct AugmentedMatch<T: MetropolisFilter> {
 
 impl<T: MetropolisFilter> AugmentedMatch<T> {
     pub fn choose_weighted_edge(&self, state: &State) -> (usize, usize) {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         self.matching
             .edges
             .choose_weighted(&mut rng, |x| state.weight_of_edge(x.0, x.1))
@@ -120,7 +119,8 @@ impl<T: MetropolisFilter> AugmentedMatch<T> {
     }
 
     pub fn choose_edge_pairs(&self) -> (usize, usize) {
-        let indices = (0..self.matching.edges.len()).choose_multiple(&mut rand::thread_rng(), 2);
+        let mut rng = rand::rng();
+        let indices = (0..self.matching.edges.len()).choose_multiple(&mut rng, 2);
         (indices[0], indices[1])
     }
     pub fn transit_n_times(&mut self, state: &State, n: usize) {
