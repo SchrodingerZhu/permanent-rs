@@ -1,0 +1,137 @@
+<!doctype html>
+<html><head><meta charset="utf-8"/><title>Result for 1/W + 2*eps</title><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.css" integrity="sha384-5TcZemv2l/9On385z///+d7MSYlvIEw9FuZTIdZ14vJLqWphw7e7ZPuOiCHJcFCP" crossorigin="anonymous"/><script defer="" src="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.js" integrity="sha384-cMkvdD8LoxVzGF/RPUKAcvmm49FQ0oxwDF3BGKtDXcEc+T1b2N+teh/OJfpU0jr6" crossorigin="anonymous"></script><script defer="" src="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/contrib/auto-render.min.js" integrity="sha384-hCXGrW6PitJEwbkoStFjeJxv+fSOOQKOPbJxSfM6G5sWZjAyWhXiTIIAmQqnlLlh" crossorigin="anonymous"></script><script src="https://cdn.jsdelivr.net/npm/d3@7" defer=""></script><script src="https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6" defer=""></script><link rel="stylesheet" type="text/css" href="../report.css"/><script src="../report.js"></script></head><body><header><h1>1/W + 2*eps</h1><img src="../logo-car.png"/><nav><ul><li><a href="../index.html">Report</a></li><li><a href="timeline.html">Metrics</a></li></ul></nav></header><div id="large"><div>Percentage Accurate: <span class="number" title="Minimum Accuracy: 98.4% → 98.4%">100.0%<span class="unit"> → </span>100.0%</span></div><div>Time: <span class="number">409.0ms</span></div><div>Alternatives: <span class="number">2</span></div><div>Speedup: <span class="number" title="Relative speed of fastest alternative that improves accuracy.">1.5×</span></div></div><section><details id="specification" class="programs"><summary><h2>Specification</h2><select><option>Math</option><option>FPCore</option><option>C</option><option>Fortran</option><option>Java</option><option>Python</option><option>Julia</option><option>MATLAB</option><option>Wolfram</option><option>ReFlow</option><option>TeX</option></select><a class="help-button float" href="https://herbie.uwplse.org/doc/2.3/report.html#spec" target="_blank">?</a></summary><div><div id="precondition"><div class="program math">\[1 \leq W \land W \leq 100000000000000\]</div></div><div class="implementation" data-language="Math"><div class="program math">\[\frac{1}{W} + 2 \cdot \frac{2220446049250313}{20000000000000000000000000000000}
+\]</div></div><div class="implementation" data-language="FPCore"><pre class="program">(FPCore rejection-threshold (W)
+  :precision binary64
+  :pre (and (&lt;= 1 W) (&lt;= W 100000000000000))
+  (+ (/ 1 W) (* 2 2220446049250313/20000000000000000000000000000000)))</pre></div><div class="implementation" data-language="C"><pre class="program">double rejection_45_threshold(double W) {
+	return (1.0 / W) + (2.0 * 1.1102230246251565e-16);
+}
+</pre></div><div class="implementation" data-language="Fortran"><pre class="program">real(8) function rejection_45threshold(w)
+use fmin_fmax_functions
+    real(8), intent (in) :: w
+    rejection_45threshold = (1.0d0 / w) + (2.0d0 * 1.1102230246251565d-16)
+end function
+</pre></div><div class="implementation" data-language="Java"><pre class="program">public static double rejection_45_threshold(double W) {
+	return (1.0 / W) + (2.0 * 1.1102230246251565e-16);
+}
+</pre></div><div class="implementation" data-language="Python"><pre class="program">def rejection_45_threshold(W):
+	return (1.0 / W) + (2.0 * 1.1102230246251565e-16)
+</pre></div><div class="implementation" data-language="Julia"><pre class="program">function rejection_45_threshold(W)
+	return Float64(Float64(1.0 / W) + Float64(2.0 * 1.1102230246251565e-16))
+end
+</pre></div><div class="implementation" data-language="MATLAB"><pre class="program">function tmp = rejection_45_threshold(W)
+	tmp = (1.0 / W) + (2.0 * 1.1102230246251565e-16);
+end
+</pre></div><div class="implementation" data-language="Wolfram"><pre class="program">rejection$45$threshold[W_] := N[(N[(1 / W), $MachinePrecision] + N[(2 * 2220446049250313/20000000000000000000000000000000), $MachinePrecision]), $MachinePrecision]
+</pre></div><div class="implementation" data-language="ReFlow"><pre class="program">f(W):
+	W in [1, 1e14]
+rejection_45_threshold: THEORY
+BEGIN
+f(W: real): real =
+	((1) / W) + ((2) * (11102230246251565e-32))
+END rejection_45_threshold</pre></div><div class="implementation" data-language="TeX"><pre class="program">\frac{1}{W} + 2 \cdot \frac{2220446049250313}{20000000000000000000000000000000}
+</pre></div></div></details></section><figure id="graphs"><h2>Local Percentage Accuracy vs <span id="variables"></span><a class="help-button float" href="https://herbie.uwplse.org/doc/2.3/report.html#graph" target="_blank">?</a></h2><svg></svg><div id="functions"></div><figcaption>The average percentage accuracy by input value. Horizontal axis shows value of an input variable; the variable is choosen in the title. Vertical axis is accuracy; higher is better. Red represent the original program, while blue represents Herbie's suggestion. These can be toggled with buttons below the plot. The line is an average while dots represent individual samples.</figcaption></figure><section id="cost-accuracy" class="section" data-benchmark-name="1/W + 2*eps"><h2>Accuracy vs Speed<a class="help-button float" href="https://herbie.uwplse.org/doc/2.3/report.html#cost-accuracy" target="_blank">?</a></h2><div class="figure-row"><svg></svg><div><p>Herbie found 2 alternatives:</p><table><thead><tr><th>Alternative</th><th class="numeric">Accuracy</th><th class="numeric">Speedup</th></tr></thead><tbody></tbody></table></div></div><figcaption>The accuracy (vertical axis) and speed (horizontal axis) of each alternatives. Up and to the right is better. The red square shows the initial program, and each blue circle shows an alternative.The line shows the best available speed-accuracy tradeoffs.</figcaption></section><section id="initial" class="programs"><h2>Initial Program: <span class="subhead"><data>100.0%</data> accurate, <data>1.0×</data> speedup</span><select><option>Math</option><option>FPCore</option><option>C</option><option>Fortran</option><option>Java</option><option>Python</option><option>Julia</option><option>MATLAB</option><option>Wolfram</option><option>ReFlow</option><option>TeX</option></select><a class="help-button float" href="https://herbie.uwplse.org/doc/2.3/report.html#alternatives" target="_blank">?</a></h2><div><div id="precondition"><div class="program math">\[1 \leq W \land W \leq 100000000000000\]</div></div><div class="implementation" data-language="Math"><div class="program math">\[\frac{1}{W} + 2 \cdot 1.1102230246251565 \cdot 10^{-16}
+\]</div></div><div class="implementation" data-language="FPCore"><pre class="program">(FPCore rejection-threshold (W)
+  :precision binary64
+  :pre (and (&lt;= 1 W) (&lt;= W 100000000000000))
+  (+ (/ 1.0 W) (* 2.0 1.1102230246251565e-16)))</pre></div><div class="implementation" data-language="C"><pre class="program">double rejection_45_threshold(double W) {
+	return (1.0 / W) + (2.0 * 1.1102230246251565e-16);
+}
+</pre></div><div class="implementation" data-language="Fortran"><pre class="program">real(8) function rejection_45threshold(w)
+use fmin_fmax_functions
+    real(8), intent (in) :: w
+    rejection_45threshold = (1.0d0 / w) + (2.0d0 * 1.1102230246251565d-16)
+end function
+</pre></div><div class="implementation" data-language="Java"><pre class="program">public static double rejection_45_threshold(double W) {
+	return (1.0 / W) + (2.0 * 1.1102230246251565e-16);
+}
+</pre></div><div class="implementation" data-language="Python"><pre class="program">def rejection_45_threshold(W):
+	return (1.0 / W) + (2.0 * 1.1102230246251565e-16)
+</pre></div><div class="implementation" data-language="Julia"><pre class="program">function rejection_45_threshold(W)
+	return Float64(Float64(1.0 / W) + Float64(2.0 * 1.1102230246251565e-16))
+end
+</pre></div><div class="implementation" data-language="MATLAB"><pre class="program">function tmp = rejection_45_threshold(W)
+	tmp = (1.0 / W) + (2.0 * 1.1102230246251565e-16);
+end
+</pre></div><div class="implementation" data-language="Wolfram"><pre class="program">rejection$45$threshold[W_] := N[(N[(1.0 / W), $MachinePrecision] + N[(2.0 * 1.1102230246251565e-16), $MachinePrecision]), $MachinePrecision]
+</pre></div><div class="implementation" data-language="ReFlow"><pre class="program">f(W):
+	W in [1, 1e14]
+rejection_45_threshold: THEORY
+BEGIN
+f(W: real): real =
+	((1) / W) + ((2) * (11102230246251565404236316680908203125e-53))
+END rejection_45_threshold</pre></div><div class="implementation" data-language="TeX"><pre class="program">\frac{1}{W} + 2 \cdot 1.1102230246251565 \cdot 10^{-16}
+</pre></div></div></section><section id="alternative1" class="programs"><h2>Alternative 1: <span class="subhead"><data>100.0%</data> accurate, <data>1.5×</data> speedup</span><select><option>Math</option><option>FPCore</option><option>C</option><option>Fortran</option><option>Java</option><option>Python</option><option>Julia</option><option>MATLAB</option><option>Wolfram</option><option>ReFlow</option><option>TeX</option></select><a class="help-button float" href="https://herbie.uwplse.org/doc/2.3/report.html#alternatives" target="_blank">?</a></h2><div><div id="precondition"><div class="program math">\[1 \leq W \land W \leq 100000000000000\]</div></div><div class="implementation" data-language="Math"><div class="program math">\[\frac{1}{W} + 2.220446049250313 \cdot 10^{-16}
+\]</div></div><div class="implementation" data-language="FPCore"><pre class="program">(FPCore rejection-threshold (W)
+  :precision binary64
+  :pre (and (&lt;= 1 W) (&lt;= W 100000000000000))
+  (+ (/ 1.0 W) 2.220446049250313e-16))</pre></div><div class="implementation" data-language="C"><pre class="program">double rejection_45_threshold(double W) {
+	return (1.0 / W) + 2.220446049250313e-16;
+}
+</pre></div><div class="implementation" data-language="Fortran"><pre class="program">real(8) function rejection_45threshold(w)
+use fmin_fmax_functions
+    real(8), intent (in) :: w
+    rejection_45threshold = (1.0d0 / w) + 2.220446049250313d-16
+end function
+</pre></div><div class="implementation" data-language="Java"><pre class="program">public static double rejection_45_threshold(double W) {
+	return (1.0 / W) + 2.220446049250313e-16;
+}
+</pre></div><div class="implementation" data-language="Python"><pre class="program">def rejection_45_threshold(W):
+	return (1.0 / W) + 2.220446049250313e-16
+</pre></div><div class="implementation" data-language="Julia"><pre class="program">function rejection_45_threshold(W)
+	return Float64(Float64(1.0 / W) + 2.220446049250313e-16)
+end
+</pre></div><div class="implementation" data-language="MATLAB"><pre class="program">function tmp = rejection_45_threshold(W)
+	tmp = (1.0 / W) + 2.220446049250313e-16;
+end
+</pre></div><div class="implementation" data-language="Wolfram"><pre class="program">rejection$45$threshold[W_] := N[(N[(1.0 / W), $MachinePrecision] + 2.220446049250313e-16), $MachinePrecision]
+</pre></div><div class="implementation" data-language="ReFlow"><pre class="program">f(W):
+	W in [1, 1e14]
+rejection_45_threshold: THEORY
+BEGIN
+f(W: real): real =
+	((1) / W) + (2220446049250313080847263336181640625e-52)
+END rejection_45_threshold</pre></div><div class="implementation" data-language="TeX"><pre class="program">\frac{1}{W} + 2.220446049250313 \cdot 10^{-16}
+</pre></div></div><details><summary>Derivation</summary><ol class="history"><li><p>Initial program <span class="error">100.0%</span></p><div class="math">\[\frac{1}{W} + 2 \cdot 1.1102230246251565 \cdot 10^{-16}
+\]</div></li><li><div class="proof"><details><summary>Step-by-step derivation</summary><ol></ol></details></div></li><li><p>Applied rewrites<span class="error">100.0%</span></p><div class="math">\[\leadsto \frac{1}{W} + 2.220446049250313 \cdot 10^{-16}
+\]</div></li><li>Add Preprocessing</li></ol></details></section><section id="alternative2" class="programs"><h2>Alternative 2: <span class="subhead"><data>11.5%</data> accurate, <data>9.4×</data> speedup</span><select><option>Math</option><option>FPCore</option><option>C</option><option>Fortran</option><option>Java</option><option>Python</option><option>Julia</option><option>MATLAB</option><option>Wolfram</option><option>ReFlow</option><option>TeX</option></select><a class="help-button float" href="https://herbie.uwplse.org/doc/2.3/report.html#alternatives" target="_blank">?</a></h2><div><div id="precondition"><div class="program math">\[1 \leq W \land W \leq 100000000000000\]</div></div><div class="implementation" data-language="Math"><div class="program math">\[2.220446049250313 \cdot 10^{-16}
+\]</div></div><div class="implementation" data-language="FPCore"><pre class="program">(FPCore rejection-threshold (W)
+  :precision binary64
+  :pre (and (&lt;= 1 W) (&lt;= W 100000000000000))
+  2.220446049250313e-16)</pre></div><div class="implementation" data-language="C"><pre class="program">double rejection_45_threshold(double W) {
+	return 2.220446049250313e-16;
+}
+</pre></div><div class="implementation" data-language="Fortran"><pre class="program">real(8) function rejection_45threshold(w)
+use fmin_fmax_functions
+    real(8), intent (in) :: w
+    rejection_45threshold = 2.220446049250313d-16
+end function
+</pre></div><div class="implementation" data-language="Java"><pre class="program">public static double rejection_45_threshold(double W) {
+	return 2.220446049250313e-16;
+}
+</pre></div><div class="implementation" data-language="Python"><pre class="program">def rejection_45_threshold(W):
+	return 2.220446049250313e-16
+</pre></div><div class="implementation" data-language="Julia"><pre class="program">function rejection_45_threshold(W)
+	return 2.220446049250313e-16
+end
+</pre></div><div class="implementation" data-language="MATLAB"><pre class="program">function tmp = rejection_45_threshold(W)
+	tmp = 2.220446049250313e-16;
+end
+</pre></div><div class="implementation" data-language="Wolfram"><pre class="program">rejection$45$threshold[W_] := 2.220446049250313e-16
+</pre></div><div class="implementation" data-language="ReFlow"><pre class="program">f(W):
+	W in [1, 1e14]
+rejection_45_threshold: THEORY
+BEGIN
+f(W: real): real =
+	2220446049250313080847263336181640625e-52
+END rejection_45_threshold</pre></div><div class="implementation" data-language="TeX"><pre class="program">2.220446049250313 \cdot 10^{-16}
+</pre></div></div><details><summary>Derivation</summary><ol class="history"><li><p>Initial program <span class="error">100.0%</span></p><div class="math">\[\frac{1}{W} + 2 \cdot 1.1102230246251565 \cdot 10^{-16}
+\]</div></li><li><p>Taylor expanded in W around inf to order 0</p><div class="math">\[\leadsto 2.220446049250313 \cdot 10^{-16}
+\]</div></li><li><div class="proof"><details><summary>Step-by-step derivation</summary><ol></ol></details></div></li><li><p>Applied rewrites<span class="error">11.5%</span></p><div class="math">\[\leadsto 2.220446049250313 \cdot 10^{-16}
+\]</div></li><li>Add Preprocessing</li></ol></details></section><section id="reproduce"><details><summary><h2>Reproduce</h2><a class="help-button float" href="https://herbie.uwplse.org/doc/2.3/report.html#reproduction" target="_blank">?</a></summary><pre class="shell"><code>herbie shell --seed 1 
+(FPCore rejection-threshold (W)
+  :name "1/W + 2*eps"
+  :precision binary64
+  :pre (and (&lt;= 1 W) (&lt;= W 100000000000000))
+  (+ (/ 1.0 W) (* 2.0 1.1102230246251565e-16)))
+</code></pre></details></section></body></html>

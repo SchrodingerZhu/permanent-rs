@@ -68,7 +68,11 @@ impl BitMatrix {
 pub struct State {
     adjacency: BitMatrix,
     pub weight: Matrix,
-    pub beta: f64,
+    beta: f64,
+    /// cached e^{beta * delta} for delta in -2..=2, the only values a
+    /// transposition can change the active count by; avoids an exp() call in
+    /// the innermost Metropolis loop
+    exp_beta: [f64; 5],
 }
 
 impl<'a> From<&'a Graph> for State {
@@ -84,18 +88,25 @@ impl<'a> From<&'a Graph> for State {
             adjacency,
             weight,
             beta: 0.0,
+            exp_beta: [1.0; 5],
         }
     }
 }
 
 impl State {
+    pub fn beta(&self) -> f64 {
+        self.beta
+    }
+    pub fn set_beta(&mut self, beta: f64) {
+        self.beta = beta;
+        self.exp_beta = std::array::from_fn(|i| (beta * (i as f64 - 2.0)).exp());
+    }
+    pub fn exp_beta_delta(&self, delta: isize) -> f64 {
+        self.exp_beta[(delta + 2) as usize]
+    }
     pub fn activity_of_edge(&self, u: usize, v: usize) -> usize {
         // e ^ (-beta * (1 - A[u, v]))
-        if self.adjacency.get(u, v) {
-            1
-        } else {
-            0
-        }
+        if self.adjacency.get(u, v) { 1 } else { 0 }
     }
     pub fn active_count_of_match(&self, matching: &Match) -> usize {
         matching

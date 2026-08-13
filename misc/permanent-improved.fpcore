@@ -1,0 +1,57 @@
+;; seed: 1
+
+;; Error in acceptance p = ((W - a - b + c + d) / W) * E
+(FPCore accept-probability (W a b c d E)
+  :name "acceptance p = ((W - a - b + c + d) / W) * E"
+  :precision binary64
+  :pre (and (and (and (and (and (and (and (<= 1 W)
+                                   (<= W 100000000000000))
+                              (and (<= 1/1000 a)
+                                   (<= a 1000000000000)))
+                         (and (<= 1/1000 b)
+                              (<= b 1000000000000)))
+                    (and (<= 1/1000 c) (<= c 1000000000000)))
+               (and (<= 1/1000 d) (<= d 1000000000000)))
+          (<= (+ a b) W))
+     (and (<=
+           1/1000000000000000000000000000000000000000000000000000000000000
+           E)
+          (<= E 1)))
+  :spec (* (/ (+ (+ (- (- W a) b) c) d) W) E)
+  (* (/ (+ (+ (- (- W a) b) c) d) W) E))
+(FPCore weight-update (W a b c d)
+  :name "W' = W - a - b + c + d"
+  :precision binary64
+  :pre (and (and (and (and (and (and (<= 1 W) (<= W 100000000000000))
+                         (and (<= 1/1000 a)
+                              (<= a 1000000000000)))
+                    (and (<= 1/1000 b) (<= b 1000000000000)))
+               (and (<= 1/1000 c) (<= c 1000000000000)))
+          (and (<= 1/1000 d) (<= d 1000000000000)))
+     (<= (+ a b) W))
+  :spec (+ (+ (- (- W a) b) c) d)
+  (+
+ (+ (- (- (fmin W d) (fmin a b)) (fmax a b)) (fmin c (fmax W d)))
+ (fmax c (fmax W d))))
+(FPCore weight-normalize (x n S)
+  :name "w_new = 1 / (x * (n / S))"
+  :precision binary64
+  :pre (and (and (and (<= 1/1000000000000 x) (<= x 1000000000))
+          (and (<= 2 n) (<= n 64)))
+     (and (<= 1/1000000 S) (<= S 1000000000000)))
+  :spec (/ 1 (* x (/ n S)))
+  (/ (/ S x) n))
+(FPCore ratio-term (diff k)
+  :name "e^(diff * k)"
+  :precision binary64
+  :pre (and (and (<= -1 diff) (<= diff 0)) (and (<= 0 k) (<= k 64)))
+  :spec (exp (* diff k))
+  1.0)
+(FPCore rejection-threshold (W)
+  :name "1/W + 2*eps"
+  :precision binary64
+  :pre (and (<= 1 W) (<= W 100000000000000))
+  :spec (+
+ (/ 1 W)
+ (* 2 2220446049250313/20000000000000000000000000000000))
+  (+ (/ 1.0 W) 2.220446049250313e-16))

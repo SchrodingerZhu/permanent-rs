@@ -1,0 +1,1 @@
+[{"time":0.008544921875,"type":"start"},{"compiler":[[67,45]],"method":["search"],"sampling":[[1,{"invalid":2.4742639019973924e-10,"precondition":0.9999999997525736,"unknown":0.0,"valid":0.0}],[0,{"invalid":0.0,"precondition":0.9999999997525736,"unknown":2.4742639019973924e-10,"valid":0.0}]],"time":0.477783203125,"type":"analyze"},{"time":0.004150390625,"type":"end"}]

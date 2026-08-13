@@ -1,0 +1,7538 @@
+<!doctype html>
+<html><head><meta charset="utf-8"/><title>Metrics for W' = W - a - b + c + d</title><link rel="stylesheet" type="text/css" href="../report.css"/><script src="../report.js"></script></head><body><header><h1>W' = W - a - b + c + d</h1><img src="../logo-car.png"/><nav><ul><li><a href="graph.html">Details</a></li></ul></nav></header><section id="process-info"><p class="header">Time bar (total: <span class="number">1.1s</span>)</p><div class="timeline"><div class="timeline-phase timeline-start" data-id="timeline0" data-type="start" data-timespan="0.0078125"></div><div class="timeline-phase timeline-analyze" data-id="timeline1" data-type="analyze" data-timespan="52.88037109375"></div><div class="timeline-phase timeline-sample" data-id="timeline2" data-type="sample" data-timespan="221.948974609375"></div><div class="timeline-phase timeline-preprocess" data-id="timeline3" data-type="preprocess" data-timespan="13.68310546875"></div><div class="timeline-phase timeline-sample" data-id="timeline4" data-type="sample" data-timespan="0.063232421875"></div><div class="timeline-phase timeline-series" data-id="timeline5" data-type="series" data-timespan="6.552734375"></div><div class="timeline-phase timeline-rewrite" data-id="timeline6" data-type="rewrite" data-timespan="46.5693359375"></div><div class="timeline-phase timeline-reconstruct" data-id="timeline7" data-type="reconstruct" data-timespan="7.3203125"></div><div class="timeline-phase timeline-eval" data-id="timeline8" data-type="eval" data-timespan="1.862548828125"></div><div class="timeline-phase timeline-prune" data-id="timeline9" data-type="prune" data-timespan="2.82275390625"></div><div class="timeline-phase timeline-sample" data-id="timeline10" data-type="sample" data-timespan="0.143798828125"></div><div class="timeline-phase timeline-series" data-id="timeline11" data-type="series" data-timespan="15.717041015625"></div><div class="timeline-phase timeline-rewrite" data-id="timeline12" data-type="rewrite" data-timespan="54.66796875"></div><div class="timeline-phase timeline-reconstruct" data-id="timeline13" data-type="reconstruct" data-timespan="58.30859375"></div><div class="timeline-phase timeline-eval" data-id="timeline14" data-type="eval" data-timespan="6.908447265625"></div><div class="timeline-phase timeline-prune" data-id="timeline15" data-type="prune" data-timespan="9.774169921875"></div><div class="timeline-phase timeline-sample" data-id="timeline16" data-type="sample" data-timespan="0.215576171875"></div><div class="timeline-phase timeline-series" data-id="timeline17" data-type="series" data-timespan="16.462646484375"></div><div class="timeline-phase timeline-rewrite" data-id="timeline18" data-type="rewrite" data-timespan="55.0576171875"></div><div class="timeline-phase timeline-reconstruct" data-id="timeline19" data-type="reconstruct" data-timespan="92.9990234375"></div><div class="timeline-phase timeline-eval" data-id="timeline20" data-type="eval" data-timespan="7.51220703125"></div><div class="timeline-phase timeline-prune" data-id="timeline21" data-type="prune" data-timespan="11.9013671875"></div><div class="timeline-phase timeline-sample" data-id="timeline22" data-type="sample" data-timespan="0.11865234375"></div><div class="timeline-phase timeline-series" data-id="timeline23" data-type="series" data-timespan="10.84326171875"></div><div class="timeline-phase timeline-rewrite" data-id="timeline24" data-type="rewrite" data-timespan="51.923095703125"></div><div class="timeline-phase timeline-reconstruct" data-id="timeline25" data-type="reconstruct" data-timespan="44.447265625"></div><div class="timeline-phase timeline-eval" data-id="timeline26" data-type="eval" data-timespan="4.32861328125"></div><div class="timeline-phase timeline-prune" data-id="timeline27" data-type="prune" data-timespan="7.30419921875"></div><div class="timeline-phase timeline-regimes" data-id="timeline28" data-type="regimes" data-timespan="74.96923828125"></div><div class="timeline-phase timeline-bsearch" data-id="timeline29" data-type="bsearch" data-timespan="0.01123046875"></div><div class="timeline-phase timeline-bsearch" data-id="timeline30" data-type="bsearch" data-timespan="0.001953125"></div><div class="timeline-phase timeline-bsearch" data-id="timeline31" data-type="bsearch" data-timespan="0.00146484375"></div><div class="timeline-phase timeline-bsearch" data-id="timeline32" data-type="bsearch" data-timespan="0.00146484375"></div><div class="timeline-phase timeline-bsearch" data-id="timeline33" data-type="bsearch" data-timespan="0.00146484375"></div><div class="timeline-phase timeline-bsearch" data-id="timeline34" data-type="bsearch" data-timespan="0.00146484375"></div><div class="timeline-phase timeline-bsearch" data-id="timeline35" data-type="bsearch" data-timespan="0.4814453125"></div><div class="timeline-phase timeline-bsearch" data-id="timeline36" data-type="bsearch" data-timespan="0.149658203125"></div><div class="timeline-phase timeline-bsearch" data-id="timeline37" data-type="bsearch" data-timespan="0.146484375"></div><div class="timeline-phase timeline-bsearch" data-id="timeline38" data-type="bsearch" data-timespan="0.002685546875"></div><div class="timeline-phase timeline-bsearch" data-id="timeline39" data-type="bsearch" data-timespan="0.00390625"></div><div class="timeline-phase timeline-derivations" data-id="timeline40" data-type="derivations" data-timespan="99.801025390625"></div><div class="timeline-phase timeline-preprocess" data-id="timeline41" data-type="preprocess" data-timespan="66.52099609375"></div><div class="timeline-phase timeline-end" data-id="timeline42" data-type="end" data-timespan="0.013427734375"></div><div class="timeline-phase timeline-gc" data-id="timeline43" data-type="gc" data-timespan="72"></div></div><div class="timeline-block timeline-start" id="timeline0"><h3><a href="#timeline0">start</a><span class="time">0.0ms (0.0%)</span></h3><dl></dl></div><div class="timeline-block timeline-analyze" id="timeline1"><h3><a href="#timeline1">analyze</a><span class="time">53.0ms (4.7%)</span></h3><dl><dt>Algorithm</dt><dd><table class="times"><tr><td>1×</td><td>search</td></tr></table></dd><dt>Search</dt><dd><table class="times"><tr><th>Probability</th><th>Valid</th><th>Unknown</th><th>Precondition</th><th>Infinite</th><th>Domain</th><th>Can't</th><th>Iter</th></tr><tr><td>0.0%</td><td>0.0%</td><td>0.0%</td><td>100.0%</td><td>0.0%</td><td>0.0%</td><td>0.0%</td><td>0</td></tr><tr><td>0.0%</td><td>0.0%</td><td>0.0%</td><td>100.0%</td><td>0.0%</td><td>0.0%</td><td>0.0%</td><td>1</td></tr><tr><td>0.0%</td><td>0.0%</td><td>0.0%</td><td>100.0%</td><td>0.0%</td><td>0.0%</td><td>0.0%</td><td>2</td></tr><tr><td>0.0%</td><td>0.0%</td><td>0.0%</td><td>100.0%</td><td>0.0%</td><td>0.0%</td><td>0.0%</td><td>3</td></tr><tr><td>0.0%</td><td>0.0%</td><td>0.0%</td><td>100.0%</td><td>0.0%</td><td>0.0%</td><td>0.0%</td><td>4</td></tr><tr><td>0.0%</td><td>0.0%</td><td>0.0%</td><td>100.0%</td><td>0.0%</td><td>0.0%</td><td>0.0%</td><td>5</td></tr><tr><td>0.0%</td><td>0.0%</td><td>0.0%</td><td>100.0%</td><td>0.0%</td><td>0.0%</td><td>0.0%</td><td>6</td></tr><tr><td>0.0%</td><td>0.0%</td><td>0.0%</td><td>100.0%</td><td>0.0%</td><td>0.0%</td><td>0.0%</td><td>7</td></tr><tr><td>0.0%</td><td>0.0%</td><td>0.0%</td><td>100.0%</td><td>0.0%</td><td>0.0%</td><td>0.0%</td><td>8</td></tr><tr><td>2.8%</td><td>0.0%</td><td>0.0%</td><td>100.0%</td><td>0.0%</td><td>0.0%</td><td>0.0%</td><td>9</td></tr><tr><td>4.2%</td><td>0.0%</td><td>0.0%</td><td>100.0%</td><td>0.0%</td><td>0.0%</td><td>0.0%</td><td>10</td></tr><tr><td>6.3%</td><td>0.0%</td><td>0.0%</td><td>100.0%</td><td>0.0%</td><td>0.0%</td><td>0.0%</td><td>11</td></tr><tr><td>11.2%</td><td>0.0%</td><td>0.0%</td><td>100.0%</td><td>0.0%</td><td>0.0%</td><td>0.0%</td><td>12</td></tr></table></dd><dt>Compiler</dt><dd><p>Compiled 55 to 36 computations (34.5% saved)</p></dd></dl></div><div class="timeline-block timeline-sample" id="timeline2"><h3><a href="#timeline2">sample</a><span class="time">222.0ms (19.9%)</span></h3><dl><dt>Samples</dt><dd><table class="times"><tr><td>81.0ms</td><td>8 256×</td><td>0</td><td>valid</td></tr><tr><td>33.0ms</td><td>3 447×</td><td>0</td><td>invalid</td></tr></table></dd><dt>Precisions</dt><dd><details><summary>Click to see histograms. Total time spent on operations: 8.0ms</summary><details><summary><code>And</code>: 2.0ms (23.6% of total, 0.0 MiB)</summary><canvas id="calls-41299" title="Histogram of precisions of the used operation"></canvas><script>histogram("calls-41299", [0], [2.3668310000000368], {"max" : 10000})</script></details><details><summary><code>Sub</code>: 2.0ms (23.6% of total, 0.0 MiB)</summary><canvas id="calls-91101" title="Histogram of precisions of the used operation"></canvas><script>histogram("calls-91101", [0], [1.9609820000000253], {"max" : 10000})</script></details><details><summary><code>Add</code>: 2.0ms (23.6% of total, 0.0 MiB)</summary><canvas id="calls-39428" title="Histogram of precisions of the used operation"></canvas><script>histogram("calls-39428", [0], [2.2354960000001585], {"max" : 10000})</script></details><details><summary><code>Assert</code>: 1.0ms (11.8% of total, 0.0 MiB)</summary><canvas id="calls-10496" title="Histogram of precisions of the used operation"></canvas><script>histogram("calls-10496", [0], [0.5904559999999694], {"max" : 10000})</script></details><details><summary><code>Le</code>: 1.0ms (11.8% of total, 0.0 MiB)</summary><canvas id="calls-94671" title="Histogram of precisions of the used operation"></canvas><script>histogram("calls-94671", [0], [1.3032369999999551], {"max" : 10000})</script></details></details></dd><dt>Bogosity</dt><dd><div class="bogosity"><div class="bogosity-valid" data-id="bogosity-valid" data-type="valid" data-timespan="1.2279004195994774e-10" title="valid (0.0%)"></div><div class="bogosity-unknown" data-id="bogosity-unknown" data-type="unknown" data-timespan="0" title="unknown (0.0%)"></div><div class="bogosity-infinite" data-id="bogosity-infinite" data-type="infinite" data-timespan="0" title="infinite (0.0%)"></div><div class="bogosity-unsamplable" data-id="bogosity-unsamplable" data-type="unsamplable" data-timespan="0" title="unsamplable (0.0%)"></div><div class="bogosity-invalid" data-id="bogosity-invalid" data-type="invalid" data-timespan="1.2475722092674794e-10" title="invalid (0.0%)"></div><div class="bogosity-precondition" data-id="bogosity-precondition" data-type="precondition" data-timespan="0.9999999997524527" title="precondition (100.0%)"></div></div></dd></dl></div><div class="timeline-block timeline-preprocess" id="timeline3"><h3><a href="#timeline3">preprocess</a><span class="time">14.0ms (1.2%)</span></h3><dl><dt>Iterations</dt><dd><p>Useful iterations: 2 (0.0ms)</p><table class="times"><tr><th>Iter</th><th>Nodes</th><th>Cost</th></tr><tr><td>0</td><td>69</td><td>196</td></tr><tr><td>1</td><td>354</td><td>191</td></tr><tr><td>2</td><td>1532</td><td>189</td></tr></table></dd><dt>Stop Event</dt><dd><table class="times"><tr><td>1×</td><td>node-limit</td></tr><tr><td>1×</td><td>saturated</td></tr></table></dd><dt>Alt Table</dt><dd><details><summary>Click to see full alt table</summary><table class="times"><thead><tr><th>Status</th><th>Accuracy</th><th>Program</th></tr></thead><tr><td><span title="Selected for next iteration">▶</span></td><td>99.9%</td><td><pre>(+.f64 (+.f64 (-.f64 (-.f64 W a) b) c) d)</pre></td></tr></table></details></dd><dt>Symmetry</dt><dd><p>(sort W c)</p><p>(sort W d)</p><p>(sort a b)</p><p>(sort c d)</p></dd><dt>Compiler</dt><dd><p>Compiled 18 to 18 computations (0.0% saved)</p></dd></dl></div><div class="timeline-block timeline-sample" id="timeline4"><h3><a href="#timeline4">sample</a><span class="time">0.0ms (0.0%)</span></h3><dl><dt>Calls</dt><dd><details><summary>Call 1</summary><table><thead><tr><th>Inputs</th></tr></thead><tr><td><pre></pre></td></tr></table><table><thead><tr><th>Outputs</th></tr></thead><tr><td><pre></pre></td></tr></table></details></dd></dl></div><div class="timeline-block timeline-series" id="timeline5"><h3><a href="#timeline5">series</a><span class="time">7.0ms (0.6%)</span></h3><dl><dt>Iterations</dt><dd><p>Useful iterations: 0 (0.0ms)</p><table class="times"><tr><th>Iter</th><th>Nodes</th><th>Cost</th></tr><tr><td>0</td><td>181</td><td>554</td></tr></table></dd><dt>Stop Event</dt><dd><table class="times"><tr><td>1×</td><td>iter-limit</td></tr><tr><td>1×</td><td>saturated</td></tr></table></dd><dt>Counts</dt><dd>9 → 56</dd><dt>Calls</dt><dd><details><summary>Call 1</summary><table><thead><tr><th>Inputs</th></tr></thead><tr><td><pre>%5 = (-.f64 W a)
+%6 = (-.f64 %5 b)
+%7 = (+.f64 %6 c)
+W
+a
+%5
+b
+%6
+c
+%7
+d
+(+.f64 %7 d)</pre></td></tr></table><table><thead><tr><th>Outputs</th></tr></thead><tr><td><pre>%9 = (*.f64 #s(literal -1 binary64) a)
+%10 = (- W a)
+%12 = (-.f64 W a)
+%14 = (+.f64 a b)
+%16 = (- %10 b)
+%18 = (-.f64 W %14)
+%20 = (-.f64 c %14)
+%21 = (+ %16 c)
+%23 = (+.f64 W c)
+%24 = (-.f64 %23 %14)
+%26 = (+.f64 c d)
+%27 = (-.f64 %26 %14)
+%28 = (+ %21 d)
+%30 = (+.f64 W %26)
+%34 = (/.f64 a W)
+%44 = (/.f64 c W)
+%47 = (+.f64 %34 (/.f64 b W))
+%78 = (+.f64 W %9)
+%80 = (-.f64 W b)
+%84 = (-.f64 %23 b)
+%90 = (-.f64 %30 b)
+%97 = (/.f64 W a)
+%102 = (+.f64 #s(literal 1 binary64) (/.f64 b a))
+%106 = (/.f64 c a)
+%141 = (*.f64 #s(literal -1 binary64) b)
+%145 = (-.f64 %23 a)
+%151 = (-.f64 %30 a)
+%159 = (/.f64 W b)
+%161 = (+.f64 #s(literal 1 binary64) (/.f64 a b))
+%165 = (/.f64 c b)
+%196 = (-.f64 (+.f64 W d) %14)
+%198 = (/.f64 W c)
+%202 = (+.f64 (/.f64 a c) (/.f64 b c))
+(approx W #s(literal 0 binary64))
+(approx W W)
+(approx %10 %9)
+(approx %10 %12)
+(approx %16 (*.f64 #s(literal -1 binary64) %14))
+(approx %16 %18)
+(approx %21 %20)
+(approx %21 %24)
+(approx %28 %27)
+(approx %28 (-.f64 %30 %14))
+(approx %10 (*.f64 W (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) %34))))
+(approx %16 (*.f64 W (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %14 W)))))
+(approx %21 (*.f64 W (-.f64 (+.f64 #s(literal 1 binary64) %44) %47)))
+(approx %28 (*.f64 W (-.f64 (+.f64 #s(literal 1 binary64) (+.f64 %44 (/.f64 d W))) %47)))
+(approx %10 (*.f64 #s(literal -1 binary64) (*.f64 W (-.f64 %34 #s(literal 1 binary64)))))
+(approx %16 (*.f64 #s(literal -1 binary64) (*.f64 W (-.f64 %47 #s(literal 1 binary64)))))
+(approx %21 (*.f64 #s(literal -1 binary64) (*.f64 W (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %20 W)) #s(literal 1 binary64)))))
+(approx %28 (*.f64 #s(literal -1 binary64) (*.f64 W (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %27 W)) #s(literal 1 binary64)))))
+(approx a a)
+(approx %10 %78)
+(approx %16 %80)
+(approx %16 (-.f64 %78 b))
+(approx %21 %84)
+(approx %21 (-.f64 (+.f64 W (+.f64 c %9)) b))
+(approx %28 %90)
+(approx %28 (-.f64 (+.f64 W (+.f64 c (+.f64 d %9))) b))
+(approx %10 (*.f64 a (-.f64 %97 #s(literal 1 binary64))))
+(approx %16 (*.f64 a (-.f64 %97 %102)))
+(approx %21 (*.f64 a (-.f64 (+.f64 %97 %106) %102)))
+(approx %28 (*.f64 a (-.f64 (+.f64 %97 (+.f64 %106 (/.f64 d a))) %102)))
+(approx %10 (*.f64 #s(literal -1 binary64) (*.f64 a (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) %97)))))
+(approx %16 (*.f64 #s(literal -1 binary64) (*.f64 a (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %80 a))))))
+(approx %21 (*.f64 #s(literal -1 binary64) (*.f64 a (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %84 a))))))
+(approx %28 (*.f64 #s(literal -1 binary64) (*.f64 a (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %90 a))))))
+(approx b b)
+(approx %16 (-.f64 (+.f64 W %141) a))
+(approx %21 %145)
+(approx %21 (-.f64 (+.f64 W (+.f64 c %141)) a))
+(approx %28 %151)
+(approx %28 (-.f64 (+.f64 W (+.f64 c (+.f64 d %141))) a))
+(approx %16 %141)
+(approx %16 (*.f64 b (-.f64 %159 %161)))
+(approx %21 (*.f64 b (-.f64 (+.f64 %159 %165) %161)))
+(approx %28 (*.f64 b (-.f64 (+.f64 %159 (+.f64 %165 (/.f64 d b))) %161)))
+(approx %16 (*.f64 #s(literal -1 binary64) (*.f64 b (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %12 b))))))
+(approx %21 (*.f64 #s(literal -1 binary64) (*.f64 b (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %145 b))))))
+(approx %28 (*.f64 #s(literal -1 binary64) (*.f64 b (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %151 b))))))
+(approx c c)
+(approx %28 %196)
+(approx %21 (*.f64 c (-.f64 (+.f64 #s(literal 1 binary64) %198) %202)))
+(approx %28 (*.f64 c (-.f64 (+.f64 #s(literal 1 binary64) (+.f64 %198 (/.f64 d c))) %202)))
+(approx %21 (*.f64 #s(literal -1 binary64) (*.f64 c (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %18 c)) #s(literal 1 binary64)))))
+(approx %28 (*.f64 #s(literal -1 binary64) (*.f64 c (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %196 c)) #s(literal 1 binary64)))))
+(approx d d)
+(approx %28 (*.f64 d (-.f64 (+.f64 #s(literal 1 binary64) (+.f64 (/.f64 W d) (/.f64 c d))) (+.f64 (/.f64 a d) (/.f64 b d)))))
+(approx %28 (*.f64 #s(literal -1 binary64) (*.f64 d (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %24 d)) #s(literal 1 binary64)))))</pre></td></tr></table></details></dd><dt>Calls</dt><dd><p>15 calls:</p><canvas id="calls-1" title="Weighted histogram; height corresponds to percentage of runtime in that bucket."></canvas><script>histogram('calls-1', [0.084716796875,0.085693359375,0.051025390625,0.10302734375,0.118408203125,0.089111328125,0.137451171875,0.1611328125,0.15576171875,0.1611328125,0.979736328125,0.159423828125,0.187255859375,0.210693359375,0.214599609375])</script><table class="times"><thead><tr><th>Time</th><th>Variable</th><th>Point</th></tr></thead><tr><td>1.0ms</td><td><pre>a</pre></td><td>inf</td></tr><tr><td>0.0ms</td><td><pre>W</pre></td><td>0</td></tr><tr><td>0.0ms</td><td><pre>W</pre></td><td>inf</td></tr><tr><td>0.0ms</td><td><pre>W</pre></td><td>-inf</td></tr><tr><td>0.0ms</td><td><pre>b</pre></td><td>inf</td></tr></table></dd></dl></div><div class="timeline-block timeline-rewrite" id="timeline6"><h3><a href="#timeline6">rewrite</a><span class="time">47.0ms (4.2%)</span></h3><dl><dt>Iterations</dt><dd><p>Useful iterations: 0 (0.0ms)</p><table class="times"><tr><th>Iter</th><th>Nodes</th><th>Cost</th></tr><tr><td>0</td><td>9</td><td>29</td></tr><tr><td>1</td><td>39</td><td>29</td></tr><tr><td>2</td><td>146</td><td>29</td></tr><tr><td>3</td><td>537</td><td>29</td></tr><tr><td>4</td><td>1484</td><td>29</td></tr><tr><td>5</td><td>2463</td><td>29</td></tr><tr><td>0</td><td>4079</td><td>29</td></tr><tr><td>0</td><td>4345</td><td>29</td></tr></table></dd><dt>Stop Event</dt><dd><table class="times"><tr><td>1×</td><td>iter-limit</td></tr><tr><td>1×</td><td>iter-limit</td></tr><tr><td>1×</td><td>node-limit</td></tr><tr><td>1×</td><td>saturated</td></tr></table></dd><dt>Counts</dt><dd>9 → 170</dd><dt>Calls</dt><dd><details><summary>Call 1</summary><table><thead><tr><th>Inputs</th></tr></thead><tr><td><pre>%5 = (-.f64 W a)
+%6 = (-.f64 %5 b)
+%7 = (+.f64 %6 c)
+W
+a
+%5
+b
+%6
+c
+%7
+d
+(+.f64 %7 d)</pre></td></tr></table><table><thead><tr><th>Outputs</th></tr></thead><tr><td><pre>%6 = (-.f64 W a)
+%12 = (-.f64 a W)
+%14 = (neg.f64 a)
+%16 = (neg.f64 W)
+%20 = (-.f64 %6 b)
+%25 = (-.f64 b %6)
+%27 = (-.f64 W b)
+%29 = (+.f64 b a)
+%30 = (neg.f64 %29)
+%33 = (neg.f64 b)
+%38 = (-.f64 b W)
+%48 = (+.f64 c %20)
+%53 = (-.f64 b c)
+%54 = (-.f64 %53 %6)
+%56 = (-.f64 c a)
+%58 = (+.f64 c W)
+%59 = (-.f64 %58 b)
+%62 = (-.f64 %58 a)
+%65 = (-.f64 c b)
+%66 = (-.f64 %65 a)
+%76 = (-.f64 a c)
+%81 = (neg.f64 %58)
+%84 = (-.f64 %38 c)
+%86 = (-.f64 %12 c)
+%89 = (neg.f64 c)
+%92 = (-.f64 %29 c)
+%107 = (+.f64 d %48)
+%112 = (+.f64 d c)
+%115 = (+.f64 d W)
+%116 = (-.f64 %115 b)
+%118 = (-.f64 %112 a)
+%121 = (-.f64 d a)
+%123 = (-.f64 d b)
+%125 = (+.f64 %115 c)
+%126 = (-.f64 %125 a)
+%130 = (-.f64 %112 %38)
+%132 = (-.f64 d %29)
+%136 = (-.f64 %112 b)
+%137 = (-.f64 %136 a)
+%142 = (-.f64 d %12)
+%143 = (-.f64 %142 b)
+%157 = (-.f64 b d)
+%182 = (-.f64 %12 d)
+W
+a
+(*.f64 #s(literal 1 binary64) %6)
+(pow.f64 %6 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %6 #s(literal -1 binary64)))
+(neg.f64 %12)
+(fma.f64 #s(literal 1 binary64) %14 W)
+(-.f64 %14 %16)
+%6
+(+.f64 %14 W)
+(+.f64 W %14)
+b
+(*.f64 #s(literal 1 binary64) %20)
+(pow.f64 %20 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %20 #s(literal -1 binary64)))
+(neg.f64 %25)
+(fma.f64 #s(literal 1 binary64) %27 %14)
+(fma.f64 #s(literal 1 binary64) %30 W)
+(fma.f64 #s(literal 1 binary64) %14 %27)
+(fma.f64 #s(literal 1 binary64) %33 %6)
+(fma.f64 #s(literal 1 binary64) %6 %33)
+(-.f64 %27 a)
+(-.f64 %30 %16)
+(-.f64 %14 %38)
+(-.f64 %33 %12)
+%20
+(-.f64 W %29)
+(+.f64 %27 %14)
+(+.f64 %30 W)
+(+.f64 %14 %27)
+(+.f64 %33 %6)
+(+.f64 %6 %33)
+(+.f64 W %30)
+c
+(*.f64 #s(literal 1 binary64) %48)
+(pow.f64 %48 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %48 #s(literal -1 binary64)))
+(neg.f64 %54)
+(fma.f64 #s(literal 1 binary64) %56 %27)
+(fma.f64 #s(literal 1 binary64) %59 %14)
+(fma.f64 #s(literal 1 binary64) %27 %56)
+(fma.f64 #s(literal 1 binary64) %62 %33)
+(fma.f64 #s(literal 1 binary64) %58 %30)
+(fma.f64 #s(literal 1 binary64) %66 W)
+(fma.f64 #s(literal 1 binary64) %30 %58)
+(fma.f64 #s(literal 1 binary64) %65 %6)
+(fma.f64 #s(literal 1 binary64) %14 %59)
+(fma.f64 #s(literal 1 binary64) %33 %62)
+(fma.f64 #s(literal 1 binary64) %20 c)
+(fma.f64 #s(literal 1 binary64) %6 %65)
+(-.f64 %56 %38)
+(-.f64 %59 a)
+(-.f64 %27 %76)
+(-.f64 %62 b)
+(-.f64 %58 %29)
+(-.f64 %66 %16)
+(-.f64 %30 %81)
+(-.f64 %65 %12)
+(-.f64 %14 %84)
+(-.f64 %33 %86)
+(-.f64 c %25)
+(-.f64 %20 %89)
+(-.f64 %6 %53)
+(-.f64 W %92)
+(+.f64 %56 %27)
+(+.f64 %59 %14)
+(+.f64 %27 %56)
+(+.f64 %62 %33)
+(+.f64 %58 %30)
+(+.f64 %66 W)
+(+.f64 %30 %58)
+(+.f64 %65 %6)
+(+.f64 %14 %59)
+(+.f64 %33 %62)
+%48
+(+.f64 %20 c)
+(+.f64 %6 %65)
+(+.f64 W %66)
+d
+(*.f64 #s(literal 1 binary64) %107)
+(pow.f64 %107 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %107 #s(literal -1 binary64)))
+(neg.f64 (-.f64 %25 %112))
+(fma.f64 #s(literal 1 binary64) %116 %56)
+(fma.f64 #s(literal 1 binary64) %118 %27)
+(fma.f64 #s(literal 1 binary64) %56 %116)
+(fma.f64 #s(literal 1 binary64) %121 %59)
+(fma.f64 #s(literal 1 binary64) %123 %62)
+(fma.f64 #s(literal 1 binary64) %126 %33)
+(fma.f64 #s(literal 1 binary64) %125 %30)
+(fma.f64 #s(literal 1 binary64) %115 %66)
+(fma.f64 #s(literal 1 binary64) %130 %14)
+(fma.f64 #s(literal 1 binary64) %132 %58)
+(fma.f64 #s(literal 1 binary64) %59 %121)
+(fma.f64 #s(literal 1 binary64) %27 %118)
+(fma.f64 #s(literal 1 binary64) %137 W)
+(fma.f64 #s(literal 1 binary64) %136 %6)
+(fma.f64 #s(literal 1 binary64) %62 %123)
+(fma.f64 #s(literal 1 binary64) %58 %132)
+(fma.f64 #s(literal 1 binary64) %143 c)
+(fma.f64 #s(literal 1 binary64) %142 %65)
+(fma.f64 #s(literal 1 binary64) %66 %115)
+(fma.f64 #s(literal 1 binary64) %30 %125)
+(fma.f64 #s(literal 1 binary64) %65 %142)
+(fma.f64 #s(literal 1 binary64) %112 %20)
+(fma.f64 #s(literal 1 binary64) %14 %130)
+(fma.f64 #s(literal 1 binary64) %33 %126)
+(fma.f64 #s(literal 1 binary64) %48 d)
+(fma.f64 #s(literal 1 binary64) %20 %112)
+(fma.f64 #s(literal 1 binary64) %6 %136)
+(-.f64 %116 %76)
+(-.f64 %118 %38)
+(-.f64 %56 (-.f64 %157 W))
+(-.f64 %121 %84)
+(-.f64 %123 %86)
+(-.f64 %126 b)
+(-.f64 %125 %29)
+(-.f64 %115 %92)
+(-.f64 %130 a)
+(-.f64 %132 %81)
+(-.f64 %59 (-.f64 a d))
+(-.f64 %27 (-.f64 %76 d))
+(-.f64 %137 %16)
+(-.f64 %136 %12)
+(-.f64 %62 %157)
+(-.f64 %58 (-.f64 %29 d))
+(-.f64 %143 %89)
+(-.f64 %142 %53)
+(-.f64 %66 (neg.f64 %115))
+(-.f64 %30 (-.f64 %81 d))
+(-.f64 %65 %182)
+(-.f64 %112 %25)
+(-.f64 %14 (-.f64 %157 %58))
+(-.f64 %33 (-.f64 %182 c))
+(-.f64 d %54)
+(-.f64 %48 (neg.f64 d))
+(-.f64 c (-.f64 %157 %6))
+(-.f64 %20 (neg.f64 %112))
+(-.f64 %6 (-.f64 %53 d))
+(-.f64 W (-.f64 %92 d))
+(+.f64 %116 %56)
+(+.f64 %118 %27)
+(+.f64 %56 %116)
+(+.f64 %121 %59)
+(+.f64 %123 %62)
+(+.f64 %126 %33)
+(+.f64 %125 %30)
+(+.f64 %115 %66)
+(+.f64 %130 %14)
+(+.f64 %132 %58)
+(+.f64 %59 %121)
+(+.f64 %27 %118)
+(+.f64 %137 W)
+(+.f64 %136 %6)
+(+.f64 %62 %123)
+(+.f64 %58 %132)
+(+.f64 %143 c)
+(+.f64 %142 %65)
+(+.f64 %66 %115)
+(+.f64 %30 %125)
+(+.f64 %65 %142)
+(+.f64 %112 %20)
+(+.f64 %14 %130)
+(+.f64 %33 %126)
+%107
+(+.f64 %48 d)
+(+.f64 c %143)
+(+.f64 %20 %112)
+(+.f64 %6 %136)
+(+.f64 W %137)</pre></td></tr></table></details></dd></dl></div><div class="timeline-block timeline-reconstruct" id="timeline7"><h3><a href="#timeline7">reconstruct</a><span class="time">7.0ms (0.7%)</span></h3><dl><dt>Counts</dt><dd>226 → 93</dd><dt>Compiler</dt><dd><p>Compiled 2 015 to 401 computations (80.1% saved)</p></dd></dl></div><div class="timeline-block timeline-eval" id="timeline8"><h3><a href="#timeline8">eval</a><span class="time">2.0ms (0.2%)</span></h3><dl><dt>Compiler</dt><dd><p>Compiled 1 056 to 328 computations (68.9% saved)</p></dd></dl></div><div class="timeline-block timeline-prune" id="timeline9"><h3><a href="#timeline9">prune</a><span class="time">3.0ms (0.3%)</span></h3><dl><dt>Pruning</dt><dd><p>11 alts after pruning (10 fresh and 1 done)</p><table class="states"><thead><tr><th></th><th>Pruned</th><th>Kept</th><th>Total</th></tr></thead><tbody><tr><th>New</th><td>78</td><td>10</td><td>88</td></tr><tr><th>Fresh</th><td>0</td><td>0</td><td>0</td></tr><tr><th>Picked</th><td>0</td><td>1</td><td>1</td></tr><tr><th>Done</th><td>0</td><td>0</td><td>0</td></tr></tbody><tfoot><tr><th>Total</th><td>78</td><td>11</td><td>89</td></tr></tfoot></table></dd><dt>Taylor</dt><dd><table class="times"><thead><tr><th>Generated</th><th>Kept</th><th>% Kept</th><th># Vars</th><th>Transform</th><th>Order</th></tr></thead><tbody><tr><td>10×</td><td>6×</td><td>60.0%</td><td>2</td><td><code>0</code></td><td>0</td></tr><tr><td>13×</td><td>0×</td><td>0.0%</td><td>2</td><td><code>inf</code></td><td>1</td></tr><tr><td>8×</td><td>0×</td><td>0.0%</td><td>2</td><td><code>0</code></td><td>1</td></tr><tr><td>1×</td><td>0×</td><td>0.0%</td><td>2</td><td><code>inf</code></td><td>0</td></tr><tr><td>1×</td><td>0×</td><td>0.0%</td><td>1</td><td><code>zero</code></td><td>-1</td></tr><tr><td>13×</td><td>0×</td><td>0.0%</td><td>2</td><td><code>-inf</code></td><td>1</td></tr></tbody></table></dd><dt>Accuracy</dt><dd>100.0%</dd><dt>Counts</dt><dd>89 → 11</dd><dt>Alt Table</dt><dd><details><summary>Click to see full alt table</summary><table class="times"><thead><tr><th>Status</th><th>Accuracy</th><th>Program</th></tr></thead><tr><td><span title="Selected for next iteration">▶</span></td><td>99.5%</td><td><pre>(-.f64 (-.f64 W b) (-.f64 (-.f64 a c) d))</pre></td></tr><tr><td><span title="Selected for next iteration">▶</span></td><td>99.5%</td><td><pre>(-.f64 (+.f64 d W) (-.f64 (+.f64 b a) c))</pre></td></tr><tr><td><span title="Selected for next iteration">▶</span></td><td>99.5%</td><td><pre>(-.f64 W (-.f64 (-.f64 (+.f64 b a) c) d))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>99.9%</td><td><pre>(+.f64 (+.f64 (-.f64 (-.f64 W a) b) c) d)</pre></td></tr><tr><td><span title="Selected for next iteration">▶</span></td><td>65.4%</td><td><pre>(+.f64 (+.f64 (approx (- (- W a) b) (-.f64 W b)) c) d)</pre></td></tr><tr><td><span title="Selected for next iteration">▶</span></td><td>65.4%</td><td><pre>(+.f64 (approx (+ (- (- W a) b) c) (-.f64 (+.f64 W c) b)) d)</pre></td></tr><tr><td><span title="Selected for next iteration">▶</span></td><td>43.5%</td><td><pre>(+.f64 (approx (+ (- (- W a) b) c) (-.f64 (+.f64 W c) a)) d)</pre></td></tr><tr><td><span title="Selected for next iteration">▶</span></td><td>99.3%</td><td><pre>(+.f64 W (-.f64 (-.f64 (+.f64 d c) b) a))</pre></td></tr><tr><td><span title="Selected for next iteration">▶</span></td><td>65.4%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (-.f64 (+.f64 W (+.f64 c d)) b))</pre></td></tr><tr><td><span title="Selected for next iteration">▶</span></td><td>43.5%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (-.f64 (+.f64 W (+.f64 c d)) a))</pre></td></tr><tr><td><span title="Selected for next iteration">▶</span></td><td>39.5%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (-.f64 (+.f64 W d) (+.f64 a b)))</pre></td></tr></table></details></dd><dt>Compiler</dt><dd><p>Compiled 93 to 37 computations (60.2% saved)</p></dd></dl></div><div class="timeline-block timeline-sample" id="timeline10"><h3><a href="#timeline10">sample</a><span class="time">0.0ms (0.0%)</span></h3><dl><dt>Calls</dt><dd><details><summary>Call 1</summary><table><thead><tr><th>Inputs</th></tr></thead><tr><td><pre></pre></td></tr></table><table><thead><tr><th>Outputs</th></tr></thead><tr><td><pre></pre></td></tr></table></details></dd></dl></div><div class="timeline-block timeline-series" id="timeline11"><h3><a href="#timeline11">series</a><span class="time">16.0ms (1.4%)</span></h3><dl><dt>Iterations</dt><dd><p>Useful iterations: 0 (0.0ms)</p><table class="times"><tr><th>Iter</th><th>Nodes</th><th>Cost</th></tr><tr><td>0</td><td>537</td><td>1983</td></tr></table></dd><dt>Stop Event</dt><dd><table class="times"><tr><td>1×</td><td>iter-limit</td></tr><tr><td>1×</td><td>saturated</td></tr></table></dd><dt>Counts</dt><dd>39 → 191</dd><dt>Calls</dt><dd><details><summary>Call 1</summary><table><thead><tr><th>Inputs</th></tr></thead><tr><td><pre>%5 = (+.f64 a b)
+%6 = (+.f64 W c)
+%7 = (+.f64 c d)
+%8 = (+.f64 W %7)
+%9 = (-.f64 W b)
+%10 = (-.f64 %6 b)
+%11 = (-.f64 %8 b)
+%12 = (-.f64 %6 a)
+%13 = (-.f64 %8 a)
+%14 = (+.f64 W d)
+%15 = (-.f64 %14 %5)
+%17 = (- (- W a) b)
+%18 = (approx %17 %9)
+%19 = (+ %17 c)
+%20 = (approx %19 %10)
+%21 = (+ %19 d)
+%23 = (approx %19 %12)
+%26 = (+.f64 b a)
+%27 = (-.f64 a c)
+%28 = (-.f64 %26 c)
+%29 = (+.f64 d c)
+%30 = (+.f64 d W)
+%31 = (-.f64 %29 b)
+%32 = (-.f64 %31 a)
+%34 = (-.f64 %27 d)
+%36 = (-.f64 %28 d)
+%41 = (+.f64 %18 c)
+W
+a
+b
+c
+d
+%5
+%6
+%7
+%8
+%9
+%10
+%11
+%12
+%13
+%14
+%15
+%18
+%20
+(approx %21 %11)
+%23
+(approx %21 %13)
+(approx %21 %15)
+%26
+%27
+%28
+%29
+%30
+%31
+%32
+(-.f64 %30 %28)
+%34
+(-.f64 %9 %34)
+%36
+(-.f64 W %36)
+(+.f64 W %32)
+(+.f64 %23 d)
+(+.f64 %20 d)
+%41
+(+.f64 %41 d)</pre></td></tr></table><table><thead><tr><th>Outputs</th></tr></thead><tr><td><pre>%8 = (+ W c)
+%10 = (+.f64 W c)
+%12 = (+.f64 c d)
+%13 = (+ c d)
+%14 = (+ W %13)
+%16 = (+.f64 W %12)
+%19 = (*.f64 #s(literal -1 binary64) b)
+%20 = (- W b)
+%22 = (-.f64 W b)
+%24 = (-.f64 c b)
+%25 = (- %8 b)
+%27 = (-.f64 %10 b)
+%29 = (-.f64 %12 b)
+%30 = (- %14 b)
+%32 = (-.f64 %16 b)
+%34 = (-.f64 c a)
+%35 = (- %8 a)
+%37 = (-.f64 %10 a)
+%39 = (-.f64 %12 a)
+%40 = (- %14 a)
+%42 = (-.f64 %16 a)
+%44 = (+ W d)
+%46 = (+.f64 W d)
+%48 = (+.f64 a b)
+%49 = (-.f64 d %48)
+%50 = (+ a b)
+%51 = (- %44 %50)
+%53 = (-.f64 %46 %48)
+%57 = (- (- W a) b)
+%59 = (-.f64 W %48)
+%61 = (-.f64 c %48)
+%62 = (+ %57 c)
+%64 = (-.f64 %10 %48)
+%66 = (-.f64 %12 %48)
+%67 = (+ %62 d)
+%72 = (/.f64 c W)
+%73 = (+.f64 #s(literal 1 binary64) %72)
+%76 = (/.f64 d W)
+%78 = (+.f64 #s(literal 1 binary64) (+.f64 %72 %76))
+%81 = (/.f64 b W)
+%92 = (/.f64 a W)
+%99 = (+.f64 #s(literal 1 binary64) %76)
+%102 = (+.f64 %92 %81)
+%186 = (*.f64 #s(literal -1 binary64) a)
+%188 = (+.f64 W (+.f64 c %186))
+%190 = (+.f64 d %186)
+%191 = (+.f64 c %190)
+%192 = (+.f64 W %191)
+%194 = (-.f64 %46 b)
+%206 = (*.f64 #s(literal -1 binary64) c)
+%207 = (- a c)
+%209 = (-.f64 a c)
+%211 = (-.f64 b c)
+%213 = (- (+ b a) c)
+%215 = (-.f64 %48 c)
+%219 = (- (+ d c) b)
+%220 = (- %219 a)
+%223 = (- %207 d)
+%225 = (-.f64 a %12)
+%227 = (-.f64 b %12)
+%228 = (- %213 d)
+%232 = (/.f64 b a)
+%233 = (+.f64 #s(literal 1 binary64) %232)
+%237 = (/.f64 W a)
+%238 = (/.f64 c a)
+%239 = (+.f64 %237 %238)
+%243 = (/.f64 d a)
+%244 = (+.f64 %238 %243)
+%245 = (+.f64 %237 %244)
+%347 = (+.f64 W %19)
+%350 = (+.f64 W (+.f64 c %19))
+%352 = (+.f64 d %19)
+%353 = (+.f64 c %352)
+%354 = (+.f64 W %353)
+%356 = (-.f64 %46 a)
+%361 = (-.f64 W a)
+%372 = (/.f64 a b)
+%373 = (+.f64 #s(literal 1 binary64) %372)
+%376 = (/.f64 W b)
+%380 = (/.f64 c b)
+%381 = (+.f64 %376 %380)
+%385 = (/.f64 d b)
+%386 = (+.f64 %380 %385)
+%387 = (+.f64 %376 %386)
+%486 = (+.f64 a %206)
+%489 = (+.f64 a (+.f64 b %206))
+%491 = (-.f64 d b)
+%493 = (-.f64 a d)
+%497 = (-.f64 %48 d)
+%501 = (/.f64 W c)
+%502 = (+.f64 #s(literal 1 binary64) %501)
+%505 = (/.f64 d c)
+%506 = (+.f64 #s(literal 1 binary64) %505)
+%510 = (+.f64 #s(literal 1 binary64) (+.f64 %501 %505))
+%513 = (/.f64 b c)
+%520 = (/.f64 a c)
+%527 = (+.f64 %520 %513)
+%639 = (*.f64 #s(literal -1 binary64) d)
+%647 = (/.f64 c d)
+%648 = (+.f64 #s(literal 1 binary64) %647)
+%651 = (/.f64 W d)
+%653 = (+.f64 #s(literal 1 binary64) (+.f64 %651 %647))
+%656 = (/.f64 b d)
+%660 = (/.f64 a d)
+%664 = (+.f64 #s(literal 1 binary64) %651)
+%667 = (+.f64 %660 %656)
+(approx W #s(literal 0 binary64))
+(approx W W)
+(approx %8 c)
+(approx %8 %10)
+(approx %14 %12)
+(approx %14 %16)
+(approx %20 %19)
+(approx %20 %22)
+(approx %25 %24)
+(approx %25 %27)
+(approx %30 %29)
+(approx %30 %32)
+(approx %35 %34)
+(approx %35 %37)
+(approx %40 %39)
+(approx %40 %42)
+(approx %44 d)
+(approx %44 %46)
+(approx %51 %49)
+(approx %51 %53)
+(approx %57 (*.f64 #s(literal -1 binary64) %48))
+(approx %57 %59)
+(approx %62 %61)
+(approx %62 %64)
+(approx %67 %66)
+(approx %67 (-.f64 %16 %48))
+(approx %8 (*.f64 W %73))
+(approx %14 (*.f64 W %78))
+(approx %20 (*.f64 W (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) %81))))
+(approx %25 (*.f64 W (-.f64 %73 %81)))
+(approx %30 (*.f64 W (-.f64 %78 %81)))
+(approx %35 (*.f64 W (-.f64 %73 %92)))
+(approx %40 (*.f64 W (-.f64 %78 %92)))
+(approx %44 (*.f64 W %99))
+(approx %51 (*.f64 W (-.f64 %99 %102)))
+(approx %57 (*.f64 W (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %48 W)))))
+(approx %62 (*.f64 W (-.f64 %73 %102)))
+(approx %67 (*.f64 W (-.f64 %78 %102)))
+(approx %8 (*.f64 #s(literal -1 binary64) (*.f64 W (-.f64 (*.f64 #s(literal -1 binary64) %72) #s(literal 1 binary64)))))
+(approx %14 (*.f64 #s(literal -1 binary64) (*.f64 W (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %12 W)) #s(literal 1 binary64)))))
+(approx %20 (*.f64 #s(literal -1 binary64) (*.f64 W (-.f64 %81 #s(literal 1 binary64)))))
+(approx %25 (*.f64 #s(literal -1 binary64) (*.f64 W (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %24 W)) #s(literal 1 binary64)))))
+(approx %30 (*.f64 #s(literal -1 binary64) (*.f64 W (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %29 W)) #s(literal 1 binary64)))))
+(approx %35 (*.f64 #s(literal -1 binary64) (*.f64 W (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %34 W)) #s(literal 1 binary64)))))
+(approx %40 (*.f64 #s(literal -1 binary64) (*.f64 W (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %39 W)) #s(literal 1 binary64)))))
+(approx %44 (*.f64 #s(literal -1 binary64) (*.f64 W (-.f64 (*.f64 #s(literal -1 binary64) %76) #s(literal 1 binary64)))))
+(approx %51 (*.f64 #s(literal -1 binary64) (*.f64 W (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %49 W)) #s(literal 1 binary64)))))
+(approx %57 (*.f64 #s(literal -1 binary64) (*.f64 W (-.f64 %102 #s(literal 1 binary64)))))
+(approx %62 (*.f64 #s(literal -1 binary64) (*.f64 W (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %61 W)) #s(literal 1 binary64)))))
+(approx %67 (*.f64 #s(literal -1 binary64) (*.f64 W (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %66 W)) #s(literal 1 binary64)))))
+(approx a a)
+(approx %50 b)
+(approx %50 %48)
+(approx %35 %188)
+(approx %40 %192)
+(approx %51 %194)
+(approx %51 (-.f64 (+.f64 W %190) b))
+(approx %57 (-.f64 (+.f64 W %186) b))
+(approx %62 (-.f64 %188 b))
+(approx %67 (-.f64 %192 b))
+(approx %207 %206)
+(approx %207 %209)
+(approx %213 %211)
+(approx %213 %215)
+(approx %220 (-.f64 %191 b))
+(approx %223 (*.f64 #s(literal -1 binary64) %12))
+(approx %223 %225)
+(approx %228 %227)
+(approx %228 (-.f64 %48 %12))
+(approx %50 (*.f64 a %233))
+(approx %35 %186)
+(approx %35 (*.f64 a (-.f64 %239 #s(literal 1 binary64))))
+(approx %40 (*.f64 a (-.f64 %245 #s(literal 1 binary64))))
+(approx %51 (*.f64 a (-.f64 (+.f64 %237 %243) %233)))
+(approx %57 (*.f64 a (-.f64 %237 %233)))
+(approx %62 (*.f64 a (-.f64 %239 %233)))
+(approx %67 (*.f64 a (-.f64 %245 %233)))
+(approx %207 (*.f64 a (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) %238))))
+(approx %213 (*.f64 a (-.f64 %233 %238)))
+(approx %220 (*.f64 a (-.f64 %244 %233)))
+(approx %223 (*.f64 a (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %12 a)))))
+(approx %228 (*.f64 a (-.f64 %233 %244)))
+(approx %50 (*.f64 #s(literal -1 binary64) (*.f64 a (-.f64 (*.f64 #s(literal -1 binary64) %232) #s(literal 1 binary64)))))
+(approx %35 (*.f64 #s(literal -1 binary64) (*.f64 a (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %10 a))))))
+(approx %40 (*.f64 #s(literal -1 binary64) (*.f64 a (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %16 a))))))
+(approx %51 (*.f64 #s(literal -1 binary64) (*.f64 a (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %194 a))))))
+(approx %57 (*.f64 #s(literal -1 binary64) (*.f64 a (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %22 a))))))
+(approx %62 (*.f64 #s(literal -1 binary64) (*.f64 a (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %27 a))))))
+(approx %67 (*.f64 #s(literal -1 binary64) (*.f64 a (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %32 a))))))
+(approx %207 (*.f64 #s(literal -1 binary64) (*.f64 a (-.f64 %238 #s(literal 1 binary64)))))
+(approx %213 (*.f64 #s(literal -1 binary64) (*.f64 a (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %211 a)) #s(literal 1 binary64)))))
+(approx %220 (*.f64 #s(literal -1 binary64) (*.f64 a (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %29 a))))))
+(approx %223 (*.f64 #s(literal -1 binary64) (*.f64 a (-.f64 %244 #s(literal 1 binary64)))))
+(approx %228 (*.f64 #s(literal -1 binary64) (*.f64 a (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %227 a)) #s(literal 1 binary64)))))
+(approx %20 %347)
+(approx %25 %350)
+(approx %30 %354)
+(approx %51 %356)
+(approx %51 (-.f64 (+.f64 W %352) a))
+(approx %57 %361)
+(approx %57 (-.f64 %347 a))
+(approx %62 (-.f64 %350 a))
+(approx %67 (-.f64 %354 a))
+(approx %219 %353)
+(approx %220 (-.f64 %353 a))
+(approx %50 (*.f64 b %373))
+(approx %20 (*.f64 b (-.f64 %376 #s(literal 1 binary64))))
+(approx %25 (*.f64 b (-.f64 %381 #s(literal 1 binary64))))
+(approx %30 (*.f64 b (-.f64 %387 #s(literal 1 binary64))))
+(approx %51 (*.f64 b (-.f64 (+.f64 %376 %385) %373)))
+(approx %57 (*.f64 b (-.f64 %376 %373)))
+(approx %62 (*.f64 b (-.f64 %381 %373)))
+(approx %67 (*.f64 b (-.f64 %387 %373)))
+(approx %213 (*.f64 b (-.f64 %373 %380)))
+(approx %219 (*.f64 b (-.f64 %386 #s(literal 1 binary64))))
+(approx %220 (*.f64 b (-.f64 %386 %373)))
+(approx %228 (*.f64 b (-.f64 %373 %386)))
+(approx %50 (*.f64 #s(literal -1 binary64) (*.f64 b (-.f64 (*.f64 #s(literal -1 binary64) %372) #s(literal 1 binary64)))))
+(approx %20 (*.f64 #s(literal -1 binary64) (*.f64 b (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) %376)))))
+(approx %25 (*.f64 #s(literal -1 binary64) (*.f64 b (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %10 b))))))
+(approx %30 (*.f64 #s(literal -1 binary64) (*.f64 b (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %16 b))))))
+(approx %51 (*.f64 #s(literal -1 binary64) (*.f64 b (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %356 b))))))
+(approx %57 (*.f64 #s(literal -1 binary64) (*.f64 b (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %361 b))))))
+(approx %62 (*.f64 #s(literal -1 binary64) (*.f64 b (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %37 b))))))
+(approx %67 (*.f64 #s(literal -1 binary64) (*.f64 b (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %42 b))))))
+(approx %213 (*.f64 #s(literal -1 binary64) (*.f64 b (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %209 b)) #s(literal 1 binary64)))))
+(approx %219 (*.f64 #s(literal -1 binary64) (*.f64 b (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %12 b))))))
+(approx %220 (*.f64 #s(literal -1 binary64) (*.f64 b (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %39 b))))))
+(approx %228 (*.f64 #s(literal -1 binary64) (*.f64 b (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %225 b)) #s(literal 1 binary64)))))
+(approx %207 %486)
+(approx %213 %489)
+(approx %219 %491)
+(approx %223 %493)
+(approx %223 (-.f64 %486 d))
+(approx %228 %497)
+(approx %228 (-.f64 %489 d))
+(approx %8 (*.f64 c %502))
+(approx %13 (*.f64 c %506))
+(approx %14 (*.f64 c %510))
+(approx %25 (*.f64 c (-.f64 %502 %513)))
+(approx %30 (*.f64 c (-.f64 %510 %513)))
+(approx %35 (*.f64 c (-.f64 %502 %520)))
+(approx %40 (*.f64 c (-.f64 %510 %520)))
+(approx %62 (*.f64 c (-.f64 %502 %527)))
+(approx %67 (*.f64 c (-.f64 %510 %527)))
+(approx %207 (*.f64 c (-.f64 %520 #s(literal 1 binary64))))
+(approx %213 (*.f64 c (-.f64 %527 #s(literal 1 binary64))))
+(approx %219 (*.f64 c (-.f64 %506 %513)))
+(approx %220 (*.f64 c (-.f64 %506 %527)))
+(approx %223 (*.f64 c (-.f64 %520 %506)))
+(approx %228 (*.f64 c (-.f64 %527 %506)))
+(approx %8 (*.f64 #s(literal -1 binary64) (*.f64 c (-.f64 (*.f64 #s(literal -1 binary64) %501) #s(literal 1 binary64)))))
+(approx %13 (*.f64 #s(literal -1 binary64) (*.f64 c (-.f64 (*.f64 #s(literal -1 binary64) %505) #s(literal 1 binary64)))))
+(approx %14 (*.f64 #s(literal -1 binary64) (*.f64 c (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %46 c)) #s(literal 1 binary64)))))
+(approx %25 (*.f64 #s(literal -1 binary64) (*.f64 c (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %22 c)) #s(literal 1 binary64)))))
+(approx %30 (*.f64 #s(literal -1 binary64) (*.f64 c (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %194 c)) #s(literal 1 binary64)))))
+(approx %35 (*.f64 #s(literal -1 binary64) (*.f64 c (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %361 c)) #s(literal 1 binary64)))))
+(approx %40 (*.f64 #s(literal -1 binary64) (*.f64 c (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %356 c)) #s(literal 1 binary64)))))
+(approx %62 (*.f64 #s(literal -1 binary64) (*.f64 c (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %59 c)) #s(literal 1 binary64)))))
+(approx %67 (*.f64 #s(literal -1 binary64) (*.f64 c (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %53 c)) #s(literal 1 binary64)))))
+(approx %207 (*.f64 #s(literal -1 binary64) (*.f64 c (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) %520)))))
+(approx %213 (*.f64 #s(literal -1 binary64) (*.f64 c (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %48 c))))))
+(approx %219 (*.f64 #s(literal -1 binary64) (*.f64 c (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %491 c)) #s(literal 1 binary64)))))
+(approx %220 (*.f64 #s(literal -1 binary64) (*.f64 c (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %49 c)) #s(literal 1 binary64)))))
+(approx %223 (*.f64 #s(literal -1 binary64) (*.f64 c (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %493 c))))))
+(approx %228 (*.f64 #s(literal -1 binary64) (*.f64 c (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %497 c))))))
+(approx %223 (-.f64 (+.f64 a %639) c))
+(approx %228 (-.f64 (+.f64 a (+.f64 b %639)) c))
+(approx %13 (*.f64 d %648))
+(approx %14 (*.f64 d %653))
+(approx %30 (*.f64 d (-.f64 %653 %656)))
+(approx %40 (*.f64 d (-.f64 %653 %660)))
+(approx %44 (*.f64 d %664))
+(approx %51 (*.f64 d (-.f64 %664 %667)))
+(approx %67 (*.f64 d (-.f64 %653 %667)))
+(approx %219 (*.f64 d (-.f64 %648 %656)))
+(approx %220 (*.f64 d (-.f64 %648 %667)))
+(approx %223 %639)
+(approx %223 (*.f64 d (-.f64 %660 %648)))
+(approx %228 (*.f64 d (-.f64 %667 %648)))
+(approx %13 (*.f64 #s(literal -1 binary64) (*.f64 d (-.f64 (*.f64 #s(literal -1 binary64) %647) #s(literal 1 binary64)))))
+(approx %14 (*.f64 #s(literal -1 binary64) (*.f64 d (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %10 d)) #s(literal 1 binary64)))))
+(approx %30 (*.f64 #s(literal -1 binary64) (*.f64 d (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %27 d)) #s(literal 1 binary64)))))
+(approx %40 (*.f64 #s(literal -1 binary64) (*.f64 d (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %37 d)) #s(literal 1 binary64)))))
+(approx %44 (*.f64 #s(literal -1 binary64) (*.f64 d (-.f64 (*.f64 #s(literal -1 binary64) %651) #s(literal 1 binary64)))))
+(approx %51 (*.f64 #s(literal -1 binary64) (*.f64 d (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %59 d)) #s(literal 1 binary64)))))
+(approx %67 (*.f64 #s(literal -1 binary64) (*.f64 d (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %64 d)) #s(literal 1 binary64)))))
+(approx %219 (*.f64 #s(literal -1 binary64) (*.f64 d (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %24 d)) #s(literal 1 binary64)))))
+(approx %220 (*.f64 #s(literal -1 binary64) (*.f64 d (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %61 d)) #s(literal 1 binary64)))))
+(approx %223 (*.f64 #s(literal -1 binary64) (*.f64 d (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %209 d))))))
+(approx %228 (*.f64 #s(literal -1 binary64) (*.f64 d (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %215 d))))))</pre></td></tr></table></details></dd><dt>Calls</dt><dd><p>15 calls:</p><canvas id="calls-2" title="Weighted histogram; height corresponds to percentage of runtime in that bucket."></canvas><script>histogram('calls-2', [0.33544921875,0.581787109375,0.220947265625,0.4169921875,0.4140625,0.315185546875,0.330322265625,0.33154296875,0.266845703125,0.334228515625,0.325439453125,0.31396484375,0.325927734375,0.32763671875,0.5751953125])</script><table class="times"><thead><tr><th>Time</th><th>Variable</th><th>Point</th></tr></thead><tr><td>1.0ms</td><td><pre>d</pre></td><td>inf</td></tr><tr><td>1.0ms</td><td><pre>W</pre></td><td>0</td></tr><tr><td>0.0ms</td><td><pre>c</pre></td><td>-inf</td></tr><tr><td>0.0ms</td><td><pre>c</pre></td><td>inf</td></tr><tr><td>0.0ms</td><td><pre>d</pre></td><td>-inf</td></tr></table></dd></dl></div><div class="timeline-block timeline-rewrite" id="timeline12"><h3><a href="#timeline12">rewrite</a><span class="time">55.0ms (4.9%)</span></h3><dl><dt>Iterations</dt><dd><p>Useful iterations: 0 (0.0ms)</p><table class="times"><tr><th>Iter</th><th>Nodes</th><th>Cost</th></tr><tr><td>0</td><td>33</td><td>213</td></tr><tr><td>1</td><td>190</td><td>213</td></tr><tr><td>2</td><td>639</td><td>213</td></tr><tr><td>3</td><td>1654</td><td>213</td></tr><tr><td>4</td><td>1810</td><td>213</td></tr><tr><td>5</td><td>2270</td><td>213</td></tr><tr><td>0</td><td>3999</td><td>213</td></tr><tr><td>0</td><td>4283</td><td>213</td></tr></table></dd><dt>Stop Event</dt><dd><table class="times"><tr><td>1×</td><td>iter-limit</td></tr><tr><td>1×</td><td>iter-limit</td></tr><tr><td>1×</td><td>node-limit</td></tr><tr><td>1×</td><td>saturated</td></tr></table></dd><dt>Counts</dt><dd>39 → 1 480</dd><dt>Calls</dt><dd><details><summary>Call 1</summary><table><thead><tr><th>Inputs</th></tr></thead><tr><td><pre>%5 = (+.f64 a b)
+%6 = (+.f64 W c)
+%7 = (+.f64 c d)
+%8 = (+.f64 W %7)
+%9 = (-.f64 W b)
+%10 = (-.f64 %6 b)
+%11 = (-.f64 %8 b)
+%12 = (-.f64 %6 a)
+%13 = (-.f64 %8 a)
+%14 = (+.f64 W d)
+%15 = (-.f64 %14 %5)
+%17 = (- (- W a) b)
+%18 = (approx %17 %9)
+%19 = (+ %17 c)
+%20 = (approx %19 %10)
+%21 = (+ %19 d)
+%23 = (approx %19 %12)
+%26 = (+.f64 b a)
+%27 = (-.f64 a c)
+%28 = (-.f64 %26 c)
+%29 = (+.f64 d c)
+%30 = (+.f64 d W)
+%31 = (-.f64 %29 b)
+%32 = (-.f64 %31 a)
+%34 = (-.f64 %27 d)
+%36 = (-.f64 %28 d)
+%41 = (+.f64 %18 c)
+W
+a
+b
+c
+d
+%5
+%6
+%7
+%8
+%9
+%10
+%11
+%12
+%13
+%14
+%15
+%18
+%20
+(approx %21 %11)
+%23
+(approx %21 %13)
+(approx %21 %15)
+%26
+%27
+%28
+%29
+%30
+%31
+%32
+(-.f64 %30 %28)
+%34
+(-.f64 %9 %34)
+%36
+(-.f64 W %36)
+(+.f64 W %32)
+(+.f64 %23 d)
+(+.f64 %20 d)
+%41
+(+.f64 %41 d)</pre></td></tr></table><table><thead><tr><th>Outputs</th></tr></thead><tr><td><pre>%6 = (+.f64 b a)
+%7 = (*.f64 #s(literal 1 binary64) %6)
+%8 = (pow.f64 %6 #s(literal 1 binary64))
+%11 = (/.f64 #s(literal 1 binary64) (pow.f64 %6 #s(literal -1 binary64)))
+%12 = (neg.f64 %6)
+%13 = (neg.f64 %12)
+%14 = (neg.f64 a)
+%15 = (-.f64 b %14)
+%16 = (neg.f64 b)
+%17 = (-.f64 a %16)
+%18 = (+.f64 a b)
+%19 = (+.f64 c W)
+%24 = (neg.f64 %19)
+%26 = (neg.f64 W)
+%28 = (neg.f64 c)
+%31 = (+.f64 d c)
+%32 = (*.f64 #s(literal 1 binary64) %31)
+%33 = (pow.f64 %31 #s(literal 1 binary64))
+%35 = (/.f64 #s(literal 1 binary64) (pow.f64 %31 #s(literal -1 binary64)))
+%36 = (neg.f64 %31)
+%37 = (neg.f64 %36)
+%38 = (-.f64 d %28)
+%39 = (neg.f64 d)
+%40 = (-.f64 c %39)
+%41 = (+.f64 c d)
+%42 = (+.f64 %31 W)
+%47 = (neg.f64 %42)
+%49 = (+.f64 d W)
+%57 = (neg.f64 %49)
+%65 = (-.f64 W b)
+%70 = (-.f64 b W)
+%76 = (-.f64 %19 b)
+%81 = (-.f64 b %19)
+%83 = (-.f64 c b)
+%92 = (-.f64 b c)
+%100 = (-.f64 %49 %92)
+%105 = (-.f64 b %42)
+%107 = (-.f64 d b)
+%109 = (-.f64 %49 b)
+%113 = (-.f64 %31 b)
+%130 = (-.f64 b d)
+%133 = (-.f64 %130 W)
+%135 = (-.f64 b %31)
+%151 = (-.f64 %19 a)
+%156 = (-.f64 a W)
+%157 = (-.f64 %156 c)
+%159 = (-.f64 c a)
+%162 = (-.f64 W a)
+%169 = (-.f64 a c)
+%177 = (-.f64 %42 a)
+%182 = (-.f64 %156 %31)
+%184 = (-.f64 d a)
+%186 = (-.f64 %49 a)
+%188 = (-.f64 %31 a)
+%207 = (-.f64 a d)
+%210 = (-.f64 %156 d)
+%212 = (-.f64 %169 d)
+%228 = (*.f64 #s(literal 1 binary64) %49)
+%229 = (pow.f64 %49 #s(literal 1 binary64))
+%231 = (/.f64 #s(literal 1 binary64) (pow.f64 %49 #s(literal -1 binary64)))
+%232 = (neg.f64 %57)
+%233 = (-.f64 d %26)
+%234 = (-.f64 W %39)
+%235 = (+.f64 W d)
+%236 = (-.f64 %49 %6)
+%241 = (-.f64 %6 %49)
+%247 = (-.f64 d %6)
+%252 = (-.f64 %162 b)
+%268 = (-.f64 %6 W)
+%270 = (-.f64 %6 d)
+%307 = (-.f64 %151 b)
+%308 = (*.f64 #s(literal 1 binary64) %307)
+%309 = (pow.f64 %307 #s(literal 1 binary64))
+%311 = (/.f64 #s(literal 1 binary64) (pow.f64 %307 #s(literal -1 binary64)))
+%312 = (-.f64 %92 %162)
+%313 = (neg.f64 %312)
+%314 = (fma.f64 #s(literal 1 binary64) %83 %162)
+%315 = (fma.f64 #s(literal 1 binary64) %12 %19)
+%316 = (fma.f64 #s(literal 1 binary64) %159 %65)
+%317 = (-.f64 c %6)
+%318 = (fma.f64 #s(literal 1 binary64) %317 W)
+%319 = (fma.f64 #s(literal 1 binary64) %16 %151)
+%320 = (fma.f64 #s(literal 1 binary64) %14 %76)
+%321 = (fma.f64 #s(literal 1 binary64) %252 c)
+%322 = (fma.f64 #s(literal 1 binary64) %162 %83)
+%323 = (fma.f64 #s(literal 1 binary64) %151 %16)
+%324 = (fma.f64 #s(literal 1 binary64) %76 %14)
+%325 = (fma.f64 #s(literal 1 binary64) %65 %159)
+%326 = (fma.f64 #s(literal 1 binary64) %19 %12)
+%327 = (-.f64 %83 %156)
+%328 = (-.f64 %12 %24)
+%329 = (-.f64 %159 %70)
+%330 = (-.f64 %317 %26)
+%331 = (-.f64 %16 %157)
+%332 = (-.f64 %14 %81)
+%333 = (-.f64 %252 %28)
+%334 = (-.f64 %162 %92)
+%335 = (-.f64 %76 a)
+%336 = (-.f64 %65 %169)
+%337 = (-.f64 %19 %6)
+%338 = (-.f64 c %268)
+%339 = (-.f64 %6 c)
+%340 = (-.f64 W %339)
+%341 = (+.f64 %83 %162)
+%342 = (+.f64 %12 %19)
+%343 = (+.f64 %159 %65)
+%344 = (+.f64 %317 W)
+%345 = (+.f64 %16 %151)
+%346 = (+.f64 %14 %76)
+%347 = (+.f64 %252 c)
+%348 = (+.f64 %162 %83)
+%349 = (+.f64 %151 %16)
+%350 = (+.f64 %76 %14)
+%351 = (+.f64 %65 %159)
+%352 = (+.f64 %19 %12)
+%353 = (+.f64 c %252)
+%354 = (+.f64 W %317)
+%355 = (-.f64 %49 %339)
+%356 = (*.f64 #s(literal 1 binary64) %355)
+%357 = (pow.f64 %355 #s(literal 1 binary64))
+%359 = (/.f64 #s(literal 1 binary64) (pow.f64 %355 #s(literal -1 binary64)))
+%360 = (-.f64 %339 d)
+%362 = (neg.f64 (-.f64 %360 W))
+%363 = (fma.f64 #s(literal 1 binary64) %107 %151)
+%364 = (fma.f64 #s(literal 1 binary64) %109 %159)
+%365 = (fma.f64 #s(literal 1 binary64) %184 %76)
+%366 = (fma.f64 #s(literal 1 binary64) %100 %14)
+%367 = (fma.f64 #s(literal 1 binary64) %186 %83)
+%368 = (fma.f64 #s(literal 1 binary64) %247 %19)
+%369 = (fma.f64 #s(literal 1 binary64) %83 %186)
+%370 = (fma.f64 #s(literal 1 binary64) %236 c)
+%371 = (fma.f64 #s(literal 1 binary64) %12 %42)
+%372 = (fma.f64 #s(literal 1 binary64) %188 %65)
+%373 = (fma.f64 #s(literal 1 binary64) %159 %109)
+%374 = (-.f64 %113 a)
+%375 = (fma.f64 #s(literal 1 binary64) %374 W)
+%376 = (fma.f64 #s(literal 1 binary64) %317 %49)
+%377 = (fma.f64 #s(literal 1 binary64) %16 %177)
+%378 = (fma.f64 #s(literal 1 binary64) %14 %100)
+%379 = (fma.f64 #s(literal 1 binary64) %113 %162)
+%380 = (fma.f64 #s(literal 1 binary64) %307 d)
+%381 = (fma.f64 #s(literal 1 binary64) %252 %31)
+%382 = (fma.f64 #s(literal 1 binary64) %162 %113)
+%383 = (fma.f64 #s(literal 1 binary64) %49 %317)
+%384 = (fma.f64 #s(literal 1 binary64) %177 %16)
+%385 = (fma.f64 #s(literal 1 binary64) %151 %107)
+%386 = (fma.f64 #s(literal 1 binary64) %76 %184)
+%387 = (fma.f64 #s(literal 1 binary64) %65 %188)
+%388 = (fma.f64 #s(literal 1 binary64) %42 %12)
+%389 = (fma.f64 #s(literal 1 binary64) %31 %252)
+%390 = (fma.f64 #s(literal 1 binary64) %19 %247)
+%391 = (-.f64 %107 %157)
+%392 = (-.f64 %109 %169)
+%393 = (-.f64 %184 %81)
+%394 = (-.f64 %100 a)
+%395 = (-.f64 %186 %92)
+%396 = (-.f64 %247 %24)
+%397 = (-.f64 %83 %210)
+%398 = (-.f64 %236 %28)
+%399 = (-.f64 %12 %47)
+%400 = (-.f64 %188 %70)
+%401 = (-.f64 %159 %133)
+%402 = (-.f64 %374 %26)
+%403 = (-.f64 %317 %57)
+%404 = (-.f64 %16 %182)
+%405 = (-.f64 %14 %105)
+%406 = (-.f64 %113 %156)
+%407 = (-.f64 %307 %39)
+%408 = (-.f64 %252 %36)
+%409 = (-.f64 %162 %135)
+%410 = (-.f64 %177 b)
+%411 = (-.f64 %151 %130)
+%412 = (-.f64 %76 %207)
+%413 = (-.f64 %65 %212)
+%414 = (-.f64 %42 %6)
+%415 = (-.f64 %31 %268)
+%416 = (-.f64 %19 %270)
+%417 = (-.f64 d %312)
+%418 = (-.f64 c %241)
+%419 = (-.f64 W %360)
+%420 = (+.f64 %107 %151)
+%421 = (+.f64 %109 %159)
+%422 = (+.f64 %184 %76)
+%423 = (+.f64 %100 %14)
+%424 = (+.f64 %186 %83)
+%425 = (+.f64 %247 %19)
+%426 = (+.f64 %83 %186)
+%427 = (+.f64 %236 c)
+%428 = (+.f64 %12 %42)
+%429 = (+.f64 %188 %65)
+%430 = (+.f64 %159 %109)
+%431 = (+.f64 %374 W)
+%432 = (+.f64 %317 %49)
+%433 = (+.f64 %16 %177)
+%434 = (+.f64 %14 %100)
+%435 = (+.f64 %113 %162)
+%436 = (+.f64 %307 d)
+%437 = (+.f64 %252 %31)
+%438 = (+.f64 %162 %113)
+%439 = (+.f64 %49 %317)
+%440 = (+.f64 %177 %16)
+%441 = (+.f64 %151 %107)
+%442 = (+.f64 %76 %184)
+%443 = (+.f64 %65 %188)
+%444 = (+.f64 %42 %12)
+%445 = (+.f64 %31 %252)
+%446 = (+.f64 %19 %247)
+%447 = (+.f64 d %307)
+%448 = (+.f64 c %236)
+%449 = (+.f64 W %374)
+W
+a
+b
+c
+d
+%7
+%8
+%11
+%13
+%15
+%17
+%6
+%18
+(*.f64 #s(literal 1 binary64) %19)
+(pow.f64 %19 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %19 #s(literal -1 binary64)))
+(neg.f64 %24)
+(-.f64 c %26)
+(-.f64 W %28)
+%19
+(+.f64 W c)
+%32
+%33
+%35
+%37
+%38
+%40
+%31
+%41
+(*.f64 #s(literal 1 binary64) %42)
+(pow.f64 %42 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %42 #s(literal -1 binary64)))
+(neg.f64 %47)
+(fma.f64 #s(literal 1 binary64) %49 c)
+(fma.f64 #s(literal 1 binary64) %31 W)
+(fma.f64 #s(literal 1 binary64) %19 d)
+(-.f64 %49 %28)
+(-.f64 %31 %26)
+(-.f64 %19 %39)
+(-.f64 d %24)
+(-.f64 c %57)
+(-.f64 W %36)
+(+.f64 %49 c)
+%42
+(+.f64 %19 d)
+(+.f64 d %19)
+(+.f64 c %49)
+(+.f64 W %31)
+(*.f64 #s(literal 1 binary64) %65)
+(pow.f64 %65 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %65 #s(literal -1 binary64)))
+(neg.f64 %70)
+(fma.f64 #s(literal 1 binary64) %16 W)
+(-.f64 %16 %26)
+%65
+(+.f64 %16 W)
+(+.f64 W %16)
+(*.f64 #s(literal 1 binary64) %76)
+(pow.f64 %76 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %76 #s(literal -1 binary64)))
+(neg.f64 %81)
+(fma.f64 #s(literal 1 binary64) %83 W)
+(fma.f64 #s(literal 1 binary64) %16 %19)
+(fma.f64 #s(literal 1 binary64) %65 c)
+(fma.f64 #s(literal 1 binary64) %19 %16)
+(-.f64 %83 %26)
+(-.f64 %16 %24)
+(-.f64 %65 %28)
+%76
+(-.f64 c %70)
+(-.f64 W %92)
+(+.f64 %83 W)
+(+.f64 %16 %19)
+(+.f64 %65 c)
+(+.f64 %19 %16)
+(+.f64 c %65)
+(+.f64 W %83)
+(*.f64 #s(literal 1 binary64) %100)
+(pow.f64 %100 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %100 #s(literal -1 binary64)))
+(neg.f64 %105)
+(fma.f64 #s(literal 1 binary64) %107 %19)
+(fma.f64 #s(literal 1 binary64) %109 c)
+(fma.f64 #s(literal 1 binary64) %83 %49)
+(fma.f64 #s(literal 1 binary64) %16 %42)
+(fma.f64 #s(literal 1 binary64) %113 W)
+(fma.f64 #s(literal 1 binary64) %49 %83)
+(fma.f64 #s(literal 1 binary64) %76 d)
+(fma.f64 #s(literal 1 binary64) %65 %31)
+(fma.f64 #s(literal 1 binary64) %42 %16)
+(fma.f64 #s(literal 1 binary64) %31 %65)
+(fma.f64 #s(literal 1 binary64) %19 %107)
+(-.f64 %107 %24)
+(-.f64 %109 %28)
+(-.f64 %83 %57)
+(-.f64 %16 %47)
+(-.f64 %113 %26)
+%100
+(-.f64 %76 %39)
+(-.f64 %65 %36)
+(-.f64 %42 b)
+(-.f64 %31 %70)
+(-.f64 %19 %130)
+(-.f64 d %81)
+(-.f64 c %133)
+(-.f64 W %135)
+(+.f64 %107 %19)
+(+.f64 %109 c)
+(+.f64 %83 %49)
+(+.f64 %16 %42)
+(+.f64 %113 W)
+(+.f64 %49 %83)
+(+.f64 %76 d)
+(+.f64 %65 %31)
+(+.f64 %42 %16)
+(+.f64 %31 %65)
+(+.f64 %19 %107)
+(+.f64 d %76)
+(+.f64 c %109)
+(+.f64 W %113)
+(*.f64 #s(literal 1 binary64) %151)
+(pow.f64 %151 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %151 #s(literal -1 binary64)))
+(neg.f64 %157)
+(fma.f64 #s(literal 1 binary64) %159 W)
+(fma.f64 #s(literal 1 binary64) %14 %19)
+(fma.f64 #s(literal 1 binary64) %162 c)
+(fma.f64 #s(literal 1 binary64) %19 %14)
+(-.f64 %159 %26)
+(-.f64 %14 %24)
+(-.f64 %162 %28)
+%151
+(-.f64 c %156)
+(-.f64 W %169)
+(+.f64 %159 W)
+(+.f64 %14 %19)
+(+.f64 %162 c)
+(+.f64 %19 %14)
+(+.f64 c %162)
+(+.f64 W %159)
+(*.f64 #s(literal 1 binary64) %177)
+(pow.f64 %177 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %177 #s(literal -1 binary64)))
+(neg.f64 %182)
+(fma.f64 #s(literal 1 binary64) %184 %19)
+(fma.f64 #s(literal 1 binary64) %186 c)
+(fma.f64 #s(literal 1 binary64) %188 W)
+(fma.f64 #s(literal 1 binary64) %159 %49)
+(fma.f64 #s(literal 1 binary64) %14 %42)
+(fma.f64 #s(literal 1 binary64) %162 %31)
+(fma.f64 #s(literal 1 binary64) %49 %159)
+(fma.f64 #s(literal 1 binary64) %151 d)
+(fma.f64 #s(literal 1 binary64) %42 %14)
+(fma.f64 #s(literal 1 binary64) %31 %162)
+(fma.f64 #s(literal 1 binary64) %19 %184)
+(-.f64 %184 %24)
+(-.f64 %186 %28)
+(-.f64 %188 %26)
+(-.f64 %159 %57)
+(-.f64 %14 %47)
+(-.f64 %162 %36)
+(-.f64 %49 %169)
+(-.f64 %151 %39)
+%177
+(-.f64 %31 %156)
+(-.f64 %19 %207)
+(-.f64 d %157)
+(-.f64 c %210)
+(-.f64 W %212)
+(+.f64 %184 %19)
+(+.f64 %186 c)
+(+.f64 %188 W)
+(+.f64 %159 %49)
+(+.f64 %14 %42)
+(+.f64 %162 %31)
+(+.f64 %49 %159)
+(+.f64 %151 d)
+(+.f64 %42 %14)
+(+.f64 %31 %162)
+(+.f64 %19 %184)
+(+.f64 d %151)
+(+.f64 c %186)
+(+.f64 W %188)
+%228
+%229
+%231
+%232
+%233
+%234
+%49
+%235
+(*.f64 #s(literal 1 binary64) %236)
+(pow.f64 %236 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %236 #s(literal -1 binary64)))
+(neg.f64 %241)
+(fma.f64 #s(literal 1 binary64) %107 %162)
+(fma.f64 #s(literal 1 binary64) %109 %14)
+(fma.f64 #s(literal 1 binary64) %184 %65)
+(fma.f64 #s(literal 1 binary64) %186 %16)
+(fma.f64 #s(literal 1 binary64) %247 W)
+(fma.f64 #s(literal 1 binary64) %12 %49)
+(fma.f64 #s(literal 1 binary64) %16 %186)
+(fma.f64 #s(literal 1 binary64) %14 %109)
+(fma.f64 #s(literal 1 binary64) %252 d)
+(fma.f64 #s(literal 1 binary64) %162 %107)
+(fma.f64 #s(literal 1 binary64) %49 %12)
+(fma.f64 #s(literal 1 binary64) %65 %184)
+(-.f64 %107 %156)
+(-.f64 %109 a)
+(-.f64 %184 %70)
+(-.f64 %186 b)
+(-.f64 %247 %26)
+(-.f64 %12 %57)
+(-.f64 %16 %210)
+(-.f64 %14 %133)
+(-.f64 %252 %39)
+(-.f64 %162 %130)
+%236
+(-.f64 %65 %207)
+(-.f64 d %268)
+(-.f64 W %270)
+(+.f64 %107 %162)
+(+.f64 %109 %14)
+(+.f64 %184 %65)
+(+.f64 %186 %16)
+(+.f64 %247 W)
+(+.f64 %12 %49)
+(+.f64 %16 %186)
+(+.f64 %14 %109)
+(+.f64 %252 d)
+(+.f64 %162 %107)
+(+.f64 %49 %12)
+(+.f64 %65 %184)
+(+.f64 d %252)
+(+.f64 W %247)
+(*.f64 #s(literal 1 binary64) %252)
+(pow.f64 %252 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %252 #s(literal -1 binary64)))
+(neg.f64 %268)
+(fma.f64 #s(literal 1 binary64) %12 W)
+(fma.f64 #s(literal 1 binary64) %16 %162)
+(fma.f64 #s(literal 1 binary64) %14 %65)
+(fma.f64 #s(literal 1 binary64) %162 %16)
+(fma.f64 #s(literal 1 binary64) %65 %14)
+(-.f64 %12 %26)
+(-.f64 %16 %156)
+(-.f64 %14 %70)
+%252
+(-.f64 %65 a)
+(-.f64 W %6)
+(+.f64 %12 W)
+(+.f64 %16 %162)
+(+.f64 %14 %65)
+(+.f64 %162 %16)
+(+.f64 %65 %14)
+(+.f64 W %12)
+%308
+%309
+%311
+%313
+%314
+%315
+%316
+%318
+%319
+%320
+%321
+%322
+%323
+%324
+%325
+%326
+%327
+%328
+%329
+%330
+%331
+%332
+%333
+%334
+%307
+%335
+%336
+%337
+%338
+%340
+%341
+%342
+%343
+%344
+%345
+%346
+%347
+%348
+%349
+%350
+%351
+%352
+%353
+%354
+%356
+%357
+%359
+%362
+%363
+%364
+%365
+%366
+%367
+%368
+%369
+%370
+%371
+%372
+%373
+%375
+%376
+%377
+%378
+%379
+%380
+%381
+%382
+%383
+%384
+%385
+%386
+%387
+%388
+%389
+%390
+%391
+%392
+%393
+%394
+%395
+%396
+%397
+%398
+%399
+%400
+%401
+%402
+%403
+%404
+%405
+%406
+%407
+%408
+%409
+%355
+%410
+%411
+%412
+%413
+%414
+%415
+%416
+%417
+%418
+%419
+%420
+%421
+%422
+%423
+%424
+%425
+%426
+%427
+%428
+%429
+%430
+%431
+%432
+%433
+%434
+%435
+%436
+%437
+%438
+%439
+%440
+%441
+%442
+%443
+%444
+%445
+%446
+%447
+%448
+%449
+%308
+%309
+%311
+%313
+%314
+%315
+%316
+%318
+%319
+%320
+%321
+%322
+%323
+%324
+%325
+%326
+%327
+%328
+%329
+%330
+%331
+%332
+%333
+%334
+%307
+%335
+%336
+%337
+%338
+%340
+%341
+%342
+%343
+%344
+%345
+%346
+%347
+%348
+%349
+%350
+%351
+%352
+%353
+%354
+%356
+%357
+%359
+%362
+%363
+%364
+%365
+%366
+%367
+%368
+%369
+%370
+%371
+%372
+%373
+%375
+%376
+%377
+%378
+%379
+%380
+%381
+%382
+%383
+%384
+%385
+%386
+%387
+%388
+%389
+%390
+%391
+%392
+%393
+%394
+%395
+%396
+%397
+%398
+%399
+%400
+%401
+%402
+%403
+%404
+%405
+%406
+%407
+%408
+%409
+%355
+%410
+%411
+%412
+%413
+%414
+%415
+%416
+%417
+%418
+%419
+%420
+%421
+%422
+%423
+%424
+%425
+%426
+%427
+%428
+%429
+%430
+%431
+%432
+%433
+%434
+%435
+%436
+%437
+%438
+%439
+%440
+%441
+%442
+%443
+%444
+%445
+%446
+%447
+%448
+%449
+%356
+%357
+%359
+%362
+%363
+%364
+%365
+%366
+%367
+%368
+%369
+%370
+%371
+%372
+%373
+%375
+%376
+%377
+%378
+%379
+%380
+%381
+%382
+%383
+%384
+%385
+%386
+%387
+%388
+%389
+%390
+%391
+%392
+%393
+%394
+%395
+%396
+%397
+%398
+%399
+%400
+%401
+%402
+%403
+%404
+%405
+%406
+%407
+%408
+%409
+%355
+%410
+%411
+%412
+%413
+%414
+%415
+%416
+%417
+%418
+%419
+%420
+%421
+%422
+%423
+%424
+%425
+%426
+%427
+%428
+%429
+%430
+%431
+%432
+%433
+%434
+%435
+%436
+%437
+%438
+%439
+%440
+%441
+%442
+%443
+%444
+%445
+%446
+%447
+%448
+%449
+%7
+%8
+%11
+%13
+%15
+%17
+%6
+%18
+(*.f64 #s(literal 1 binary64) %169)
+(pow.f64 %169 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %169 #s(literal -1 binary64)))
+(neg.f64 %159)
+(fma.f64 #s(literal 1 binary64) %28 a)
+(-.f64 %28 %14)
+%169
+(+.f64 %28 a)
+(+.f64 a %28)
+(*.f64 #s(literal 1 binary64) %339)
+(pow.f64 %339 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %339 #s(literal -1 binary64)))
+(neg.f64 %317)
+(fma.f64 #s(literal 1 binary64) %92 a)
+(fma.f64 #s(literal 1 binary64) %28 %6)
+(fma.f64 #s(literal 1 binary64) %169 b)
+(fma.f64 #s(literal 1 binary64) %6 %28)
+(-.f64 %92 %14)
+(-.f64 %28 %12)
+(-.f64 %169 %16)
+%339
+(-.f64 b %159)
+(-.f64 a %83)
+(+.f64 %92 a)
+(+.f64 %28 %6)
+(+.f64 %169 b)
+(+.f64 %6 %28)
+(+.f64 b %169)
+(+.f64 a %92)
+%32
+%33
+%35
+%37
+%38
+%40
+%31
+%41
+%228
+%229
+%231
+%232
+%233
+%234
+%49
+%235
+(*.f64 #s(literal 1 binary64) %113)
+(pow.f64 %113 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %113 #s(literal -1 binary64)))
+(neg.f64 %135)
+(fma.f64 #s(literal 1 binary64) %107 c)
+(fma.f64 #s(literal 1 binary64) %83 d)
+(fma.f64 #s(literal 1 binary64) %16 %31)
+(fma.f64 #s(literal 1 binary64) %31 %16)
+(-.f64 %107 %28)
+(-.f64 %83 %39)
+(-.f64 %16 %36)
+%113
+(-.f64 d %92)
+(-.f64 c %130)
+(+.f64 %107 c)
+(+.f64 %83 d)
+(+.f64 %16 %31)
+(+.f64 %31 %16)
+(+.f64 d %83)
+(+.f64 c %107)
+(*.f64 #s(literal 1 binary64) %374)
+(pow.f64 %374 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %374 #s(literal -1 binary64)))
+(neg.f64 %360)
+(fma.f64 #s(literal 1 binary64) %107 %159)
+(fma.f64 #s(literal 1 binary64) %184 %83)
+(fma.f64 #s(literal 1 binary64) %247 c)
+(fma.f64 #s(literal 1 binary64) %83 %184)
+(fma.f64 #s(literal 1 binary64) %12 %31)
+(fma.f64 #s(literal 1 binary64) %188 %16)
+(fma.f64 #s(literal 1 binary64) %159 %107)
+(fma.f64 #s(literal 1 binary64) %317 d)
+(fma.f64 #s(literal 1 binary64) %16 %188)
+(fma.f64 #s(literal 1 binary64) %14 %113)
+(fma.f64 #s(literal 1 binary64) %113 %14)
+(fma.f64 #s(literal 1 binary64) %31 %12)
+(-.f64 %107 %169)
+(-.f64 %184 %92)
+(-.f64 %247 %28)
+(-.f64 %83 %207)
+(-.f64 %12 %36)
+(-.f64 %188 b)
+(-.f64 %159 %130)
+(-.f64 %317 %39)
+(-.f64 %16 %212)
+(-.f64 %14 %135)
+%374
+(-.f64 %31 %6)
+(-.f64 d %339)
+(-.f64 c %270)
+(+.f64 %107 %159)
+(+.f64 %184 %83)
+(+.f64 %247 c)
+(+.f64 %83 %184)
+(+.f64 %12 %31)
+(+.f64 %188 %16)
+(+.f64 %159 %107)
+(+.f64 %317 d)
+(+.f64 %16 %188)
+(+.f64 %14 %113)
+(+.f64 %113 %14)
+(+.f64 %31 %12)
+(+.f64 d %317)
+(+.f64 c %247)
+%356
+%357
+%359
+%362
+%363
+%364
+%365
+%366
+%367
+%368
+%369
+%370
+%371
+%372
+%373
+%375
+%376
+%377
+%378
+%379
+%380
+%381
+%382
+%383
+%384
+%385
+%386
+%387
+%388
+%389
+%390
+%391
+%392
+%393
+%394
+%395
+%396
+%397
+%398
+%399
+%400
+%401
+%402
+%403
+%404
+%405
+%406
+%407
+%408
+%409
+%355
+%410
+%411
+%412
+%413
+%414
+%415
+%416
+%417
+%418
+%419
+%420
+%421
+%422
+%423
+%424
+%425
+%426
+%427
+%428
+%429
+%430
+%431
+%432
+%433
+%434
+%435
+%436
+%437
+%438
+%439
+%440
+%441
+%442
+%443
+%444
+%445
+%446
+%447
+%448
+%449
+(*.f64 #s(literal 1 binary64) %212)
+(pow.f64 %212 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %212 #s(literal -1 binary64)))
+(neg.f64 %188)
+(fma.f64 #s(literal 1 binary64) %207 %28)
+(fma.f64 #s(literal 1 binary64) %36 a)
+(fma.f64 #s(literal 1 binary64) %28 %207)
+(fma.f64 #s(literal 1 binary64) %39 %169)
+(fma.f64 #s(literal 1 binary64) %169 %39)
+(-.f64 %207 c)
+(-.f64 %36 %14)
+(-.f64 %28 %184)
+(-.f64 %39 %159)
+%212
+(-.f64 a %31)
+(+.f64 %207 %28)
+(+.f64 %36 a)
+(+.f64 %28 %207)
+(+.f64 %39 %169)
+(+.f64 %169 %39)
+(+.f64 a %36)
+%356
+%357
+%359
+%362
+%363
+%364
+%365
+%366
+%367
+%368
+%369
+%370
+%371
+%372
+%373
+%375
+%376
+%377
+%378
+%379
+%380
+%381
+%382
+%383
+%384
+%385
+%386
+%387
+%388
+%389
+%390
+%391
+%392
+%393
+%394
+%395
+%396
+%397
+%398
+%399
+%400
+%401
+%402
+%403
+%404
+%405
+%406
+%407
+%408
+%409
+%355
+%410
+%411
+%412
+%413
+%414
+%415
+%416
+%417
+%418
+%419
+%420
+%421
+%422
+%423
+%424
+%425
+%426
+%427
+%428
+%429
+%430
+%431
+%432
+%433
+%434
+%435
+%436
+%437
+%438
+%439
+%440
+%441
+%442
+%443
+%444
+%445
+%446
+%447
+%448
+%449
+(*.f64 #s(literal 1 binary64) %360)
+(pow.f64 %360 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %360 #s(literal -1 binary64)))
+(neg.f64 %374)
+(fma.f64 #s(literal 1 binary64) %130 %169)
+(fma.f64 #s(literal 1 binary64) %207 %92)
+(fma.f64 #s(literal 1 binary64) %270 %28)
+(fma.f64 #s(literal 1 binary64) %92 %207)
+(fma.f64 #s(literal 1 binary64) %135 a)
+(fma.f64 #s(literal 1 binary64) %36 %6)
+(fma.f64 #s(literal 1 binary64) %28 %270)
+(fma.f64 #s(literal 1 binary64) %39 %339)
+(fma.f64 #s(literal 1 binary64) %212 b)
+(fma.f64 #s(literal 1 binary64) %339 %39)
+(fma.f64 #s(literal 1 binary64) %169 %130)
+(fma.f64 #s(literal 1 binary64) %6 %36)
+(-.f64 %130 %159)
+(-.f64 %207 %83)
+(-.f64 %270 c)
+(-.f64 %92 %184)
+(-.f64 %135 %14)
+(-.f64 %36 %12)
+(-.f64 %28 %247)
+(-.f64 %39 %317)
+(-.f64 %212 %16)
+%360
+(-.f64 %169 %107)
+(-.f64 %6 %31)
+(-.f64 b %188)
+(-.f64 a %113)
+(+.f64 %130 %169)
+(+.f64 %207 %92)
+(+.f64 %270 %28)
+(+.f64 %92 %207)
+(+.f64 %135 a)
+(+.f64 %36 %6)
+(+.f64 %28 %270)
+(+.f64 %39 %339)
+(+.f64 %212 b)
+(+.f64 %339 %39)
+(+.f64 %169 %130)
+(+.f64 %6 %36)
+(+.f64 b %212)
+(+.f64 a %135)
+%356
+%357
+%359
+%362
+%363
+%364
+%365
+%366
+%367
+%368
+%369
+%370
+%371
+%372
+%373
+%375
+%376
+%377
+%378
+%379
+%380
+%381
+%382
+%383
+%384
+%385
+%386
+%387
+%388
+%389
+%390
+%391
+%392
+%393
+%394
+%395
+%396
+%397
+%398
+%399
+%400
+%401
+%402
+%403
+%404
+%405
+%406
+%407
+%408
+%409
+%355
+%410
+%411
+%412
+%413
+%414
+%415
+%416
+%417
+%418
+%419
+%420
+%421
+%422
+%423
+%424
+%425
+%426
+%427
+%428
+%429
+%430
+%431
+%432
+%433
+%434
+%435
+%436
+%437
+%438
+%439
+%440
+%441
+%442
+%443
+%444
+%445
+%446
+%447
+%448
+%449
+%356
+%357
+%359
+%362
+%363
+%364
+%365
+%366
+%367
+%368
+%369
+%370
+%371
+%372
+%373
+%375
+%376
+%377
+%378
+%379
+%380
+%381
+%382
+%383
+%384
+%385
+%386
+%387
+%388
+%389
+%390
+%391
+%392
+%393
+%394
+%395
+%396
+%397
+%398
+%399
+%400
+%401
+%402
+%403
+%404
+%405
+%406
+%407
+%408
+%409
+%355
+%410
+%411
+%412
+%413
+%414
+%415
+%416
+%417
+%418
+%419
+%420
+%421
+%422
+%423
+%424
+%425
+%426
+%427
+%428
+%429
+%430
+%431
+%432
+%433
+%434
+%435
+%436
+%437
+%438
+%439
+%440
+%441
+%442
+%443
+%444
+%445
+%446
+%447
+%448
+%449
+%356
+%357
+%359
+%362
+%363
+%364
+%365
+%366
+%367
+%368
+%369
+%370
+%371
+%372
+%373
+%375
+%376
+%377
+%378
+%379
+%380
+%381
+%382
+%383
+%384
+%385
+%386
+%387
+%388
+%389
+%390
+%391
+%392
+%393
+%394
+%395
+%396
+%397
+%398
+%399
+%400
+%401
+%402
+%403
+%404
+%405
+%406
+%407
+%408
+%409
+%355
+%410
+%411
+%412
+%413
+%414
+%415
+%416
+%417
+%418
+%419
+%420
+%421
+%422
+%423
+%424
+%425
+%426
+%427
+%428
+%429
+%430
+%431
+%432
+%433
+%434
+%435
+%436
+%437
+%438
+%439
+%440
+%441
+%442
+%443
+%444
+%445
+%446
+%447
+%448
+%449
+%356
+%357
+%359
+%362
+%363
+%364
+%365
+%366
+%367
+%368
+%369
+%370
+%371
+%372
+%373
+%375
+%376
+%377
+%378
+%379
+%380
+%381
+%382
+%383
+%384
+%385
+%386
+%387
+%388
+%389
+%390
+%391
+%392
+%393
+%394
+%395
+%396
+%397
+%398
+%399
+%400
+%401
+%402
+%403
+%404
+%405
+%406
+%407
+%408
+%409
+%355
+%410
+%411
+%412
+%413
+%414
+%415
+%416
+%417
+%418
+%419
+%420
+%421
+%422
+%423
+%424
+%425
+%426
+%427
+%428
+%429
+%430
+%431
+%432
+%433
+%434
+%435
+%436
+%437
+%438
+%439
+%440
+%441
+%442
+%443
+%444
+%445
+%446
+%447
+%448
+%449
+%308
+%309
+%311
+%313
+%314
+%315
+%316
+%318
+%319
+%320
+%321
+%322
+%323
+%324
+%325
+%326
+%327
+%328
+%329
+%330
+%331
+%332
+%333
+%334
+%307
+%335
+%336
+%337
+%338
+%340
+%341
+%342
+%343
+%344
+%345
+%346
+%347
+%348
+%349
+%350
+%351
+%352
+%353
+%354
+%356
+%357
+%359
+%362
+%363
+%364
+%365
+%366
+%367
+%368
+%369
+%370
+%371
+%372
+%373
+%375
+%376
+%377
+%378
+%379
+%380
+%381
+%382
+%383
+%384
+%385
+%386
+%387
+%388
+%389
+%390
+%391
+%392
+%393
+%394
+%395
+%396
+%397
+%398
+%399
+%400
+%401
+%402
+%403
+%404
+%405
+%406
+%407
+%408
+%409
+%355
+%410
+%411
+%412
+%413
+%414
+%415
+%416
+%417
+%418
+%419
+%420
+%421
+%422
+%423
+%424
+%425
+%426
+%427
+%428
+%429
+%430
+%431
+%432
+%433
+%434
+%435
+%436
+%437
+%438
+%439
+%440
+%441
+%442
+%443
+%444
+%445
+%446
+%447
+%448
+%449</pre></td></tr></table></details></dd></dl></div><div class="timeline-block timeline-reconstruct" id="timeline13"><h3><a href="#timeline13">reconstruct</a><span class="time">58.0ms (5.2%)</span></h3><dl><dt>Counts</dt><dd>1 671 → 529</dd><dt>Compiler</dt><dd><p>Compiled 14 899 to 1 126 computations (92.4% saved)</p></dd></dl></div><div class="timeline-block timeline-eval" id="timeline14"><h3><a href="#timeline14">eval</a><span class="time">7.0ms (0.6%)</span></h3><dl><dt>Compiler</dt><dd><p>Compiled 4 037 to 934 computations (76.9% saved)</p></dd></dl></div><div class="timeline-block timeline-prune" id="timeline15"><h3><a href="#timeline15">prune</a><span class="time">10.0ms (0.9%)</span></h3><dl><dt>Pruning</dt><dd><p>24 alts after pruning (16 fresh and 8 done)</p><table class="states"><thead><tr><th></th><th>Pruned</th><th>Kept</th><th>Total</th></tr></thead><tbody><tr><th>New</th><td>313</td><td>16</td><td>329</td></tr><tr><th>Fresh</th><td>0</td><td>0</td><td>0</td></tr><tr><th>Picked</th><td>3</td><td>7</td><td>10</td></tr><tr><th>Done</th><td>0</td><td>1</td><td>1</td></tr></tbody><tfoot><tr><th>Total</th><td>316</td><td>24</td><td>340</td></tr></tfoot></table></dd><dt>Taylor</dt><dd><table class="times"><thead><tr><th>Generated</th><th>Kept</th><th>% Kept</th><th># Vars</th><th>Transform</th><th>Order</th></tr></thead><tbody><tr><td>27×</td><td>9×</td><td>33.3%</td><td>2</td><td><code>0</code></td><td>0</td></tr><tr><td>71×</td><td>0×</td><td>0.0%</td><td>2</td><td><code>inf</code></td><td>1</td></tr><tr><td>32×</td><td>0×</td><td>0.0%</td><td>2</td><td><code>0</code></td><td>1</td></tr><tr><td>2×</td><td>0×</td><td>0.0%</td><td>2</td><td><code>inf</code></td><td>0</td></tr><tr><td>10×</td><td>0×</td><td>0.0%</td><td>1</td><td><code>zero</code></td><td>-1</td></tr><tr><td>59×</td><td>0×</td><td>0.0%</td><td>2</td><td><code>-inf</code></td><td>1</td></tr></tbody></table></dd><dt>Accuracy</dt><dd>100.0%</dd><dt>Counts</dt><dd>340 → 24</dd><dt>Alt Table</dt><dd><details><summary>Click to see full alt table</summary><table class="times"><thead><tr><th>Status</th><th>Accuracy</th><th>Program</th></tr></thead><tr><td><span title="Selected in a prior iteration">✓</span></td><td>99.5%</td><td><pre>(-.f64 (-.f64 W b) (-.f64 (-.f64 a c) d))</pre></td></tr><tr><td><span title="Selected for next iteration">▶</span></td><td>39.5%</td><td><pre>(-.f64 (-.f64 W b) (approx (- (- a c) d) (-.f64 a d)))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>99.5%</td><td><pre>(-.f64 (+.f64 d W) (-.f64 (+.f64 b a) c))</pre></td></tr><tr><td><span title="Selected for next iteration">▶</span></td><td>65.4%</td><td><pre>(-.f64 (+.f64 d W) (approx (- (+ b a) c) (-.f64 b c)))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>99.5%</td><td><pre>(-.f64 W (-.f64 (-.f64 (+.f64 b a) c) d))</pre></td></tr><tr><td><span title="Selected for next iteration">▶</span></td><td>65.4%</td><td><pre>(-.f64 W (-.f64 (approx (- (+ b a) c) (-.f64 b c)) d))</pre></td></tr><tr><td><span title="Selected for next iteration">▶</span></td><td>39.5%</td><td><pre>(-.f64 W (approx (- (- (+ b a) c) d) (-.f64 (+.f64 a b) d)))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>99.9%</td><td><pre>(+.f64 (+.f64 (-.f64 (-.f64 W a) b) c) d)</pre></td></tr><tr><td><span title="Selected for next iteration">▶</span></td><td>53.6%</td><td><pre>(+.f64 (approx (+ (- (- W a) b) c) (-.f64 (approx (+ W c) c) b)) d)</pre></td></tr><tr><td><span title="Selected for next iteration">▶</span></td><td>39.3%</td><td><pre>(+.f64 (approx (+ (- (- W a) b) c) (-.f64 (approx (+ W c) c) a)) d)</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>99.3%</td><td><pre>(+.f64 W (-.f64 (-.f64 (+.f64 d c) b) a))</pre></td></tr><tr><td><span title="Selected for next iteration">▶</span></td><td>39.5%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (-.f64 (-.f64 (+.f64 d W) a) b))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>65.4%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (-.f64 (+.f64 W (+.f64 c d)) b))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>43.5%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (-.f64 (+.f64 W (+.f64 c d)) a))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>39.5%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (-.f64 (+.f64 W d) (+.f64 a b)))</pre></td></tr><tr><td><span title="Selected for next iteration">▶</span></td><td>37.6%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (-.f64 (+.f64 W d) (approx (+ a b) b)))</pre></td></tr><tr><td><span title="Selected for next iteration">▶</span></td><td>39.2%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (-.f64 (approx (+ W (+ c d)) (+.f64 c d)) a))</pre></td></tr><tr><td><span title="Selected for next iteration">▶</span></td><td>43.5%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (-.f64 c (-.f64 (-.f64 a W) d)))</pre></td></tr><tr><td><span title="Selected for next iteration">▶</span></td><td>39.5%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (+.f64 (-.f64 W a) (-.f64 d b)))</pre></td></tr><tr><td><span title="Selected for next iteration">▶</span></td><td>65.4%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (+.f64 (+.f64 d c) (-.f64 W b)))</pre></td></tr><tr><td><span title="Selected for next iteration">▶</span></td><td>43.5%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (+.f64 (+.f64 d W) (-.f64 c a)))</pre></td></tr><tr><td><span title="Selected for next iteration">▶</span></td><td>65.4%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (+.f64 (+.f64 c W) (-.f64 d b)))</pre></td></tr><tr><td><span title="Selected for next iteration">▶</span></td><td>43.5%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (+.f64 (+.f64 c W) (-.f64 d a)))</pre></td></tr><tr><td><span title="Selected for next iteration">▶</span></td><td>32.0%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (approx (- (+ W d) (+ a b)) (-.f64 (+.f64 W d) a)))</pre></td></tr></table></details></dd><dt>Compiler</dt><dd><p>Compiled 192 to 59 computations (69.3% saved)</p></dd></dl></div><div class="timeline-block timeline-sample" id="timeline16"><h3><a href="#timeline16">sample</a><span class="time">0.0ms (0.0%)</span></h3><dl><dt>Calls</dt><dd><details><summary>Call 1</summary><table><thead><tr><th>Inputs</th></tr></thead><tr><td><pre></pre></td></tr></table><table><thead><tr><th>Outputs</th></tr></thead><tr><td><pre></pre></td></tr></table></details></dd></dl></div><div class="timeline-block timeline-series" id="timeline17"><h3><a href="#timeline17">series</a><span class="time">16.0ms (1.5%)</span></h3><dl><dt>Iterations</dt><dd><p>Useful iterations: 0 (0.0ms)</p><table class="times"><tr><th>Iter</th><th>Nodes</th><th>Cost</th></tr><tr><td>0</td><td>580</td><td>2187</td></tr></table></dd><dt>Stop Event</dt><dd><table class="times"><tr><td>1×</td><td>iter-limit</td></tr><tr><td>1×</td><td>saturated</td></tr></table></dd><dt>Counts</dt><dd>60 → 223</dd><dt>Calls</dt><dd><details><summary>Call 1</summary><table><thead><tr><th>Inputs</th></tr></thead><tr><td><pre>%5 = (-.f64 W a)
+%6 = (+.f64 a b)
+%7 = (+.f64 c d)
+%8 = (-.f64 W b)
+%9 = (+.f64 W d)
+%10 = (-.f64 a W)
+%11 = (-.f64 b c)
+%12 = (-.f64 c a)
+%13 = (+.f64 c W)
+%14 = (+.f64 d c)
+%15 = (+.f64 d W)
+%16 = (-.f64 d a)
+%17 = (-.f64 d b)
+%18 = (-.f64 a d)
+%19 = (-.f64 %10 d)
+%20 = (-.f64 %9 a)
+%21 = (-.f64 %6 d)
+%23 = (approx (+ W c) c)
+%26 = (approx (+ W (+ c d)) %7)
+%27 = (+ a b)
+%28 = (approx %27 b)
+%30 = (- (+ b a) c)
+%31 = (approx %30 %11)
+%34 = (approx (- (+ W d) %27) %20)
+%37 = (approx (- (- a c) d) %18)
+%39 = (approx (- %30 d) %21)
+%40 = (+.f64 %14 %8)
+%41 = (+.f64 %13 %17)
+%42 = (-.f64 %15 a)
+%43 = (-.f64 c %19)
+%44 = (+.f64 %15 %12)
+%45 = (+.f64 %13 %16)
+%46 = (-.f64 %42 b)
+%47 = (+.f64 %5 %17)
+%48 = (-.f64 %23 a)
+%51 = (+ (- (- W a) b) c)
+%52 = (approx %51 %48)
+%54 = (-.f64 %23 b)
+%55 = (approx %51 %54)
+%57 = (-.f64 %26 a)
+%58 = (+ %51 d)
+%60 = (-.f64 %9 %28)
+%70 = (-.f64 %31 d)
+W
+a
+%5
+b
+c
+d
+%6
+%7
+%8
+%9
+%10
+%11
+%12
+%13
+%14
+%15
+%16
+%17
+%18
+%19
+%20
+%21
+%23
+%26
+%28
+%31
+%34
+%37
+%39
+%40
+%41
+%42
+%43
+%44
+%45
+%46
+%47
+%48
+%52
+(+.f64 %52 d)
+%54
+%55
+(+.f64 %55 d)
+%57
+(approx %58 %57)
+%60
+(approx %58 %60)
+(approx %58 %34)
+(approx %58 %47)
+(approx %58 %46)
+(approx %58 %45)
+(approx %58 %44)
+(approx %58 %43)
+(approx %58 %41)
+(approx %58 %40)
+%70
+(-.f64 W %70)
+(-.f64 %15 %31)
+(-.f64 %8 %37)
+(-.f64 W %39)</pre></td></tr></table><table><thead><tr><th>Outputs</th></tr></thead><tr><td><pre>%9 = (*.f64 #s(literal -1 binary64) a)
+%10 = (- W a)
+%12 = (-.f64 W a)
+%14 = (*.f64 #s(literal -1 binary64) b)
+%15 = (- W b)
+%17 = (-.f64 W b)
+%19 = (+ W d)
+%21 = (+.f64 W d)
+%23 = (- a W)
+%25 = (*.f64 #s(literal -1 binary64) W)
+%26 = (+.f64 a %25)
+%28 = (+ c W)
+%30 = (+.f64 W c)
+%32 = (-.f64 a d)
+%33 = (- %23 d)
+%37 = (-.f64 d a)
+%38 = (- %19 a)
+%40 = (-.f64 %21 a)
+%42 = (+.f64 c d)
+%43 = (+ c d)
+%44 = (+ W %43)
+%46 = (+.f64 W %42)
+%48 = (+.f64 a b)
+%49 = (-.f64 d %48)
+%50 = (+ a b)
+%51 = (- %19 %50)
+%53 = (-.f64 %21 %48)
+%55 = (-.f64 %42 b)
+%57 = (+ (+ d c) %15)
+%59 = (-.f64 %46 b)
+%61 = (-.f64 %42 a)
+%62 = (- c %33)
+%64 = (-.f64 %46 a)
+%66 = (-.f64 c a)
+%67 = (+ W c)
+%68 = (- %67 a)
+%70 = (-.f64 %30 a)
+%72 = (-.f64 c %48)
+%74 = (+ (- %10 b) c)
+%76 = (-.f64 %30 %48)
+%78 = (-.f64 %42 %48)
+%79 = (+ %74 d)
+%83 = (-.f64 c b)
+%84 = (- %67 b)
+%86 = (-.f64 %30 b)
+%89 = (/.f64 a W)
+%92 = (*.f64 W (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) %89)))
+%94 = (/.f64 b W)
+%99 = (/.f64 d W)
+%100 = (+.f64 #s(literal 1 binary64) %99)
+%105 = (*.f64 W (-.f64 %89 #s(literal 1 binary64)))
+%107 = (/.f64 c W)
+%108 = (+.f64 #s(literal 1 binary64) %107)
+%118 = (+.f64 #s(literal 1 binary64) (+.f64 %107 %99))
+%121 = (+.f64 %89 %94)
+%225 = (-.f64 a W)
+%227 = (+.f64 c %9)
+%228 = (- c a)
+%230 = (+.f64 d %9)
+%231 = (- d a)
+%233 = (*.f64 #s(literal -1 binary64) d)
+%234 = (- a d)
+%240 = (+.f64 W %230)
+%242 = (-.f64 b d)
+%243 = (- %50 d)
+%245 = (-.f64 %48 d)
+%247 = (-.f64 b c)
+%249 = (- (+ b a) c)
+%251 = (-.f64 %48 c)
+%253 = (-.f64 %21 b)
+%259 = (- (- a c) d)
+%261 = (-.f64 a %42)
+%263 = (-.f64 b %42)
+%264 = (- %249 d)
+%269 = (+.f64 W (+.f64 c %230))
+%271 = (+.f64 W %227)
+%277 = (/.f64 W a)
+%279 = (*.f64 a (-.f64 %277 #s(literal 1 binary64)))
+%281 = (/.f64 b a)
+%282 = (+.f64 #s(literal 1 binary64) %281)
+%287 = (*.f64 a (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) %277)))
+%289 = (/.f64 c a)
+%293 = (/.f64 d a)
+%295 = (*.f64 a (-.f64 %293 #s(literal 1 binary64)))
+%299 = (*.f64 a (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) %293)))
+%304 = (*.f64 a (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %21 a))))
+%306 = (+.f64 %277 %293)
+%308 = (*.f64 a (-.f64 %306 #s(literal 1 binary64)))
+%324 = (+.f64 %289 %293)
+%328 = (+.f64 %277 %324)
+%332 = (+.f64 %277 %289)
+%418 = (*.f64 #s(literal -1 binary64) c)
+%419 = (- b c)
+%421 = (+.f64 d %14)
+%422 = (- d b)
+%424 = (-.f64 a c)
+%430 = (+.f64 W (+.f64 c %421))
+%433 = (+.f64 W (+.f64 c %14))
+%439 = (/.f64 a b)
+%440 = (+.f64 #s(literal 1 binary64) %439)
+%443 = (/.f64 W b)
+%447 = (/.f64 c b)
+%452 = (/.f64 d b)
+%466 = (+.f64 %447 %452)
+%470 = (+.f64 %443 %466)
+%474 = (+.f64 %443 %447)
+%551 = (+.f64 b %418)
+%553 = (+.f64 a %551)
+%560 = (-.f64 W %48)
+%562 = (/.f64 d c)
+%563 = (+.f64 #s(literal 1 binary64) %562)
+%566 = (/.f64 b c)
+%570 = (/.f64 a c)
+%575 = (/.f64 W c)
+%576 = (+.f64 #s(literal 1 binary64) %575)
+%580 = (+.f64 #s(literal 1 binary64) (+.f64 %575 %562))
+%583 = (+.f64 %570 %566)
+%692 = (+.f64 a %233)
+%697 = (+.f64 a (+.f64 b %233))
+%703 = (/.f64 c d)
+%704 = (+.f64 #s(literal 1 binary64) %703)
+%707 = (/.f64 W d)
+%708 = (+.f64 #s(literal 1 binary64) %707)
+%711 = (/.f64 a d)
+%714 = (*.f64 d (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) %711)))
+%716 = (/.f64 b d)
+%722 = (*.f64 d (-.f64 %711 #s(literal 1 binary64)))
+%730 = (+.f64 %711 %716)
+%735 = (+.f64 #s(literal 1 binary64) (+.f64 %707 %703))
+(approx W #s(literal 0 binary64))
+(approx W W)
+(approx %10 %9)
+(approx %10 %12)
+(approx %15 %14)
+(approx %15 %17)
+(approx %19 d)
+(approx %19 %21)
+(approx %23 a)
+(approx %23 %26)
+(approx %28 c)
+(approx %28 %30)
+(approx %33 %32)
+(approx %33 (-.f64 %26 d))
+(approx %38 %37)
+(approx %38 %40)
+(approx %44 %42)
+(approx %44 %46)
+(approx %51 %49)
+(approx %51 %53)
+(approx %57 %55)
+(approx %57 %59)
+(approx %62 %61)
+(approx %62 %64)
+(approx %68 %66)
+(approx %68 %70)
+(approx %74 %72)
+(approx %74 %76)
+(approx %79 %78)
+(approx %79 (-.f64 %46 %48))
+(approx %84 %83)
+(approx %84 %86)
+(approx %10 %92)
+(approx %15 (*.f64 W (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) %94))))
+(approx %19 (*.f64 W %100))
+(approx %23 %25)
+(approx %23 %105)
+(approx %28 (*.f64 W %108))
+(approx %33 (*.f64 W (-.f64 %89 %100)))
+(approx %38 (*.f64 W (-.f64 %100 %89)))
+(approx %44 (*.f64 W %118))
+(approx %51 (*.f64 W (-.f64 %100 %121)))
+(approx %57 (*.f64 W (-.f64 %118 %94)))
+(approx %62 (*.f64 W (-.f64 %118 %89)))
+(approx %68 (*.f64 W (-.f64 %108 %89)))
+(approx %74 (*.f64 W (-.f64 %108 %121)))
+(approx %79 (*.f64 W (-.f64 %118 %121)))
+(approx %84 (*.f64 W (-.f64 %108 %94)))
+(approx %10 (*.f64 #s(literal -1 binary64) %105))
+(approx %15 (*.f64 #s(literal -1 binary64) (*.f64 W (-.f64 %94 #s(literal 1 binary64)))))
+(approx %19 (*.f64 #s(literal -1 binary64) (*.f64 W (-.f64 (*.f64 #s(literal -1 binary64) %99) #s(literal 1 binary64)))))
+(approx %23 (*.f64 #s(literal -1 binary64) %92))
+(approx %28 (*.f64 #s(literal -1 binary64) (*.f64 W (-.f64 (*.f64 #s(literal -1 binary64) %107) #s(literal 1 binary64)))))
+(approx %33 (*.f64 #s(literal -1 binary64) (*.f64 W (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %32 W))))))
+(approx %38 (*.f64 #s(literal -1 binary64) (*.f64 W (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %37 W)) #s(literal 1 binary64)))))
+(approx %44 (*.f64 #s(literal -1 binary64) (*.f64 W (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %42 W)) #s(literal 1 binary64)))))
+(approx %51 (*.f64 #s(literal -1 binary64) (*.f64 W (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %49 W)) #s(literal 1 binary64)))))
+(approx %57 (*.f64 #s(literal -1 binary64) (*.f64 W (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %55 W)) #s(literal 1 binary64)))))
+(approx %62 (*.f64 #s(literal -1 binary64) (*.f64 W (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %61 W)) #s(literal 1 binary64)))))
+(approx %68 (*.f64 #s(literal -1 binary64) (*.f64 W (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %66 W)) #s(literal 1 binary64)))))
+(approx %74 (*.f64 #s(literal -1 binary64) (*.f64 W (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %72 W)) #s(literal 1 binary64)))))
+(approx %79 (*.f64 #s(literal -1 binary64) (*.f64 W (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %78 W)) #s(literal 1 binary64)))))
+(approx %84 (*.f64 #s(literal -1 binary64) (*.f64 W (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %83 W)) #s(literal 1 binary64)))))
+(approx %10 (+.f64 W %9))
+(approx %50 b)
+(approx %50 %48)
+(approx %23 %225)
+(approx %228 %227)
+(approx %231 %230)
+(approx %234 %233)
+(approx %33 (*.f64 #s(literal -1 binary64) %21))
+(approx %33 (-.f64 a %21))
+(approx %38 %240)
+(approx %243 %242)
+(approx %243 %245)
+(approx %249 %247)
+(approx %249 %251)
+(approx %51 %253)
+(approx %51 (-.f64 %240 b))
+(approx %259 (*.f64 #s(literal -1 binary64) %42))
+(approx %259 %261)
+(approx %264 %263)
+(approx %264 (-.f64 %48 %42))
+(approx %62 %269)
+(approx %68 %271)
+(approx %74 (-.f64 %271 b))
+(approx %79 (-.f64 %269 b))
+(approx %10 %279)
+(approx %50 (*.f64 a %282))
+(approx %23 %287)
+(approx %228 (*.f64 a (-.f64 %289 #s(literal 1 binary64))))
+(approx %231 %295)
+(approx %234 %299)
+(approx %33 %304)
+(approx %38 %308)
+(approx %243 (*.f64 a (-.f64 %282 %293)))
+(approx %249 (*.f64 a (-.f64 %282 %289)))
+(approx %51 (*.f64 a (-.f64 %306 %282)))
+(approx %259 (*.f64 a (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %42 a)))))
+(approx %264 (*.f64 a (-.f64 %282 %324)))
+(approx %62 (*.f64 a (-.f64 %328 #s(literal 1 binary64))))
+(approx %68 (*.f64 a (-.f64 %332 #s(literal 1 binary64))))
+(approx %74 (*.f64 a (-.f64 %332 %282)))
+(approx %79 (*.f64 a (-.f64 %328 %282)))
+(approx %10 (*.f64 #s(literal -1 binary64) %287))
+(approx %50 (*.f64 #s(literal -1 binary64) (*.f64 a (-.f64 (*.f64 #s(literal -1 binary64) %281) #s(literal 1 binary64)))))
+(approx %23 (*.f64 #s(literal -1 binary64) %279))
+(approx %228 (*.f64 #s(literal -1 binary64) (*.f64 a (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) %289)))))
+(approx %231 (*.f64 #s(literal -1 binary64) %299))
+(approx %234 (*.f64 #s(literal -1 binary64) %295))
+(approx %33 (*.f64 #s(literal -1 binary64) %308))
+(approx %38 (*.f64 #s(literal -1 binary64) %304))
+(approx %243 (*.f64 #s(literal -1 binary64) (*.f64 a (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %242 a)) #s(literal 1 binary64)))))
+(approx %249 (*.f64 #s(literal -1 binary64) (*.f64 a (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %247 a)) #s(literal 1 binary64)))))
+(approx %51 (*.f64 #s(literal -1 binary64) (*.f64 a (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %253 a))))))
+(approx %259 (*.f64 #s(literal -1 binary64) (*.f64 a (-.f64 %324 #s(literal 1 binary64)))))
+(approx %264 (*.f64 #s(literal -1 binary64) (*.f64 a (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %263 a)) #s(literal 1 binary64)))))
+(approx %62 (*.f64 #s(literal -1 binary64) (*.f64 a (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %46 a))))))
+(approx %68 (*.f64 #s(literal -1 binary64) (*.f64 a (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %30 a))))))
+(approx %74 (*.f64 #s(literal -1 binary64) (*.f64 a (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %86 a))))))
+(approx %79 (*.f64 #s(literal -1 binary64) (*.f64 a (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %59 a))))))
+(approx %15 (+.f64 W %14))
+(approx %419 %418)
+(approx %422 %421)
+(approx %249 %424)
+(approx %51 (-.f64 (+.f64 W %421) a))
+(approx %57 %430)
+(approx %74 (-.f64 %433 a))
+(approx %79 (-.f64 %430 a))
+(approx %84 %433)
+(approx %50 (*.f64 b %440))
+(approx %15 (*.f64 b (-.f64 %443 #s(literal 1 binary64))))
+(approx %419 (*.f64 b (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) %447))))
+(approx %422 (*.f64 b (-.f64 %452 #s(literal 1 binary64))))
+(approx %243 (*.f64 b (-.f64 %440 %452)))
+(approx %249 (*.f64 b (-.f64 %440 %447)))
+(approx %51 (*.f64 b (-.f64 (+.f64 %443 %452) %440)))
+(approx %264 (*.f64 b (-.f64 %440 %466)))
+(approx %57 (*.f64 b (-.f64 %470 #s(literal 1 binary64))))
+(approx %74 (*.f64 b (-.f64 %474 %440)))
+(approx %79 (*.f64 b (-.f64 %470 %440)))
+(approx %84 (*.f64 b (-.f64 %474 #s(literal 1 binary64))))
+(approx %50 (*.f64 #s(literal -1 binary64) (*.f64 b (-.f64 (*.f64 #s(literal -1 binary64) %439) #s(literal 1 binary64)))))
+(approx %15 (*.f64 #s(literal -1 binary64) (*.f64 b (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) %443)))))
+(approx %419 (*.f64 #s(literal -1 binary64) (*.f64 b (-.f64 %447 #s(literal 1 binary64)))))
+(approx %422 (*.f64 #s(literal -1 binary64) (*.f64 b (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) %452)))))
+(approx %243 (*.f64 #s(literal -1 binary64) (*.f64 b (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %32 b)) #s(literal 1 binary64)))))
+(approx %249 (*.f64 #s(literal -1 binary64) (*.f64 b (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %424 b)) #s(literal 1 binary64)))))
+(approx %51 (*.f64 #s(literal -1 binary64) (*.f64 b (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %40 b))))))
+(approx %264 (*.f64 #s(literal -1 binary64) (*.f64 b (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %261 b)) #s(literal 1 binary64)))))
+(approx %57 (*.f64 #s(literal -1 binary64) (*.f64 b (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %46 b))))))
+(approx %74 (*.f64 #s(literal -1 binary64) (*.f64 b (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %70 b))))))
+(approx %79 (*.f64 #s(literal -1 binary64) (*.f64 b (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %64 b))))))
+(approx %84 (*.f64 #s(literal -1 binary64) (*.f64 b (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %30 b))))))
+(approx %419 %551)
+(approx %249 %553)
+(approx %259 (-.f64 (+.f64 a %418) d))
+(approx %264 (-.f64 %553 d))
+(approx %74 %560)
+(approx %43 (*.f64 c %563))
+(approx %419 (*.f64 c (-.f64 %566 #s(literal 1 binary64))))
+(approx %228 (*.f64 c (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) %570))))
+(approx %28 (*.f64 c %576))
+(approx %44 (*.f64 c %580))
+(approx %249 (*.f64 c (-.f64 %583 #s(literal 1 binary64))))
+(approx %259 (*.f64 c (-.f64 %570 %563)))
+(approx %264 (*.f64 c (-.f64 %583 %563)))
+(approx %57 (*.f64 c (-.f64 %580 %566)))
+(approx %62 (*.f64 c (-.f64 %580 %570)))
+(approx %68 (*.f64 c (-.f64 %576 %570)))
+(approx %74 (*.f64 c (-.f64 %576 %583)))
+(approx %79 (*.f64 c (-.f64 %580 %583)))
+(approx %84 (*.f64 c (-.f64 %576 %566)))
+(approx %43 (*.f64 #s(literal -1 binary64) (*.f64 c (-.f64 (*.f64 #s(literal -1 binary64) %562) #s(literal 1 binary64)))))
+(approx %419 (*.f64 #s(literal -1 binary64) (*.f64 c (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) %566)))))
+(approx %228 (*.f64 #s(literal -1 binary64) (*.f64 c (-.f64 %570 #s(literal 1 binary64)))))
+(approx %28 (*.f64 #s(literal -1 binary64) (*.f64 c (-.f64 (*.f64 #s(literal -1 binary64) %575) #s(literal 1 binary64)))))
+(approx %44 (*.f64 #s(literal -1 binary64) (*.f64 c (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %21 c)) #s(literal 1 binary64)))))
+(approx %249 (*.f64 #s(literal -1 binary64) (*.f64 c (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %48 c))))))
+(approx %259 (*.f64 #s(literal -1 binary64) (*.f64 c (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %32 c))))))
+(approx %264 (*.f64 #s(literal -1 binary64) (*.f64 c (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %245 c))))))
+(approx %57 (*.f64 #s(literal -1 binary64) (*.f64 c (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %253 c)) #s(literal 1 binary64)))))
+(approx %62 (*.f64 #s(literal -1 binary64) (*.f64 c (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %40 c)) #s(literal 1 binary64)))))
+(approx %68 (*.f64 #s(literal -1 binary64) (*.f64 c (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %12 c)) #s(literal 1 binary64)))))
+(approx %74 (*.f64 #s(literal -1 binary64) (*.f64 c (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %560 c)) #s(literal 1 binary64)))))
+(approx %79 (*.f64 #s(literal -1 binary64) (*.f64 c (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %53 c)) #s(literal 1 binary64)))))
+(approx %84 (*.f64 #s(literal -1 binary64) (*.f64 c (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %17 c)) #s(literal 1 binary64)))))
+(approx %422 (-.f64 d b))
+(approx %234 %692)
+(approx %33 (-.f64 %692 W))
+(approx %243 %697)
+(approx %259 (-.f64 %692 c))
+(approx %264 (-.f64 %697 c))
+(approx %43 (*.f64 d %704))
+(approx %19 (*.f64 d %708))
+(approx %231 %714)
+(approx %422 (*.f64 d (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) %716))))
+(approx %234 %722)
+(approx %33 (*.f64 d (-.f64 %711 %708)))
+(approx %38 (*.f64 d (-.f64 %708 %711)))
+(approx %243 (*.f64 d (-.f64 %730 #s(literal 1 binary64))))
+(approx %44 (*.f64 d %735))
+(approx %51 (*.f64 d (-.f64 %708 %730)))
+(approx %259 (*.f64 d (-.f64 %711 %704)))
+(approx %264 (*.f64 d (-.f64 %730 %704)))
+(approx %57 (*.f64 d (-.f64 %735 %716)))
+(approx %62 (*.f64 d (-.f64 %735 %711)))
+(approx %79 (*.f64 d (-.f64 %735 %730)))
+(approx %43 (*.f64 #s(literal -1 binary64) (*.f64 d (-.f64 (*.f64 #s(literal -1 binary64) %703) #s(literal 1 binary64)))))
+(approx %19 (*.f64 #s(literal -1 binary64) (*.f64 d (-.f64 (*.f64 #s(literal -1 binary64) %707) #s(literal 1 binary64)))))
+(approx %231 (*.f64 #s(literal -1 binary64) %722))
+(approx %422 (*.f64 #s(literal -1 binary64) (*.f64 d (-.f64 %716 #s(literal 1 binary64)))))
+(approx %234 (*.f64 #s(literal -1 binary64) %714))
+(approx %33 (*.f64 #s(literal -1 binary64) (*.f64 d (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %225 d))))))
+(approx %38 (*.f64 #s(literal -1 binary64) (*.f64 d (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %12 d)) #s(literal 1 binary64)))))
+(approx %243 (*.f64 #s(literal -1 binary64) (*.f64 d (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %48 d))))))
+(approx %44 (*.f64 #s(literal -1 binary64) (*.f64 d (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %30 d)) #s(literal 1 binary64)))))
+(approx %51 (*.f64 #s(literal -1 binary64) (*.f64 d (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %560 d)) #s(literal 1 binary64)))))
+(approx %259 (*.f64 #s(literal -1 binary64) (*.f64 d (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %424 d))))))
+(approx %264 (*.f64 #s(literal -1 binary64) (*.f64 d (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %251 d))))))
+(approx %57 (*.f64 #s(literal -1 binary64) (*.f64 d (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %86 d)) #s(literal 1 binary64)))))
+(approx %62 (*.f64 #s(literal -1 binary64) (*.f64 d (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %70 d)) #s(literal 1 binary64)))))
+(approx %79 (*.f64 #s(literal -1 binary64) (*.f64 d (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %76 d)) #s(literal 1 binary64)))))</pre></td></tr></table></details></dd><dt>Calls</dt><dd><p>15 calls:</p><canvas id="calls-3" title="Weighted histogram; height corresponds to percentage of runtime in that bucket."></canvas><script>histogram('calls-3', [0.35009765625,0.341552734375,0.272705078125,0.279296875,0.2646484375,0.21142578125,0.280517578125,0.266845703125,0.21142578125,0.35498046875,0.368896484375,0.34375,0.548583984375,0.311279296875,0.299072265625])</script><table class="times"><thead><tr><th>Time</th><th>Variable</th><th>Point</th></tr></thead><tr><td>1.0ms</td><td><pre>W</pre></td><td>-inf</td></tr><tr><td>0.0ms</td><td><pre>a</pre></td><td>inf</td></tr><tr><td>0.0ms</td><td><pre>a</pre></td><td>-inf</td></tr><tr><td>0.0ms</td><td><pre>d</pre></td><td>-inf</td></tr><tr><td>0.0ms</td><td><pre>a</pre></td><td>0</td></tr></table></dd></dl></div><div class="timeline-block timeline-rewrite" id="timeline18"><h3><a href="#timeline18">rewrite</a><span class="time">55.0ms (4.9%)</span></h3><dl><dt>Iterations</dt><dd><p>Useful iterations: 0 (0.0ms)</p><table class="times"><tr><th>Iter</th><th>Nodes</th><th>Cost</th></tr><tr><td>0</td><td>47</td><td>340</td></tr><tr><td>1</td><td>266</td><td>340</td></tr><tr><td>2</td><td>833</td><td>340</td></tr><tr><td>3</td><td>1774</td><td>340</td></tr><tr><td>4</td><td>1886</td><td>340</td></tr><tr><td>5</td><td>2346</td><td>340</td></tr><tr><td>0</td><td>3957</td><td>340</td></tr><tr><td>0</td><td>4223</td><td>340</td></tr></table></dd><dt>Stop Event</dt><dd><table class="times"><tr><td>1×</td><td>iter-limit</td></tr><tr><td>1×</td><td>iter-limit</td></tr><tr><td>1×</td><td>node-limit</td></tr><tr><td>1×</td><td>saturated</td></tr></table></dd><dt>Counts</dt><dd>60 → 2 388</dd><dt>Calls</dt><dd><details><summary>Call 1</summary><table><thead><tr><th>Inputs</th></tr></thead><tr><td><pre>%5 = (-.f64 W a)
+%6 = (+.f64 a b)
+%7 = (+.f64 c d)
+%8 = (-.f64 W b)
+%9 = (+.f64 W d)
+%10 = (-.f64 a W)
+%11 = (-.f64 b c)
+%12 = (-.f64 c a)
+%13 = (+.f64 c W)
+%14 = (+.f64 d c)
+%15 = (+.f64 d W)
+%16 = (-.f64 d a)
+%17 = (-.f64 d b)
+%18 = (-.f64 a d)
+%19 = (-.f64 %10 d)
+%20 = (-.f64 %9 a)
+%21 = (-.f64 %6 d)
+%23 = (approx (+ W c) c)
+%26 = (approx (+ W (+ c d)) %7)
+%27 = (+ a b)
+%28 = (approx %27 b)
+%30 = (- (+ b a) c)
+%31 = (approx %30 %11)
+%34 = (approx (- (+ W d) %27) %20)
+%37 = (approx (- (- a c) d) %18)
+%39 = (approx (- %30 d) %21)
+%40 = (+.f64 %14 %8)
+%41 = (+.f64 %13 %17)
+%42 = (-.f64 %15 a)
+%43 = (-.f64 c %19)
+%44 = (+.f64 %15 %12)
+%45 = (+.f64 %13 %16)
+%46 = (-.f64 %42 b)
+%47 = (+.f64 %5 %17)
+%48 = (-.f64 %23 a)
+%51 = (+ (- (- W a) b) c)
+%52 = (approx %51 %48)
+%54 = (-.f64 %23 b)
+%55 = (approx %51 %54)
+%57 = (-.f64 %26 a)
+%58 = (+ %51 d)
+%60 = (-.f64 %9 %28)
+%70 = (-.f64 %31 d)
+W
+a
+%5
+b
+c
+d
+%6
+%7
+%8
+%9
+%10
+%11
+%12
+%13
+%14
+%15
+%16
+%17
+%18
+%19
+%20
+%21
+%23
+%26
+%28
+%31
+%34
+%37
+%39
+%40
+%41
+%42
+%43
+%44
+%45
+%46
+%47
+%48
+%52
+(+.f64 %52 d)
+%54
+%55
+(+.f64 %55 d)
+%57
+(approx %58 %57)
+%60
+(approx %58 %60)
+(approx %58 %34)
+(approx %58 %47)
+(approx %58 %46)
+(approx %58 %45)
+(approx %58 %44)
+(approx %58 %43)
+(approx %58 %41)
+(approx %58 %40)
+%70
+(-.f64 W %70)
+(-.f64 %15 %31)
+(-.f64 %8 %37)
+(-.f64 W %39)</pre></td></tr></table><table><thead><tr><th>Outputs</th></tr></thead><tr><td><pre>%6 = (-.f64 W a)
+%12 = (-.f64 a W)
+%14 = (neg.f64 a)
+%16 = (neg.f64 W)
+%20 = (+.f64 b a)
+%21 = (*.f64 #s(literal 1 binary64) %20)
+%22 = (pow.f64 %20 #s(literal 1 binary64))
+%24 = (/.f64 #s(literal 1 binary64) (pow.f64 %20 #s(literal -1 binary64)))
+%25 = (neg.f64 %20)
+%26 = (neg.f64 %25)
+%27 = (-.f64 b %14)
+%28 = (neg.f64 b)
+%29 = (-.f64 a %28)
+%30 = (+.f64 a b)
+%31 = (+.f64 d c)
+%32 = (*.f64 #s(literal 1 binary64) %31)
+%33 = (pow.f64 %31 #s(literal 1 binary64))
+%35 = (/.f64 #s(literal 1 binary64) (pow.f64 %31 #s(literal -1 binary64)))
+%36 = (neg.f64 %31)
+%37 = (neg.f64 %36)
+%38 = (neg.f64 c)
+%39 = (-.f64 d %38)
+%40 = (neg.f64 d)
+%41 = (-.f64 c %40)
+%42 = (+.f64 c d)
+%43 = (-.f64 W b)
+%48 = (-.f64 b W)
+%54 = (+.f64 d W)
+%55 = (*.f64 #s(literal 1 binary64) %54)
+%56 = (pow.f64 %54 #s(literal 1 binary64))
+%58 = (/.f64 #s(literal 1 binary64) (pow.f64 %54 #s(literal -1 binary64)))
+%59 = (neg.f64 %54)
+%60 = (neg.f64 %59)
+%61 = (-.f64 d %16)
+%62 = (-.f64 W %40)
+%63 = (+.f64 W d)
+%73 = (-.f64 b c)
+%78 = (-.f64 c b)
+%84 = (-.f64 c a)
+%89 = (-.f64 a c)
+%95 = (+.f64 c W)
+%96 = (*.f64 #s(literal 1 binary64) %95)
+%97 = (pow.f64 %95 #s(literal 1 binary64))
+%99 = (/.f64 #s(literal 1 binary64) (pow.f64 %95 #s(literal -1 binary64)))
+%100 = (neg.f64 %95)
+%101 = (neg.f64 %100)
+%102 = (-.f64 c %16)
+%103 = (-.f64 W %38)
+%104 = (+.f64 W c)
+%105 = (-.f64 d a)
+%110 = (-.f64 a d)
+%116 = (-.f64 d b)
+%121 = (-.f64 b d)
+%136 = (-.f64 %110 W)
+%141 = (-.f64 %54 a)
+%159 = (*.f64 #s(literal 1 binary64) %141)
+%160 = (pow.f64 %141 #s(literal 1 binary64))
+%162 = (/.f64 #s(literal 1 binary64) (pow.f64 %141 #s(literal -1 binary64)))
+%163 = (neg.f64 %136)
+%164 = (fma.f64 #s(literal 1 binary64) %14 %54)
+%165 = (fma.f64 #s(literal 1 binary64) %105 W)
+%166 = (fma.f64 #s(literal 1 binary64) %54 %14)
+%167 = (fma.f64 #s(literal 1 binary64) %6 d)
+%168 = (-.f64 %14 %59)
+%169 = (-.f64 %105 %16)
+%170 = (-.f64 d %12)
+%171 = (-.f64 %6 %40)
+%172 = (-.f64 W %110)
+%173 = (+.f64 %14 %54)
+%174 = (+.f64 %105 W)
+%175 = (+.f64 %54 %14)
+%176 = (+.f64 d %6)
+%177 = (+.f64 %6 d)
+%178 = (+.f64 W %105)
+%179 = (-.f64 %20 d)
+%184 = (-.f64 %116 a)
+%201 = (+.f64 %95 d)
+%206 = (neg.f64 %201)
+%222 = (-.f64 %20 c)
+%227 = (-.f64 %78 a)
+%244 = (-.f64 %141 b)
+%245 = (*.f64 #s(literal 1 binary64) %244)
+%246 = (pow.f64 %244 #s(literal 1 binary64))
+%248 = (/.f64 #s(literal 1 binary64) (pow.f64 %244 #s(literal -1 binary64)))
+%249 = (-.f64 %20 W)
+%250 = (-.f64 %249 d)
+%251 = (neg.f64 %250)
+%252 = (-.f64 %54 b)
+%253 = (fma.f64 #s(literal 1 binary64) %252 %14)
+%254 = (fma.f64 #s(literal 1 binary64) %25 %54)
+%255 = (fma.f64 #s(literal 1 binary64) %184 W)
+%256 = (fma.f64 #s(literal 1 binary64) %14 %252)
+%257 = (fma.f64 #s(literal 1 binary64) %28 %141)
+%258 = (-.f64 %43 a)
+%259 = (fma.f64 #s(literal 1 binary64) %258 d)
+%260 = (fma.f64 #s(literal 1 binary64) %141 %28)
+%261 = (fma.f64 #s(literal 1 binary64) %116 %6)
+%262 = (fma.f64 #s(literal 1 binary64) %105 %43)
+%263 = (fma.f64 #s(literal 1 binary64) %54 %25)
+%264 = (fma.f64 #s(literal 1 binary64) %43 %105)
+%265 = (fma.f64 #s(literal 1 binary64) %6 %116)
+%266 = (-.f64 %252 a)
+%267 = (-.f64 %25 %59)
+%268 = (-.f64 %184 %16)
+%269 = (-.f64 %48 d)
+%270 = (-.f64 %14 %269)
+%271 = (-.f64 %28 %136)
+%272 = (-.f64 %258 %40)
+%273 = (-.f64 %116 %12)
+%274 = (-.f64 %105 %48)
+%275 = (-.f64 %54 %20)
+%276 = (-.f64 %43 %110)
+%277 = (-.f64 d %249)
+%278 = (-.f64 %6 %121)
+%279 = (-.f64 W %179)
+%280 = (+.f64 %252 %14)
+%281 = (+.f64 %25 %54)
+%282 = (+.f64 %184 W)
+%283 = (+.f64 %14 %252)
+%284 = (+.f64 %28 %141)
+%285 = (+.f64 %258 d)
+%286 = (+.f64 %141 %28)
+%287 = (+.f64 %116 %6)
+%288 = (+.f64 %105 %43)
+%289 = (+.f64 %54 %25)
+%290 = (+.f64 %43 %105)
+%291 = (+.f64 d %258)
+%292 = (+.f64 %6 %116)
+%293 = (+.f64 W %184)
+%294 = (-.f64 %89 d)
+%299 = (-.f64 %31 a)
+%317 = (-.f64 %89 %116)
+%318 = (*.f64 #s(literal 1 binary64) %317)
+%319 = (pow.f64 %317 #s(literal 1 binary64))
+%321 = (/.f64 #s(literal 1 binary64) (pow.f64 %317 #s(literal -1 binary64)))
+%322 = (-.f64 %116 %89)
+%323 = (neg.f64 %322)
+%324 = (-.f64 %121 c)
+%325 = (fma.f64 #s(literal 1 binary64) %324 a)
+%326 = (fma.f64 #s(literal 1 binary64) %179 %38)
+%327 = (fma.f64 #s(literal 1 binary64) %40 %222)
+%328 = (fma.f64 #s(literal 1 binary64) %121 %89)
+%329 = (fma.f64 #s(literal 1 binary64) %38 %179)
+%330 = (fma.f64 #s(literal 1 binary64) %36 %20)
+%331 = (fma.f64 #s(literal 1 binary64) %294 b)
+%332 = (fma.f64 #s(literal 1 binary64) %89 %121)
+%333 = (fma.f64 #s(literal 1 binary64) %222 %40)
+%334 = (fma.f64 #s(literal 1 binary64) %110 %73)
+%335 = (fma.f64 #s(literal 1 binary64) %73 %110)
+%336 = (fma.f64 #s(literal 1 binary64) %20 %36)
+%337 = (-.f64 %324 %14)
+%338 = (-.f64 %179 c)
+%339 = (-.f64 %40 %227)
+%340 = (-.f64 %121 %84)
+%341 = (-.f64 %38 %184)
+%342 = (-.f64 %36 %25)
+%343 = (-.f64 %294 %28)
+%344 = (-.f64 %222 d)
+%345 = (-.f64 %110 %78)
+%346 = (-.f64 %73 %105)
+%347 = (-.f64 %20 %31)
+%348 = (-.f64 b %299)
+%349 = (-.f64 %31 b)
+%350 = (-.f64 a %349)
+%351 = (+.f64 %324 a)
+%352 = (+.f64 %179 %38)
+%353 = (+.f64 %40 %222)
+%354 = (+.f64 %121 %89)
+%355 = (+.f64 %38 %179)
+%356 = (+.f64 %36 %20)
+%357 = (+.f64 %294 b)
+%358 = (+.f64 %89 %121)
+%359 = (+.f64 %222 %40)
+%360 = (+.f64 %110 %73)
+%361 = (+.f64 %73 %110)
+%362 = (+.f64 %20 %36)
+%363 = (+.f64 b %294)
+%364 = (+.f64 a %324)
+%365 = (-.f64 %201 b)
+%366 = (*.f64 #s(literal 1 binary64) %365)
+%367 = (pow.f64 %365 #s(literal 1 binary64))
+%369 = (/.f64 #s(literal 1 binary64) (pow.f64 %365 #s(literal -1 binary64)))
+%370 = (-.f64 %48 %31)
+%371 = (neg.f64 %370)
+%372 = (fma.f64 #s(literal 1 binary64) %349 W)
+%373 = (-.f64 %95 b)
+%374 = (fma.f64 #s(literal 1 binary64) %373 d)
+%375 = (fma.f64 #s(literal 1 binary64) %252 c)
+%376 = (fma.f64 #s(literal 1 binary64) %78 %54)
+%377 = (fma.f64 #s(literal 1 binary64) %28 %201)
+%378 = (fma.f64 #s(literal 1 binary64) %201 %28)
+%379 = (fma.f64 #s(literal 1 binary64) %95 %116)
+%380 = (fma.f64 #s(literal 1 binary64) %116 %95)
+%381 = (fma.f64 #s(literal 1 binary64) %54 %78)
+%382 = (fma.f64 #s(literal 1 binary64) %43 %31)
+%383 = (fma.f64 #s(literal 1 binary64) %31 %43)
+%384 = (-.f64 %349 %16)
+%385 = (-.f64 %373 %40)
+%386 = (-.f64 %252 %38)
+%387 = (-.f64 %78 %59)
+%388 = (-.f64 %28 %206)
+%389 = (-.f64 %95 %121)
+%390 = (-.f64 %116 %100)
+%391 = (-.f64 %54 %73)
+%392 = (-.f64 %43 %36)
+%393 = (-.f64 %31 %48)
+%394 = (-.f64 %48 c)
+%395 = (-.f64 d %394)
+%396 = (-.f64 c %269)
+%397 = (-.f64 W %324)
+%398 = (+.f64 %349 W)
+%399 = (+.f64 %373 d)
+%400 = (+.f64 %252 c)
+%401 = (+.f64 %78 %54)
+%402 = (+.f64 %28 %201)
+%403 = (+.f64 %201 %28)
+%404 = (+.f64 %95 %116)
+%405 = (+.f64 %116 %95)
+%406 = (+.f64 %54 %78)
+%407 = (+.f64 %43 %31)
+%408 = (+.f64 %31 %43)
+%409 = (+.f64 d %373)
+%410 = (+.f64 c %252)
+%411 = (+.f64 W %349)
+%412 = (-.f64 %201 a)
+%413 = (*.f64 #s(literal 1 binary64) %412)
+%414 = (pow.f64 %412 #s(literal 1 binary64))
+%416 = (/.f64 #s(literal 1 binary64) (pow.f64 %412 #s(literal -1 binary64)))
+%417 = (-.f64 %294 W)
+%418 = (neg.f64 %417)
+%419 = (fma.f64 #s(literal 1 binary64) %299 W)
+%420 = (fma.f64 #s(literal 1 binary64) %14 %201)
+%421 = (-.f64 %95 a)
+%422 = (fma.f64 #s(literal 1 binary64) %421 d)
+%423 = (fma.f64 #s(literal 1 binary64) %141 c)
+%424 = (fma.f64 #s(literal 1 binary64) %201 %14)
+%425 = (fma.f64 #s(literal 1 binary64) %95 %105)
+%426 = (fma.f64 #s(literal 1 binary64) %105 %95)
+%427 = (fma.f64 #s(literal 1 binary64) %54 %84)
+%428 = (fma.f64 #s(literal 1 binary64) %84 %54)
+%429 = (fma.f64 #s(literal 1 binary64) %31 %6)
+%430 = (fma.f64 #s(literal 1 binary64) %6 %31)
+%431 = (-.f64 %299 %16)
+%432 = (-.f64 %14 %206)
+%433 = (-.f64 %421 %40)
+%434 = (-.f64 %141 %38)
+%435 = (-.f64 %95 %110)
+%436 = (-.f64 %105 %100)
+%437 = (-.f64 %54 %89)
+%438 = (-.f64 %84 %59)
+%439 = (-.f64 %31 %12)
+%440 = (-.f64 %89 W)
+%441 = (-.f64 d %440)
+%442 = (-.f64 c %136)
+%443 = (-.f64 %6 %36)
+%444 = (-.f64 W %294)
+%445 = (+.f64 %299 W)
+%446 = (+.f64 %14 %201)
+%447 = (+.f64 %421 d)
+%448 = (+.f64 %141 c)
+%449 = (+.f64 %201 %14)
+%450 = (+.f64 %95 %105)
+%451 = (+.f64 %105 %95)
+%452 = (+.f64 %54 %84)
+%453 = (+.f64 %84 %54)
+%454 = (+.f64 %31 %6)
+%455 = (+.f64 d %421)
+%456 = (+.f64 c %141)
+%457 = (+.f64 %6 %31)
+%458 = (+.f64 W %299)
+%479 = (-.f64 %421 b)
+%480 = (*.f64 #s(literal 1 binary64) %479)
+%481 = (pow.f64 %479 #s(literal 1 binary64))
+%483 = (/.f64 #s(literal 1 binary64) (pow.f64 %479 #s(literal -1 binary64)))
+%484 = (-.f64 %249 c)
+%485 = (neg.f64 %484)
+%486 = (fma.f64 #s(literal 1 binary64) %373 %14)
+%487 = (fma.f64 #s(literal 1 binary64) %25 %95)
+%488 = (fma.f64 #s(literal 1 binary64) %227 W)
+%489 = (fma.f64 #s(literal 1 binary64) %78 %6)
+%490 = (fma.f64 #s(literal 1 binary64) %14 %373)
+%491 = (fma.f64 #s(literal 1 binary64) %28 %421)
+%492 = (fma.f64 #s(literal 1 binary64) %258 c)
+%493 = (fma.f64 #s(literal 1 binary64) %421 %28)
+%494 = (fma.f64 #s(literal 1 binary64) %95 %25)
+%495 = (fma.f64 #s(literal 1 binary64) %84 %43)
+%496 = (fma.f64 #s(literal 1 binary64) %43 %84)
+%497 = (fma.f64 #s(literal 1 binary64) %6 %78)
+%498 = (-.f64 %373 a)
+%499 = (-.f64 %25 %100)
+%500 = (-.f64 %227 %16)
+%501 = (-.f64 %78 %12)
+%502 = (-.f64 %14 %394)
+%503 = (-.f64 %28 %440)
+%504 = (-.f64 %258 %38)
+%505 = (-.f64 %95 %20)
+%506 = (-.f64 %84 %48)
+%507 = (-.f64 %43 %89)
+%508 = (-.f64 c %249)
+%509 = (-.f64 %6 %73)
+%510 = (-.f64 W %222)
+%511 = (+.f64 %373 %14)
+%512 = (+.f64 %25 %95)
+%513 = (+.f64 %227 W)
+%514 = (+.f64 %78 %6)
+%515 = (+.f64 %14 %373)
+%516 = (+.f64 %28 %421)
+%517 = (+.f64 %258 c)
+%518 = (+.f64 %421 %28)
+%519 = (+.f64 %95 %25)
+%520 = (+.f64 %84 %43)
+%521 = (+.f64 %43 %84)
+%522 = (+.f64 c %258)
+%523 = (+.f64 %6 %78)
+%524 = (+.f64 W %227)
+%525 = (-.f64 %412 b)
+%526 = (*.f64 #s(literal 1 binary64) %525)
+%527 = (pow.f64 %525 #s(literal 1 binary64))
+%529 = (/.f64 #s(literal 1 binary64) (pow.f64 %525 #s(literal -1 binary64)))
+%531 = (neg.f64 (-.f64 %121 %421))
+%532 = (fma.f64 #s(literal 1 binary64) %349 %6)
+%533 = (fma.f64 #s(literal 1 binary64) %373 %105)
+%534 = (fma.f64 #s(literal 1 binary64) %252 %84)
+%535 = (fma.f64 #s(literal 1 binary64) %299 %43)
+%536 = (fma.f64 #s(literal 1 binary64) %25 %201)
+%537 = (fma.f64 #s(literal 1 binary64) %184 %95)
+%538 = (fma.f64 #s(literal 1 binary64) %227 %54)
+%539 = (fma.f64 #s(literal 1 binary64) %78 %141)
+%540 = (fma.f64 #s(literal 1 binary64) %322 W)
+%541 = (fma.f64 #s(literal 1 binary64) %14 %365)
+%542 = (fma.f64 #s(literal 1 binary64) %28 %412)
+%543 = (fma.f64 #s(literal 1 binary64) %479 d)
+%544 = (fma.f64 #s(literal 1 binary64) %258 %31)
+%545 = (fma.f64 #s(literal 1 binary64) %421 %116)
+%546 = (fma.f64 #s(literal 1 binary64) %244 c)
+%547 = (fma.f64 #s(literal 1 binary64) %412 %28)
+%548 = (fma.f64 #s(literal 1 binary64) %141 %78)
+%549 = (fma.f64 #s(literal 1 binary64) %365 %14)
+%550 = (fma.f64 #s(literal 1 binary64) %201 %25)
+%551 = (fma.f64 #s(literal 1 binary64) %95 %184)
+%552 = (fma.f64 #s(literal 1 binary64) %116 %421)
+%553 = (fma.f64 #s(literal 1 binary64) %105 %373)
+%554 = (fma.f64 #s(literal 1 binary64) %54 %227)
+%555 = (fma.f64 #s(literal 1 binary64) %84 %252)
+%556 = (fma.f64 #s(literal 1 binary64) %43 %299)
+%557 = (fma.f64 #s(literal 1 binary64) %31 %258)
+%558 = (fma.f64 #s(literal 1 binary64) %6 %349)
+%559 = (-.f64 %349 %12)
+%560 = (-.f64 %373 %110)
+%561 = (-.f64 %252 %89)
+%562 = (-.f64 %299 %48)
+%563 = (-.f64 %25 %206)
+%564 = (-.f64 %184 %100)
+%565 = (-.f64 %227 %59)
+%566 = (-.f64 %78 %136)
+%567 = (-.f64 %322 %16)
+%568 = (-.f64 %14 %370)
+%569 = (-.f64 %28 %417)
+%570 = (-.f64 %479 %40)
+%571 = (-.f64 %258 %36)
+%572 = (-.f64 %421 %121)
+%573 = (-.f64 %244 %38)
+%574 = (-.f64 %141 %73)
+%575 = (-.f64 %365 a)
+%576 = (-.f64 %201 %20)
+%577 = (-.f64 %95 %179)
+%578 = (-.f64 %116 %440)
+%579 = (-.f64 %105 %394)
+%580 = (-.f64 %54 %222)
+%581 = (-.f64 %84 %269)
+%582 = (-.f64 %43 %294)
+%583 = (-.f64 %31 %249)
+%584 = (-.f64 d %484)
+%585 = (-.f64 c %250)
+%586 = (-.f64 %6 %324)
+%587 = (-.f64 W %317)
+%588 = (+.f64 %349 %6)
+%589 = (+.f64 %373 %105)
+%590 = (+.f64 %252 %84)
+%591 = (+.f64 %299 %43)
+%592 = (+.f64 %25 %201)
+%593 = (+.f64 %184 %95)
+%594 = (+.f64 %227 %54)
+%595 = (+.f64 %78 %141)
+%596 = (+.f64 %322 W)
+%597 = (+.f64 %14 %365)
+%598 = (+.f64 %28 %412)
+%599 = (+.f64 %479 d)
+%600 = (+.f64 %258 %31)
+%601 = (+.f64 %421 %116)
+%602 = (+.f64 %244 c)
+%603 = (+.f64 %412 %28)
+%604 = (+.f64 %141 %78)
+%605 = (+.f64 %365 %14)
+%606 = (+.f64 %201 %25)
+%607 = (+.f64 %95 %184)
+%608 = (+.f64 %116 %421)
+%609 = (+.f64 %105 %373)
+%610 = (+.f64 %54 %227)
+%611 = (+.f64 %84 %252)
+%612 = (+.f64 %43 %299)
+%613 = (+.f64 %31 %258)
+%614 = (+.f64 d %479)
+%615 = (+.f64 c %244)
+%616 = (+.f64 %6 %349)
+%617 = (+.f64 W %322)
+W
+a
+(*.f64 #s(literal 1 binary64) %6)
+(pow.f64 %6 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %6 #s(literal -1 binary64)))
+(neg.f64 %12)
+(fma.f64 #s(literal 1 binary64) %14 W)
+(-.f64 %14 %16)
+%6
+(+.f64 %14 W)
+(+.f64 W %14)
+b
+c
+d
+%21
+%22
+%24
+%26
+%27
+%29
+%20
+%30
+%32
+%33
+%35
+%37
+%39
+%41
+%31
+%42
+(*.f64 #s(literal 1 binary64) %43)
+(pow.f64 %43 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %43 #s(literal -1 binary64)))
+(neg.f64 %48)
+(fma.f64 #s(literal 1 binary64) %28 W)
+(-.f64 %28 %16)
+%43
+(+.f64 %28 W)
+(+.f64 W %28)
+%55
+%56
+%58
+%60
+%61
+%62
+%54
+%63
+(*.f64 #s(literal 1 binary64) %12)
+(pow.f64 %12 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %12 #s(literal -1 binary64)))
+(neg.f64 %6)
+(fma.f64 #s(literal 1 binary64) %16 a)
+(-.f64 %16 %14)
+%12
+(+.f64 %16 a)
+(+.f64 a %16)
+(*.f64 #s(literal 1 binary64) %73)
+(pow.f64 %73 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %73 #s(literal -1 binary64)))
+(neg.f64 %78)
+(fma.f64 #s(literal 1 binary64) %38 b)
+(-.f64 %38 %28)
+%73
+(+.f64 %38 b)
+(+.f64 b %38)
+(*.f64 #s(literal 1 binary64) %84)
+(pow.f64 %84 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %84 #s(literal -1 binary64)))
+(neg.f64 %89)
+(fma.f64 #s(literal 1 binary64) %14 c)
+(-.f64 %14 %38)
+%84
+(+.f64 %14 c)
+(+.f64 c %14)
+%96
+%97
+%99
+%101
+%102
+%103
+%95
+%104
+%32
+%33
+%35
+%37
+%39
+%41
+%31
+%42
+%55
+%56
+%58
+%60
+%61
+%62
+%54
+%63
+(*.f64 #s(literal 1 binary64) %105)
+(pow.f64 %105 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %105 #s(literal -1 binary64)))
+(neg.f64 %110)
+(fma.f64 #s(literal 1 binary64) %14 d)
+(-.f64 %14 %40)
+%105
+(+.f64 %14 d)
+(+.f64 d %14)
+(*.f64 #s(literal 1 binary64) %116)
+(pow.f64 %116 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %116 #s(literal -1 binary64)))
+(neg.f64 %121)
+(fma.f64 #s(literal 1 binary64) %28 d)
+(-.f64 %28 %40)
+%116
+(+.f64 %28 d)
+(+.f64 d %28)
+(*.f64 #s(literal 1 binary64) %110)
+(pow.f64 %110 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %110 #s(literal -1 binary64)))
+(neg.f64 %105)
+(fma.f64 #s(literal 1 binary64) %40 a)
+(-.f64 %40 %14)
+%110
+(+.f64 %40 a)
+(+.f64 a %40)
+(*.f64 #s(literal 1 binary64) %136)
+(pow.f64 %136 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %136 #s(literal -1 binary64)))
+(neg.f64 %141)
+(fma.f64 #s(literal 1 binary64) %59 a)
+(fma.f64 #s(literal 1 binary64) %40 %12)
+(fma.f64 #s(literal 1 binary64) %16 %110)
+(fma.f64 #s(literal 1 binary64) %110 %16)
+(fma.f64 #s(literal 1 binary64) %12 %40)
+(-.f64 %59 %14)
+(-.f64 %40 %6)
+(-.f64 %16 %105)
+%136
+(-.f64 %12 d)
+(-.f64 a %54)
+(+.f64 %59 a)
+(+.f64 %40 %12)
+(+.f64 %16 %110)
+(+.f64 %110 %16)
+(+.f64 %12 %40)
+(+.f64 a %59)
+%159
+%160
+%162
+%163
+%164
+%165
+%166
+%167
+%168
+%169
+%141
+%170
+%171
+%172
+%173
+%174
+%175
+%176
+%177
+%178
+(*.f64 #s(literal 1 binary64) %179)
+(pow.f64 %179 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %179 #s(literal -1 binary64)))
+(neg.f64 %184)
+(fma.f64 #s(literal 1 binary64) %40 %20)
+(fma.f64 #s(literal 1 binary64) %121 a)
+(fma.f64 #s(literal 1 binary64) %110 b)
+(fma.f64 #s(literal 1 binary64) %20 %40)
+(-.f64 %40 %25)
+(-.f64 %121 %14)
+(-.f64 %110 %28)
+%179
+(-.f64 b %105)
+(-.f64 a %116)
+(+.f64 %40 %20)
+(+.f64 %121 a)
+(+.f64 %110 b)
+(+.f64 %20 %40)
+(+.f64 b %110)
+(+.f64 a %121)
+%96
+%97
+%99
+%101
+%102
+%103
+%95
+%104
+(*.f64 #s(literal 1 binary64) %201)
+(pow.f64 %201 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %201 #s(literal -1 binary64)))
+(neg.f64 %206)
+(fma.f64 #s(literal 1 binary64) %95 d)
+(fma.f64 #s(literal 1 binary64) %54 c)
+(fma.f64 #s(literal 1 binary64) %31 W)
+(-.f64 %95 %40)
+(-.f64 %54 %38)
+(-.f64 %31 %16)
+(-.f64 d %100)
+(-.f64 c %59)
+(-.f64 W %36)
+%201
+(+.f64 %54 c)
+(+.f64 %31 W)
+(+.f64 d %95)
+(+.f64 c %54)
+(+.f64 W %31)
+%21
+%22
+%24
+%26
+%27
+%29
+%20
+%30
+(*.f64 #s(literal 1 binary64) %222)
+(pow.f64 %222 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %222 #s(literal -1 binary64)))
+(neg.f64 %227)
+(fma.f64 #s(literal 1 binary64) %38 %20)
+(fma.f64 #s(literal 1 binary64) %89 b)
+(fma.f64 #s(literal 1 binary64) %73 a)
+(fma.f64 #s(literal 1 binary64) %20 %38)
+(-.f64 %38 %25)
+(-.f64 %89 %28)
+(-.f64 %73 %14)
+%222
+(-.f64 b %84)
+(-.f64 a %78)
+(+.f64 %38 %20)
+(+.f64 %89 b)
+(+.f64 %73 a)
+(+.f64 %20 %38)
+(+.f64 b %89)
+(+.f64 a %73)
+%245
+%246
+%248
+%251
+%253
+%254
+%255
+%256
+%257
+%259
+%260
+%261
+%262
+%263
+%264
+%265
+%266
+%267
+%268
+%270
+%271
+%272
+%244
+%273
+%274
+%275
+%276
+%277
+%278
+%279
+%280
+%281
+%282
+%283
+%284
+%285
+%286
+%287
+%288
+%289
+%290
+%291
+%292
+%293
+(*.f64 #s(literal 1 binary64) %294)
+(pow.f64 %294 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %294 #s(literal -1 binary64)))
+(neg.f64 %299)
+(fma.f64 #s(literal 1 binary64) %40 %89)
+(fma.f64 #s(literal 1 binary64) %38 %110)
+(fma.f64 #s(literal 1 binary64) %36 a)
+(fma.f64 #s(literal 1 binary64) %89 %40)
+(fma.f64 #s(literal 1 binary64) %110 %38)
+(-.f64 %40 %84)
+(-.f64 %38 %105)
+(-.f64 %36 %14)
+%294
+(-.f64 %110 c)
+(-.f64 a %31)
+(+.f64 %40 %89)
+(+.f64 %38 %110)
+(+.f64 %36 a)
+(+.f64 %89 %40)
+(+.f64 %110 %38)
+(+.f64 a %36)
+%318
+%319
+%321
+%323
+%325
+%326
+%327
+%328
+%329
+%330
+%331
+%332
+%333
+%334
+%335
+%336
+%337
+%338
+%339
+%340
+%341
+%342
+%343
+%317
+%344
+%345
+%346
+%347
+%348
+%350
+%351
+%352
+%353
+%354
+%355
+%356
+%357
+%358
+%359
+%360
+%361
+%362
+%363
+%364
+%366
+%367
+%369
+%371
+%372
+%374
+%375
+%376
+%377
+%378
+%379
+%380
+%381
+%382
+%383
+%384
+%385
+%386
+%387
+%388
+%365
+%389
+%390
+%391
+%392
+%393
+%395
+%396
+%397
+%398
+%399
+%400
+%401
+%402
+%403
+%404
+%405
+%406
+%407
+%408
+%409
+%410
+%411
+%366
+%367
+%369
+%371
+%372
+%374
+%375
+%376
+%377
+%378
+%379
+%380
+%381
+%382
+%383
+%384
+%385
+%386
+%387
+%388
+%365
+%389
+%390
+%391
+%392
+%393
+%395
+%396
+%397
+%398
+%399
+%400
+%401
+%402
+%403
+%404
+%405
+%406
+%407
+%408
+%409
+%410
+%411
+%159
+%160
+%162
+%163
+%164
+%165
+%166
+%167
+%168
+%169
+%141
+%170
+%171
+%172
+%173
+%174
+%175
+%176
+%177
+%178
+%413
+%414
+%416
+%418
+%419
+%420
+%422
+%423
+%424
+%425
+%426
+%427
+%428
+%429
+%430
+%431
+%432
+%433
+%434
+%412
+%435
+%436
+%437
+%438
+%439
+%441
+%442
+%443
+%444
+%445
+%446
+%447
+%448
+%449
+%450
+%451
+%452
+%453
+%454
+%455
+%456
+%457
+%458
+%413
+%414
+%416
+%418
+%419
+%420
+%422
+%423
+%424
+%425
+%426
+%427
+%428
+%429
+%430
+%431
+%432
+%433
+%434
+%412
+%435
+%436
+%437
+%438
+%439
+%441
+%442
+%443
+%444
+%445
+%446
+%447
+%448
+%449
+%450
+%451
+%452
+%453
+%454
+%455
+%456
+%457
+%458
+%413
+%414
+%416
+%418
+%419
+%420
+%422
+%423
+%424
+%425
+%426
+%427
+%428
+%429
+%430
+%431
+%432
+%433
+%434
+%412
+%435
+%436
+%437
+%438
+%439
+%441
+%442
+%443
+%444
+%445
+%446
+%447
+%448
+%449
+%450
+%451
+%452
+%453
+%454
+%455
+%456
+%457
+%458
+%245
+%246
+%248
+%251
+%253
+%254
+%255
+%256
+%257
+%259
+%260
+%261
+%262
+%263
+%264
+%265
+%266
+%267
+%268
+%270
+%271
+%272
+%244
+%273
+%274
+%275
+%276
+%277
+%278
+%279
+%280
+%281
+%282
+%283
+%284
+%285
+%286
+%287
+%288
+%289
+%290
+%291
+%292
+%293
+%245
+%246
+%248
+%251
+%253
+%254
+%255
+%256
+%257
+%259
+%260
+%261
+%262
+%263
+%264
+%265
+%266
+%267
+%268
+%270
+%271
+%272
+%244
+%273
+%274
+%275
+%276
+%277
+%278
+%279
+%280
+%281
+%282
+%283
+%284
+%285
+%286
+%287
+%288
+%289
+%290
+%291
+%292
+%293
+(*.f64 #s(literal 1 binary64) %421)
+(pow.f64 %421 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %421 #s(literal -1 binary64)))
+(neg.f64 %440)
+(fma.f64 #s(literal 1 binary64) %14 %95)
+(fma.f64 #s(literal 1 binary64) %95 %14)
+(fma.f64 #s(literal 1 binary64) %84 W)
+(fma.f64 #s(literal 1 binary64) %6 c)
+(-.f64 %14 %100)
+%421
+(-.f64 %84 %16)
+(-.f64 c %12)
+(-.f64 %6 %38)
+(-.f64 W %89)
+(+.f64 %14 %95)
+(+.f64 %95 %14)
+(+.f64 %84 W)
+(+.f64 c %6)
+(+.f64 %6 c)
+(+.f64 W %84)
+%480
+%481
+%483
+%485
+%486
+%487
+%488
+%489
+%490
+%491
+%492
+%493
+%494
+%495
+%496
+%497
+%498
+%499
+%500
+%501
+%502
+%503
+%504
+%479
+%505
+%506
+%507
+%508
+%509
+%510
+%511
+%512
+%513
+%514
+%515
+%516
+%517
+%518
+%519
+%520
+%521
+%522
+%523
+%524
+%526
+%527
+%529
+%531
+%532
+%533
+%534
+%535
+%536
+%537
+%538
+%539
+%540
+%541
+%542
+%543
+%544
+%545
+%546
+%547
+%548
+%549
+%550
+%551
+%552
+%553
+%554
+%555
+%556
+%557
+%558
+%559
+%560
+%561
+%562
+%563
+%564
+%565
+%566
+%567
+%568
+%569
+%570
+%571
+%572
+%573
+%525
+%574
+%575
+%576
+%577
+%578
+%579
+%580
+%581
+%582
+%583
+%584
+%585
+%586
+%587
+%588
+%589
+%590
+%591
+%592
+%593
+%594
+%595
+%596
+%597
+%598
+%599
+%600
+%601
+%602
+%603
+%604
+%605
+%606
+%607
+%608
+%609
+%610
+%611
+%612
+%613
+%614
+%615
+%616
+%617
+(*.f64 #s(literal 1 binary64) %373)
+(pow.f64 %373 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %373 #s(literal -1 binary64)))
+(neg.f64 %394)
+(fma.f64 #s(literal 1 binary64) %78 W)
+(fma.f64 #s(literal 1 binary64) %28 %95)
+(fma.f64 #s(literal 1 binary64) %95 %28)
+(fma.f64 #s(literal 1 binary64) %43 c)
+(-.f64 %78 %16)
+(-.f64 %28 %100)
+%373
+(-.f64 %43 %38)
+(-.f64 c %48)
+(-.f64 W %73)
+(+.f64 %78 W)
+(+.f64 %28 %95)
+(+.f64 %95 %28)
+(+.f64 %43 c)
+(+.f64 c %43)
+(+.f64 W %78)
+%480
+%481
+%483
+%485
+%486
+%487
+%488
+%489
+%490
+%491
+%492
+%493
+%494
+%495
+%496
+%497
+%498
+%499
+%500
+%501
+%502
+%503
+%504
+%479
+%505
+%506
+%507
+%508
+%509
+%510
+%511
+%512
+%513
+%514
+%515
+%516
+%517
+%518
+%519
+%520
+%521
+%522
+%523
+%524
+%526
+%527
+%529
+%531
+%532
+%533
+%534
+%535
+%536
+%537
+%538
+%539
+%540
+%541
+%542
+%543
+%544
+%545
+%546
+%547
+%548
+%549
+%550
+%551
+%552
+%553
+%554
+%555
+%556
+%557
+%558
+%559
+%560
+%561
+%562
+%563
+%564
+%565
+%566
+%567
+%568
+%569
+%570
+%571
+%572
+%573
+%525
+%574
+%575
+%576
+%577
+%578
+%579
+%580
+%581
+%582
+%583
+%584
+%585
+%586
+%587
+%588
+%589
+%590
+%591
+%592
+%593
+%594
+%595
+%596
+%597
+%598
+%599
+%600
+%601
+%602
+%603
+%604
+%605
+%606
+%607
+%608
+%609
+%610
+%611
+%612
+%613
+%614
+%615
+%616
+%617
+%413
+%414
+%416
+%418
+%419
+%420
+%422
+%423
+%424
+%425
+%426
+%427
+%428
+%429
+%430
+%431
+%432
+%433
+%434
+%412
+%435
+%436
+%437
+%438
+%439
+%441
+%442
+%443
+%444
+%445
+%446
+%447
+%448
+%449
+%450
+%451
+%452
+%453
+%454
+%455
+%456
+%457
+%458
+%526
+%527
+%529
+%531
+%532
+%533
+%534
+%535
+%536
+%537
+%538
+%539
+%540
+%541
+%542
+%543
+%544
+%545
+%546
+%547
+%548
+%549
+%550
+%551
+%552
+%553
+%554
+%555
+%556
+%557
+%558
+%559
+%560
+%561
+%562
+%563
+%564
+%565
+%566
+%567
+%568
+%569
+%570
+%571
+%572
+%573
+%525
+%574
+%575
+%576
+%577
+%578
+%579
+%580
+%581
+%582
+%583
+%584
+%585
+%586
+%587
+%588
+%589
+%590
+%591
+%592
+%593
+%594
+%595
+%596
+%597
+%598
+%599
+%600
+%601
+%602
+%603
+%604
+%605
+%606
+%607
+%608
+%609
+%610
+%611
+%612
+%613
+%614
+%615
+%616
+%617
+%245
+%246
+%248
+%251
+%253
+%254
+%255
+%256
+%257
+%259
+%260
+%261
+%262
+%263
+%264
+%265
+%266
+%267
+%268
+%270
+%271
+%272
+%244
+%273
+%274
+%275
+%276
+%277
+%278
+%279
+%280
+%281
+%282
+%283
+%284
+%285
+%286
+%287
+%288
+%289
+%290
+%291
+%292
+%293
+%526
+%527
+%529
+%531
+%532
+%533
+%534
+%535
+%536
+%537
+%538
+%539
+%540
+%541
+%542
+%543
+%544
+%545
+%546
+%547
+%548
+%549
+%550
+%551
+%552
+%553
+%554
+%555
+%556
+%557
+%558
+%559
+%560
+%561
+%562
+%563
+%564
+%565
+%566
+%567
+%568
+%569
+%570
+%571
+%572
+%573
+%525
+%574
+%575
+%576
+%577
+%578
+%579
+%580
+%581
+%582
+%583
+%584
+%585
+%586
+%587
+%588
+%589
+%590
+%591
+%592
+%593
+%594
+%595
+%596
+%597
+%598
+%599
+%600
+%601
+%602
+%603
+%604
+%605
+%606
+%607
+%608
+%609
+%610
+%611
+%612
+%613
+%614
+%615
+%616
+%617
+%526
+%527
+%529
+%531
+%532
+%533
+%534
+%535
+%536
+%537
+%538
+%539
+%540
+%541
+%542
+%543
+%544
+%545
+%546
+%547
+%548
+%549
+%550
+%551
+%552
+%553
+%554
+%555
+%556
+%557
+%558
+%559
+%560
+%561
+%562
+%563
+%564
+%565
+%566
+%567
+%568
+%569
+%570
+%571
+%572
+%573
+%525
+%574
+%575
+%576
+%577
+%578
+%579
+%580
+%581
+%582
+%583
+%584
+%585
+%586
+%587
+%588
+%589
+%590
+%591
+%592
+%593
+%594
+%595
+%596
+%597
+%598
+%599
+%600
+%601
+%602
+%603
+%604
+%605
+%606
+%607
+%608
+%609
+%610
+%611
+%612
+%613
+%614
+%615
+%616
+%617
+%526
+%527
+%529
+%531
+%532
+%533
+%534
+%535
+%536
+%537
+%538
+%539
+%540
+%541
+%542
+%543
+%544
+%545
+%546
+%547
+%548
+%549
+%550
+%551
+%552
+%553
+%554
+%555
+%556
+%557
+%558
+%559
+%560
+%561
+%562
+%563
+%564
+%565
+%566
+%567
+%568
+%569
+%570
+%571
+%572
+%573
+%525
+%574
+%575
+%576
+%577
+%578
+%579
+%580
+%581
+%582
+%583
+%584
+%585
+%586
+%587
+%588
+%589
+%590
+%591
+%592
+%593
+%594
+%595
+%596
+%597
+%598
+%599
+%600
+%601
+%602
+%603
+%604
+%605
+%606
+%607
+%608
+%609
+%610
+%611
+%612
+%613
+%614
+%615
+%616
+%617
+%526
+%527
+%529
+%531
+%532
+%533
+%534
+%535
+%536
+%537
+%538
+%539
+%540
+%541
+%542
+%543
+%544
+%545
+%546
+%547
+%548
+%549
+%550
+%551
+%552
+%553
+%554
+%555
+%556
+%557
+%558
+%559
+%560
+%561
+%562
+%563
+%564
+%565
+%566
+%567
+%568
+%569
+%570
+%571
+%572
+%573
+%525
+%574
+%575
+%576
+%577
+%578
+%579
+%580
+%581
+%582
+%583
+%584
+%585
+%586
+%587
+%588
+%589
+%590
+%591
+%592
+%593
+%594
+%595
+%596
+%597
+%598
+%599
+%600
+%601
+%602
+%603
+%604
+%605
+%606
+%607
+%608
+%609
+%610
+%611
+%612
+%613
+%614
+%615
+%616
+%617
+%526
+%527
+%529
+%531
+%532
+%533
+%534
+%535
+%536
+%537
+%538
+%539
+%540
+%541
+%542
+%543
+%544
+%545
+%546
+%547
+%548
+%549
+%550
+%551
+%552
+%553
+%554
+%555
+%556
+%557
+%558
+%559
+%560
+%561
+%562
+%563
+%564
+%565
+%566
+%567
+%568
+%569
+%570
+%571
+%572
+%573
+%525
+%574
+%575
+%576
+%577
+%578
+%579
+%580
+%581
+%582
+%583
+%584
+%585
+%586
+%587
+%588
+%589
+%590
+%591
+%592
+%593
+%594
+%595
+%596
+%597
+%598
+%599
+%600
+%601
+%602
+%603
+%604
+%605
+%606
+%607
+%608
+%609
+%610
+%611
+%612
+%613
+%614
+%615
+%616
+%617
+%526
+%527
+%529
+%531
+%532
+%533
+%534
+%535
+%536
+%537
+%538
+%539
+%540
+%541
+%542
+%543
+%544
+%545
+%546
+%547
+%548
+%549
+%550
+%551
+%552
+%553
+%554
+%555
+%556
+%557
+%558
+%559
+%560
+%561
+%562
+%563
+%564
+%565
+%566
+%567
+%568
+%569
+%570
+%571
+%572
+%573
+%525
+%574
+%575
+%576
+%577
+%578
+%579
+%580
+%581
+%582
+%583
+%584
+%585
+%586
+%587
+%588
+%589
+%590
+%591
+%592
+%593
+%594
+%595
+%596
+%597
+%598
+%599
+%600
+%601
+%602
+%603
+%604
+%605
+%606
+%607
+%608
+%609
+%610
+%611
+%612
+%613
+%614
+%615
+%616
+%617
+%526
+%527
+%529
+%531
+%532
+%533
+%534
+%535
+%536
+%537
+%538
+%539
+%540
+%541
+%542
+%543
+%544
+%545
+%546
+%547
+%548
+%549
+%550
+%551
+%552
+%553
+%554
+%555
+%556
+%557
+%558
+%559
+%560
+%561
+%562
+%563
+%564
+%565
+%566
+%567
+%568
+%569
+%570
+%571
+%572
+%573
+%525
+%574
+%575
+%576
+%577
+%578
+%579
+%580
+%581
+%582
+%583
+%584
+%585
+%586
+%587
+%588
+%589
+%590
+%591
+%592
+%593
+%594
+%595
+%596
+%597
+%598
+%599
+%600
+%601
+%602
+%603
+%604
+%605
+%606
+%607
+%608
+%609
+%610
+%611
+%612
+%613
+%614
+%615
+%616
+%617
+%526
+%527
+%529
+%531
+%532
+%533
+%534
+%535
+%536
+%537
+%538
+%539
+%540
+%541
+%542
+%543
+%544
+%545
+%546
+%547
+%548
+%549
+%550
+%551
+%552
+%553
+%554
+%555
+%556
+%557
+%558
+%559
+%560
+%561
+%562
+%563
+%564
+%565
+%566
+%567
+%568
+%569
+%570
+%571
+%572
+%573
+%525
+%574
+%575
+%576
+%577
+%578
+%579
+%580
+%581
+%582
+%583
+%584
+%585
+%586
+%587
+%588
+%589
+%590
+%591
+%592
+%593
+%594
+%595
+%596
+%597
+%598
+%599
+%600
+%601
+%602
+%603
+%604
+%605
+%606
+%607
+%608
+%609
+%610
+%611
+%612
+%613
+%614
+%615
+%616
+%617
+%526
+%527
+%529
+%531
+%532
+%533
+%534
+%535
+%536
+%537
+%538
+%539
+%540
+%541
+%542
+%543
+%544
+%545
+%546
+%547
+%548
+%549
+%550
+%551
+%552
+%553
+%554
+%555
+%556
+%557
+%558
+%559
+%560
+%561
+%562
+%563
+%564
+%565
+%566
+%567
+%568
+%569
+%570
+%571
+%572
+%573
+%525
+%574
+%575
+%576
+%577
+%578
+%579
+%580
+%581
+%582
+%583
+%584
+%585
+%586
+%587
+%588
+%589
+%590
+%591
+%592
+%593
+%594
+%595
+%596
+%597
+%598
+%599
+%600
+%601
+%602
+%603
+%604
+%605
+%606
+%607
+%608
+%609
+%610
+%611
+%612
+%613
+%614
+%615
+%616
+%617
+%318
+%319
+%321
+%323
+%325
+%326
+%327
+%328
+%329
+%330
+%331
+%332
+%333
+%334
+%335
+%336
+%337
+%338
+%339
+%340
+%341
+%342
+%343
+%317
+%344
+%345
+%346
+%347
+%348
+%350
+%351
+%352
+%353
+%354
+%355
+%356
+%357
+%358
+%359
+%360
+%361
+%362
+%363
+%364
+%526
+%527
+%529
+%531
+%532
+%533
+%534
+%535
+%536
+%537
+%538
+%539
+%540
+%541
+%542
+%543
+%544
+%545
+%546
+%547
+%548
+%549
+%550
+%551
+%552
+%553
+%554
+%555
+%556
+%557
+%558
+%559
+%560
+%561
+%562
+%563
+%564
+%565
+%566
+%567
+%568
+%569
+%570
+%571
+%572
+%573
+%525
+%574
+%575
+%576
+%577
+%578
+%579
+%580
+%581
+%582
+%583
+%584
+%585
+%586
+%587
+%588
+%589
+%590
+%591
+%592
+%593
+%594
+%595
+%596
+%597
+%598
+%599
+%600
+%601
+%602
+%603
+%604
+%605
+%606
+%607
+%608
+%609
+%610
+%611
+%612
+%613
+%614
+%615
+%616
+%617
+%526
+%527
+%529
+%531
+%532
+%533
+%534
+%535
+%536
+%537
+%538
+%539
+%540
+%541
+%542
+%543
+%544
+%545
+%546
+%547
+%548
+%549
+%550
+%551
+%552
+%553
+%554
+%555
+%556
+%557
+%558
+%559
+%560
+%561
+%562
+%563
+%564
+%565
+%566
+%567
+%568
+%569
+%570
+%571
+%572
+%573
+%525
+%574
+%575
+%576
+%577
+%578
+%579
+%580
+%581
+%582
+%583
+%584
+%585
+%586
+%587
+%588
+%589
+%590
+%591
+%592
+%593
+%594
+%595
+%596
+%597
+%598
+%599
+%600
+%601
+%602
+%603
+%604
+%605
+%606
+%607
+%608
+%609
+%610
+%611
+%612
+%613
+%614
+%615
+%616
+%617
+%526
+%527
+%529
+%531
+%532
+%533
+%534
+%535
+%536
+%537
+%538
+%539
+%540
+%541
+%542
+%543
+%544
+%545
+%546
+%547
+%548
+%549
+%550
+%551
+%552
+%553
+%554
+%555
+%556
+%557
+%558
+%559
+%560
+%561
+%562
+%563
+%564
+%565
+%566
+%567
+%568
+%569
+%570
+%571
+%572
+%573
+%525
+%574
+%575
+%576
+%577
+%578
+%579
+%580
+%581
+%582
+%583
+%584
+%585
+%586
+%587
+%588
+%589
+%590
+%591
+%592
+%593
+%594
+%595
+%596
+%597
+%598
+%599
+%600
+%601
+%602
+%603
+%604
+%605
+%606
+%607
+%608
+%609
+%610
+%611
+%612
+%613
+%614
+%615
+%616
+%617
+%526
+%527
+%529
+%531
+%532
+%533
+%534
+%535
+%536
+%537
+%538
+%539
+%540
+%541
+%542
+%543
+%544
+%545
+%546
+%547
+%548
+%549
+%550
+%551
+%552
+%553
+%554
+%555
+%556
+%557
+%558
+%559
+%560
+%561
+%562
+%563
+%564
+%565
+%566
+%567
+%568
+%569
+%570
+%571
+%572
+%573
+%525
+%574
+%575
+%576
+%577
+%578
+%579
+%580
+%581
+%582
+%583
+%584
+%585
+%586
+%587
+%588
+%589
+%590
+%591
+%592
+%593
+%594
+%595
+%596
+%597
+%598
+%599
+%600
+%601
+%602
+%603
+%604
+%605
+%606
+%607
+%608
+%609
+%610
+%611
+%612
+%613
+%614
+%615
+%616
+%617</pre></td></tr></table></details></dd></dl></div><div class="timeline-block timeline-reconstruct" id="timeline19"><h3><a href="#timeline19">reconstruct</a><span class="time">93.0ms (8.3%)</span></h3><dl><dt>Counts</dt><dd>2 611 → 833</dd><dt>Compiler</dt><dd><p>Compiled 22 953 to 1 196 computations (94.8% saved)</p></dd></dl></div><div class="timeline-block timeline-eval" id="timeline20"><h3><a href="#timeline20">eval</a><span class="time">8.0ms (0.7%)</span></h3><dl><dt>Compiler</dt><dd><p>Compiled 4 295 to 945 computations (78.0% saved)</p></dd></dl></div><div class="timeline-block timeline-prune" id="timeline21"><h3><a href="#timeline21">prune</a><span class="time">12.0ms (1.1%)</span></h3><dl><dt>Pruning</dt><dd><p>29 alts after pruning (7 fresh and 22 done)</p><table class="states"><thead><tr><th></th><th>Pruned</th><th>Kept</th><th>Total</th></tr></thead><tbody><tr><th>New</th><td>357</td><td>7</td><td>364</td></tr><tr><th>Fresh</th><td>0</td><td>0</td><td>0</td></tr><tr><th>Picked</th><td>2</td><td>14</td><td>16</td></tr><tr><th>Done</th><td>0</td><td>8</td><td>8</td></tr></tbody><tfoot><tr><th>Total</th><td>359</td><td>29</td><td>388</td></tr></tfoot></table></dd><dt>Taylor</dt><dd><table class="times"><thead><tr><th>Generated</th><th>Kept</th><th>% Kept</th><th># Vars</th><th>Transform</th><th>Order</th></tr></thead><tbody><tr><td>29×</td><td>5×</td><td>17.2%</td><td>2</td><td><code>0</code></td><td>0</td></tr><tr><td>75×</td><td>0×</td><td>0.0%</td><td>2</td><td><code>inf</code></td><td>1</td></tr><tr><td>31×</td><td>0×</td><td>0.0%</td><td>2</td><td><code>0</code></td><td>1</td></tr><tr><td>1×</td><td>0×</td><td>0.0%</td><td>2</td><td><code>inf</code></td><td>0</td></tr><tr><td>13×</td><td>0×</td><td>0.0%</td><td>1</td><td><code>zero</code></td><td>-1</td></tr><tr><td>63×</td><td>0×</td><td>0.0%</td><td>2</td><td><code>-inf</code></td><td>1</td></tr></tbody></table></dd><dt>Accuracy</dt><dd>100.0%</dd><dt>Counts</dt><dd>388 → 29</dd><dt>Alt Table</dt><dd><details><summary>Click to see full alt table</summary><table class="times"><thead><tr><th>Status</th><th>Accuracy</th><th>Program</th></tr></thead><tr><td><span title="Selected in a prior iteration">✓</span></td><td>99.5%</td><td><pre>(-.f64 (-.f64 W b) (-.f64 (-.f64 a c) d))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>39.5%</td><td><pre>(-.f64 (-.f64 W b) (approx (- (- a c) d) (-.f64 a d)))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>99.5%</td><td><pre>(-.f64 (+.f64 d W) (-.f64 (+.f64 b a) c))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>65.4%</td><td><pre>(-.f64 (+.f64 d W) (approx (- (+ b a) c) (-.f64 b c)))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>99.5%</td><td><pre>(-.f64 W (-.f64 (-.f64 (+.f64 b a) c) d))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>65.4%</td><td><pre>(-.f64 W (-.f64 (approx (- (+ b a) c) (-.f64 b c)) d))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>39.5%</td><td><pre>(-.f64 W (approx (- (- (+ b a) c) d) (-.f64 (+.f64 a b) d)))</pre></td></tr><tr><td><span title="Selected for next iteration">▶</span></td><td>37.6%</td><td><pre>(-.f64 W (approx (- (- (+ b a) c) d) (-.f64 (approx (+ a b) b) d)))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>99.9%</td><td><pre>(+.f64 (+.f64 (-.f64 (-.f64 W a) b) c) d)</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>39.3%</td><td><pre>(+.f64 (approx (+ (- (- W a) b) c) (-.f64 (approx (+ W c) c) a)) d)</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>99.3%</td><td><pre>(+.f64 W (-.f64 (-.f64 (+.f64 d c) b) a))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>39.5%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (-.f64 (-.f64 (+.f64 d W) a) b))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>65.4%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (-.f64 (+.f64 W (+.f64 c d)) b))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>43.5%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (-.f64 (+.f64 W (+.f64 c d)) a))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>39.5%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (-.f64 (+.f64 W d) (+.f64 a b)))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>37.6%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (-.f64 (+.f64 W d) (approx (+ a b) b)))</pre></td></tr><tr><td><span title="Selected for next iteration">▶</span></td><td>37.5%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (-.f64 (approx (+ W d) d) (approx (+ a b) b)))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>43.5%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (-.f64 c (-.f64 (-.f64 a W) d)))</pre></td></tr><tr><td><span title="Selected for next iteration">▶</span></td><td>39.2%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (-.f64 c (-.f64 (approx (- a W) a) d)))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>39.5%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (+.f64 (-.f64 W a) (-.f64 d b)))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>65.4%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (+.f64 (+.f64 d c) (-.f64 W b)))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>43.5%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (+.f64 (+.f64 d W) (-.f64 c a)))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>65.4%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (+.f64 (+.f64 c W) (-.f64 d b)))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>43.5%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (+.f64 (+.f64 c W) (-.f64 d a)))</pre></td></tr><tr><td><span title="Selected for next iteration">▶</span></td><td>53.6%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (+.f64 (approx (+ c W) c) (-.f64 d b)))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>32.0%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (approx (- (+ W d) (+ a b)) (-.f64 (+.f64 W d) a)))</pre></td></tr><tr><td><span title="Selected for next iteration">▶</span></td><td>31.9%</td><td><pre>%7 = (+ W d)
+(approx (+ (+ (- (- W a) b) c) d) (approx (- %7 (+ a b)) (-.f64 (approx %7 d) a)))</pre></td></tr><tr><td><span title="Selected for next iteration">▶</span></td><td>32.0%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (approx (- (+ W d) (+ a b)) (+.f64 d (-.f64 W a))))</pre></td></tr><tr><td><span title="Selected for next iteration">▶</span></td><td>32.0%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (approx (- (+ W d) (+ a b)) (+.f64 W (-.f64 d a))))</pre></td></tr></table></details></dd><dt>Compiler</dt><dd><p>Compiled 225 to 65 computations (71.1% saved)</p></dd></dl></div><div class="timeline-block timeline-sample" id="timeline22"><h3><a href="#timeline22">sample</a><span class="time">0.0ms (0.0%)</span></h3><dl><dt>Calls</dt><dd><details><summary>Call 1</summary><table><thead><tr><th>Inputs</th></tr></thead><tr><td><pre></pre></td></tr></table><table><thead><tr><th>Outputs</th></tr></thead><tr><td><pre></pre></td></tr></table></details></dd></dl></div><div class="timeline-block timeline-series" id="timeline23"><h3><a href="#timeline23">series</a><span class="time">11.0ms (1.0%)</span></h3><dl><dt>Iterations</dt><dd><p>Useful iterations: 0 (0.0ms)</p><table class="times"><tr><th>Iter</th><th>Nodes</th><th>Cost</th></tr><tr><td>0</td><td>383</td><td>1426</td></tr></table></dd><dt>Stop Event</dt><dd><table class="times"><tr><td>1×</td><td>iter-limit</td></tr><tr><td>1×</td><td>saturated</td></tr></table></dd><dt>Counts</dt><dd>31 → 146</dd><dt>Calls</dt><dd><details><summary>Call 1</summary><table><thead><tr><th>Inputs</th></tr></thead><tr><td><pre>%5 = (-.f64 W a)
+%6 = (-.f64 d a)
+%7 = (-.f64 d b)
+%8 = (+ W d)
+%9 = (approx %8 d)
+%10 = (+ a b)
+%11 = (approx %10 b)
+%13 = (approx (- a W) a)
+%15 = (approx (+ c W) c)
+%16 = (+.f64 d %5)
+%17 = (+.f64 W %6)
+%18 = (-.f64 %9 a)
+%19 = (- %8 %10)
+%20 = (approx %19 %18)
+%24 = (+ (+ (- (- W a) b) c) d)
+%26 = (-.f64 %9 %11)
+%28 = (-.f64 %11 d)
+%32 = (approx (- (- (+ b a) c) d) %28)
+%34 = (+.f64 %15 %7)
+%36 = (-.f64 %13 d)
+%37 = (-.f64 c %36)
+%39 = (approx %19 %17)
+%41 = (approx %19 %16)
+W
+a
+%5
+b
+c
+d
+%6
+%7
+%9
+%11
+%13
+%15
+%16
+%17
+%18
+%20
+(approx %24 %20)
+%26
+(approx %24 %26)
+%28
+%32
+(-.f64 W %32)
+%34
+(approx %24 %34)
+%36
+%37
+(approx %24 %37)
+%39
+(approx %24 %39)
+%41
+(approx %24 %41)</pre></td></tr></table><table><thead><tr><th>Outputs</th></tr></thead><tr><td><pre>%9 = (*.f64 #s(literal -1 binary64) a)
+%10 = (- W a)
+%12 = (-.f64 W a)
+%14 = (+ W d)
+%16 = (+.f64 W d)
+%18 = (- a W)
+%20 = (*.f64 #s(literal -1 binary64) W)
+%21 = (+.f64 a %20)
+%23 = (+ c W)
+%25 = (+.f64 W c)
+%27 = (-.f64 d a)
+%28 = (+ d %10)
+%30 = (-.f64 %16 a)
+%32 = (+.f64 a b)
+%33 = (-.f64 d %32)
+%34 = (+ a b)
+%35 = (- %14 %34)
+%37 = (-.f64 %16 %32)
+%39 = (+.f64 c d)
+%40 = (-.f64 %39 %32)
+%43 = (+ (+ (- %10 b) c) d)
+%45 = (+.f64 W %39)
+%48 = (-.f64 %39 b)
+%49 = (- d b)
+%50 = (+ %23 %49)
+%52 = (-.f64 %45 b)
+%54 = (-.f64 a d)
+%55 = (- %18 d)
+%59 = (-.f64 %39 a)
+%60 = (- c %55)
+%62 = (-.f64 %45 a)
+%65 = (/.f64 a W)
+%68 = (*.f64 W (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) %65)))
+%70 = (/.f64 d W)
+%71 = (+.f64 #s(literal 1 binary64) %70)
+%76 = (*.f64 W (-.f64 %65 #s(literal 1 binary64)))
+%78 = (/.f64 c W)
+%85 = (/.f64 b W)
+%86 = (+.f64 %65 %85)
+%91 = (+.f64 #s(literal 1 binary64) (+.f64 %78 %70))
+%156 = (+.f64 d %9)
+%157 = (- d a)
+%161 = (-.f64 a W)
+%163 = (+.f64 W %156)
+%165 = (-.f64 %16 b)
+%170 = (+.f64 W (+.f64 c %156))
+%173 = (-.f64 b d)
+%174 = (- %34 d)
+%176 = (-.f64 %32 d)
+%178 = (-.f64 b %39)
+%181 = (- (- (+ b a) c) d)
+%191 = (/.f64 W a)
+%193 = (*.f64 a (-.f64 %191 #s(literal 1 binary64)))
+%195 = (/.f64 d a)
+%199 = (/.f64 b a)
+%200 = (+.f64 #s(literal 1 binary64) %199)
+%205 = (*.f64 a (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) %191)))
+%207 = (+.f64 %191 %195)
+%209 = (*.f64 a (-.f64 %207 #s(literal 1 binary64)))
+%215 = (+.f64 (/.f64 c a) %195)
+%216 = (+.f64 %191 %215)
+%229 = (*.f64 a (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %16 a))))
+%282 = (*.f64 #s(literal -1 binary64) b)
+%283 = (+.f64 d %282)
+%289 = (+.f64 W (+.f64 c %283))
+%292 = (-.f64 a %39)
+%296 = (/.f64 d b)
+%300 = (/.f64 a b)
+%301 = (+.f64 #s(literal 1 binary64) %300)
+%304 = (/.f64 W b)
+%310 = (+.f64 (/.f64 c b) %296)
+%311 = (+.f64 %304 %310)
+%364 = (*.f64 #s(literal -1 binary64) c)
+%369 = (/.f64 W c)
+%373 = (/.f64 d c)
+%375 = (+.f64 #s(literal 1 binary64) (+.f64 %369 %373))
+%376 = (/.f64 a c)
+%377 = (/.f64 b c)
+%378 = (+.f64 %376 %377)
+%424 = (-.f64 W %32)
+%426 = (-.f64 %25 %32)
+%428 = (*.f64 #s(literal -1 binary64) d)
+%430 = (+.f64 a (+.f64 b %428))
+%432 = (-.f64 %32 c)
+%436 = (-.f64 %25 b)
+%441 = (-.f64 %25 a)
+%443 = (/.f64 a d)
+%448 = (/.f64 b d)
+%453 = (/.f64 W d)
+%454 = (+.f64 #s(literal 1 binary64) %453)
+%460 = (+.f64 %443 %448)
+%464 = (/.f64 c d)
+%466 = (+.f64 #s(literal 1 binary64) (+.f64 %453 %464))
+(approx W #s(literal 0 binary64))
+(approx W W)
+(approx %10 %9)
+(approx %10 %12)
+(approx %14 d)
+(approx %14 %16)
+(approx %18 a)
+(approx %18 %21)
+(approx %23 c)
+(approx %23 %25)
+(approx %28 %27)
+(approx %28 %30)
+(approx %35 %33)
+(approx %35 %37)
+(approx %43 %40)
+(approx %43 (-.f64 %45 %32))
+(approx %50 %48)
+(approx %50 %52)
+(approx %55 %54)
+(approx %55 (-.f64 %21 d))
+(approx %60 %59)
+(approx %60 %62)
+(approx %10 %68)
+(approx %14 (*.f64 W %71))
+(approx %18 %20)
+(approx %18 %76)
+(approx %23 (*.f64 W (+.f64 #s(literal 1 binary64) %78)))
+(approx %28 (*.f64 W (-.f64 %71 %65)))
+(approx %35 (*.f64 W (-.f64 %71 %86)))
+(approx %43 (*.f64 W (-.f64 %91 %86)))
+(approx %50 (*.f64 W (-.f64 %91 %85)))
+(approx %55 (*.f64 W (-.f64 %65 %71)))
+(approx %60 (*.f64 W (-.f64 %91 %65)))
+(approx %10 (*.f64 #s(literal -1 binary64) %76))
+(approx %14 (*.f64 #s(literal -1 binary64) (*.f64 W (-.f64 (*.f64 #s(literal -1 binary64) %70) #s(literal 1 binary64)))))
+(approx %18 (*.f64 #s(literal -1 binary64) %68))
+(approx %23 (*.f64 #s(literal -1 binary64) (*.f64 W (-.f64 (*.f64 #s(literal -1 binary64) %78) #s(literal 1 binary64)))))
+(approx %28 (*.f64 #s(literal -1 binary64) (*.f64 W (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %27 W)) #s(literal 1 binary64)))))
+(approx %35 (*.f64 #s(literal -1 binary64) (*.f64 W (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %33 W)) #s(literal 1 binary64)))))
+(approx %43 (*.f64 #s(literal -1 binary64) (*.f64 W (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %40 W)) #s(literal 1 binary64)))))
+(approx %50 (*.f64 #s(literal -1 binary64) (*.f64 W (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %48 W)) #s(literal 1 binary64)))))
+(approx %55 (*.f64 #s(literal -1 binary64) (*.f64 W (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %54 W))))))
+(approx %60 (*.f64 #s(literal -1 binary64) (*.f64 W (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %59 W)) #s(literal 1 binary64)))))
+(approx %10 (+.f64 W %9))
+(approx %157 %156)
+(approx %34 b)
+(approx %34 %32)
+(approx %18 %161)
+(approx %28 %163)
+(approx %35 %165)
+(approx %35 (-.f64 %163 b))
+(approx %43 (-.f64 %170 b))
+(approx %174 %173)
+(approx %174 %176)
+(approx %181 %178)
+(approx %181 (-.f64 %32 %39))
+(approx %55 (*.f64 #s(literal -1 binary64) %16))
+(approx %55 (-.f64 a %16))
+(approx %60 %45)
+(approx %60 %170)
+(approx %10 %193)
+(approx %157 (*.f64 a (-.f64 %195 #s(literal 1 binary64))))
+(approx %34 (*.f64 a %200))
+(approx %18 %205)
+(approx %28 %209)
+(approx %35 (*.f64 a (-.f64 %207 %200)))
+(approx %43 (*.f64 a (-.f64 %216 %200)))
+(approx %174 (*.f64 a (-.f64 %200 %195)))
+(approx %181 (*.f64 a (-.f64 %200 %215)))
+(approx %55 %229)
+(approx %60 (*.f64 a (-.f64 %216 #s(literal 1 binary64))))
+(approx %10 (*.f64 #s(literal -1 binary64) %205))
+(approx %157 (*.f64 #s(literal -1 binary64) (*.f64 a (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) %195)))))
+(approx %34 (*.f64 #s(literal -1 binary64) (*.f64 a (-.f64 (*.f64 #s(literal -1 binary64) %199) #s(literal 1 binary64)))))
+(approx %18 (*.f64 #s(literal -1 binary64) %193))
+(approx %28 (*.f64 #s(literal -1 binary64) %229))
+(approx %35 (*.f64 #s(literal -1 binary64) (*.f64 a (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %165 a))))))
+(approx %43 (*.f64 #s(literal -1 binary64) (*.f64 a (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %52 a))))))
+(approx %174 (*.f64 #s(literal -1 binary64) (*.f64 a (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %173 a)) #s(literal 1 binary64)))))
+(approx %181 (*.f64 #s(literal -1 binary64) (*.f64 a (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %178 a)) #s(literal 1 binary64)))))
+(approx %55 (*.f64 #s(literal -1 binary64) %209))
+(approx %60 (*.f64 #s(literal -1 binary64) (*.f64 a (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %45 a))))))
+(approx %49 %283)
+(approx %35 (-.f64 (+.f64 W %283) a))
+(approx %43 (-.f64 %289 a))
+(approx %181 %292)
+(approx %50 %289)
+(approx %49 %282)
+(approx %49 (*.f64 b (-.f64 %296 #s(literal 1 binary64))))
+(approx %34 (*.f64 b %301))
+(approx %35 (*.f64 b (-.f64 (+.f64 %304 %296) %301)))
+(approx %43 (*.f64 b (-.f64 %311 %301)))
+(approx %174 (*.f64 b (-.f64 %301 %296)))
+(approx %181 (*.f64 b (-.f64 %301 %310)))
+(approx %50 (*.f64 b (-.f64 %311 #s(literal 1 binary64))))
+(approx %49 (*.f64 #s(literal -1 binary64) (*.f64 b (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) %296)))))
+(approx %34 (*.f64 #s(literal -1 binary64) (*.f64 b (-.f64 (*.f64 #s(literal -1 binary64) %300) #s(literal 1 binary64)))))
+(approx %35 (*.f64 #s(literal -1 binary64) (*.f64 b (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %30 b))))))
+(approx %43 (*.f64 #s(literal -1 binary64) (*.f64 b (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %62 b))))))
+(approx %174 (*.f64 #s(literal -1 binary64) (*.f64 b (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %54 b)) #s(literal 1 binary64)))))
+(approx %181 (*.f64 #s(literal -1 binary64) (*.f64 b (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %292 b)) #s(literal 1 binary64)))))
+(approx %50 (*.f64 #s(literal -1 binary64) (*.f64 b (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %45 b))))))
+(approx %181 (-.f64 (+.f64 a (+.f64 b %364)) d))
+(approx %23 (*.f64 c (+.f64 #s(literal 1 binary64) %369)))
+(approx %43 (*.f64 c (-.f64 %375 %378)))
+(approx %181 %364)
+(approx %181 (*.f64 c (-.f64 %378 (+.f64 #s(literal 1 binary64) %373))))
+(approx %50 (*.f64 c (-.f64 %375 %377)))
+(approx %60 (*.f64 c (-.f64 %375 %376)))
+(approx %23 (*.f64 #s(literal -1 binary64) (*.f64 c (-.f64 (*.f64 #s(literal -1 binary64) %369) #s(literal 1 binary64)))))
+(approx %43 (*.f64 #s(literal -1 binary64) (*.f64 c (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %37 c)) #s(literal 1 binary64)))))
+(approx %181 (*.f64 #s(literal -1 binary64) (*.f64 c (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %176 c))))))
+(approx %50 (*.f64 #s(literal -1 binary64) (*.f64 c (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %165 c)) #s(literal 1 binary64)))))
+(approx %60 (*.f64 #s(literal -1 binary64) (*.f64 c (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %30 c)) #s(literal 1 binary64)))))
+(approx %49 (-.f64 d b))
+(approx %35 %424)
+(approx %43 %426)
+(approx %174 %430)
+(approx %181 %432)
+(approx %181 (-.f64 %430 c))
+(approx %50 %436)
+(approx %55 (-.f64 (+.f64 a %428) W))
+(approx %60 %441)
+(approx %157 (*.f64 d (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) %443))))
+(approx %49 (*.f64 d (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) %448))))
+(approx %14 (*.f64 d %454))
+(approx %28 (*.f64 d (-.f64 %454 %443)))
+(approx %35 (*.f64 d (-.f64 %454 %460)))
+(approx %43 (*.f64 d (-.f64 %466 %460)))
+(approx %174 %428)
+(approx %174 (*.f64 d (-.f64 %460 #s(literal 1 binary64))))
+(approx %181 (*.f64 d (-.f64 %460 (+.f64 #s(literal 1 binary64) %464))))
+(approx %50 (*.f64 d (-.f64 %466 %448)))
+(approx %55 (*.f64 d (-.f64 %443 %454)))
+(approx %60 (*.f64 d (-.f64 %466 %443)))
+(approx %157 (*.f64 #s(literal -1 binary64) (*.f64 d (-.f64 %443 #s(literal 1 binary64)))))
+(approx %49 (*.f64 #s(literal -1 binary64) (*.f64 d (-.f64 %448 #s(literal 1 binary64)))))
+(approx %14 (*.f64 #s(literal -1 binary64) (*.f64 d (-.f64 (*.f64 #s(literal -1 binary64) %453) #s(literal 1 binary64)))))
+(approx %28 (*.f64 #s(literal -1 binary64) (*.f64 d (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %12 d)) #s(literal 1 binary64)))))
+(approx %35 (*.f64 #s(literal -1 binary64) (*.f64 d (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %424 d)) #s(literal 1 binary64)))))
+(approx %43 (*.f64 #s(literal -1 binary64) (*.f64 d (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %426 d)) #s(literal 1 binary64)))))
+(approx %174 (*.f64 #s(literal -1 binary64) (*.f64 d (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %32 d))))))
+(approx %181 (*.f64 #s(literal -1 binary64) (*.f64 d (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %432 d))))))
+(approx %50 (*.f64 #s(literal -1 binary64) (*.f64 d (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %436 d)) #s(literal 1 binary64)))))
+(approx %55 (*.f64 #s(literal -1 binary64) (*.f64 d (+.f64 #s(literal 1 binary64) (*.f64 #s(literal -1 binary64) (/.f64 %161 d))))))
+(approx %60 (*.f64 #s(literal -1 binary64) (*.f64 d (-.f64 (*.f64 #s(literal -1 binary64) (/.f64 %441 d)) #s(literal 1 binary64)))))</pre></td></tr></table></details></dd><dt>Calls</dt><dd><p>15 calls:</p><canvas id="calls-4" title="Weighted histogram; height corresponds to percentage of runtime in that bucket."></canvas><script>histogram('calls-4', [0.1796875,0.1689453125,0.1474609375,0.128173828125,0.107666015625,0.087646484375,0.1435546875,0.133056640625,0.23828125,0.177978515625,0.173583984375,0.147216796875,0.18408203125,0.173583984375,0.170654296875])</script><table class="times"><thead><tr><th>Time</th><th>Variable</th><th>Point</th></tr></thead><tr><td>0.0ms</td><td><pre>b</pre></td><td>0</td></tr><tr><td>0.0ms</td><td><pre>W</pre></td><td>-inf</td></tr><tr><td>0.0ms</td><td><pre>d</pre></td><td>-inf</td></tr><tr><td>0.0ms</td><td><pre>a</pre></td><td>-inf</td></tr><tr><td>0.0ms</td><td><pre>a</pre></td><td>inf</td></tr></table></dd></dl></div><div class="timeline-block timeline-rewrite" id="timeline24"><h3><a href="#timeline24">rewrite</a><span class="time">52.0ms (4.7%)</span></h3><dl><dt>Iterations</dt><dd><p>Useful iterations: 0 (0.0ms)</p><table class="times"><tr><th>Iter</th><th>Nodes</th><th>Cost</th></tr><tr><td>0</td><td>27</td><td>163</td></tr><tr><td>1</td><td>144</td><td>163</td></tr><tr><td>2</td><td>478</td><td>163</td></tr><tr><td>3</td><td>1403</td><td>163</td></tr><tr><td>4</td><td>1769</td><td>163</td></tr><tr><td>5</td><td>2232</td><td>163</td></tr><tr><td>0</td><td>3987</td><td>163</td></tr><tr><td>0</td><td>4271</td><td>163</td></tr></table></dd><dt>Stop Event</dt><dd><table class="times"><tr><td>1×</td><td>iter-limit</td></tr><tr><td>1×</td><td>iter-limit</td></tr><tr><td>1×</td><td>node-limit</td></tr><tr><td>1×</td><td>saturated</td></tr></table></dd><dt>Counts</dt><dd>31 → 1 109</dd><dt>Calls</dt><dd><details><summary>Call 1</summary><table><thead><tr><th>Inputs</th></tr></thead><tr><td><pre>%5 = (-.f64 W a)
+%6 = (-.f64 d a)
+%7 = (-.f64 d b)
+%8 = (+ W d)
+%9 = (approx %8 d)
+%10 = (+ a b)
+%11 = (approx %10 b)
+%13 = (approx (- a W) a)
+%15 = (approx (+ c W) c)
+%16 = (+.f64 d %5)
+%17 = (+.f64 W %6)
+%18 = (-.f64 %9 a)
+%19 = (- %8 %10)
+%20 = (approx %19 %18)
+%24 = (+ (+ (- (- W a) b) c) d)
+%26 = (-.f64 %9 %11)
+%28 = (-.f64 %11 d)
+%32 = (approx (- (- (+ b a) c) d) %28)
+%34 = (+.f64 %15 %7)
+%36 = (-.f64 %13 d)
+%37 = (-.f64 c %36)
+%39 = (approx %19 %17)
+%41 = (approx %19 %16)
+W
+a
+%5
+b
+c
+d
+%6
+%7
+%9
+%11
+%13
+%15
+%16
+%17
+%18
+%20
+(approx %24 %20)
+%26
+(approx %24 %26)
+%28
+%32
+(-.f64 W %32)
+%34
+(approx %24 %34)
+%36
+%37
+(approx %24 %37)
+%39
+(approx %24 %39)
+%41
+(approx %24 %41)</pre></td></tr></table><table><thead><tr><th>Outputs</th></tr></thead><tr><td><pre>%6 = (-.f64 W a)
+%12 = (-.f64 a W)
+%14 = (neg.f64 a)
+%16 = (neg.f64 W)
+%20 = (-.f64 d a)
+%25 = (-.f64 a d)
+%28 = (neg.f64 d)
+%32 = (-.f64 d b)
+%37 = (-.f64 b d)
+%39 = (neg.f64 b)
+%44 = (+.f64 d W)
+%49 = (neg.f64 %44)
+%54 = (+.f64 b a)
+%59 = (neg.f64 %54)
+%73 = (+.f64 c W)
+%78 = (neg.f64 %73)
+%81 = (neg.f64 c)
+%84 = (-.f64 %44 a)
+%85 = (*.f64 #s(literal 1 binary64) %84)
+%86 = (pow.f64 %84 #s(literal 1 binary64))
+%88 = (/.f64 #s(literal 1 binary64) (pow.f64 %84 #s(literal -1 binary64)))
+%89 = (-.f64 %12 d)
+%90 = (neg.f64 %89)
+%91 = (fma.f64 #s(literal 1 binary64) %14 %44)
+%92 = (fma.f64 #s(literal 1 binary64) %44 %14)
+%93 = (fma.f64 #s(literal 1 binary64) %20 W)
+%94 = (fma.f64 #s(literal 1 binary64) %6 d)
+%95 = (-.f64 %14 %49)
+%96 = (-.f64 %20 %16)
+%97 = (-.f64 d %12)
+%98 = (-.f64 %6 %28)
+%99 = (-.f64 W %25)
+%100 = (+.f64 %14 %44)
+%101 = (+.f64 %44 %14)
+%102 = (+.f64 %20 W)
+%103 = (+.f64 d %6)
+%104 = (+.f64 %6 d)
+%105 = (+.f64 W %20)
+%106 = (-.f64 %84 b)
+%107 = (*.f64 #s(literal 1 binary64) %106)
+%108 = (pow.f64 %106 #s(literal 1 binary64))
+%110 = (/.f64 #s(literal 1 binary64) (pow.f64 %106 #s(literal -1 binary64)))
+%111 = (-.f64 %37 %6)
+%112 = (neg.f64 %111)
+%113 = (-.f64 W b)
+%114 = (fma.f64 #s(literal 1 binary64) %113 %20)
+%115 = (-.f64 %44 b)
+%116 = (fma.f64 #s(literal 1 binary64) %115 %14)
+%117 = (fma.f64 #s(literal 1 binary64) %59 %44)
+%118 = (-.f64 %32 a)
+%119 = (fma.f64 #s(literal 1 binary64) %118 W)
+%120 = (fma.f64 #s(literal 1 binary64) %39 %84)
+%121 = (fma.f64 #s(literal 1 binary64) %14 %115)
+%122 = (-.f64 %6 b)
+%123 = (fma.f64 #s(literal 1 binary64) %122 d)
+%124 = (fma.f64 #s(literal 1 binary64) %84 %39)
+%125 = (fma.f64 #s(literal 1 binary64) %44 %59)
+%126 = (fma.f64 #s(literal 1 binary64) %32 %6)
+%127 = (fma.f64 #s(literal 1 binary64) %20 %113)
+%128 = (fma.f64 #s(literal 1 binary64) %6 %32)
+%129 = (-.f64 %113 %25)
+%130 = (-.f64 %115 a)
+%131 = (-.f64 %59 %49)
+%132 = (-.f64 %118 %16)
+%133 = (-.f64 %39 %89)
+%134 = (-.f64 b W)
+%135 = (-.f64 %134 d)
+%136 = (-.f64 %14 %135)
+%137 = (-.f64 %122 %28)
+%138 = (-.f64 %44 %54)
+%139 = (-.f64 %32 %12)
+%140 = (-.f64 %20 %134)
+%141 = (-.f64 %54 W)
+%142 = (-.f64 d %141)
+%143 = (-.f64 %6 %37)
+%144 = (-.f64 %54 d)
+%145 = (-.f64 W %144)
+%146 = (+.f64 %113 %20)
+%147 = (+.f64 %115 %14)
+%148 = (+.f64 %59 %44)
+%149 = (+.f64 %118 W)
+%150 = (+.f64 %39 %84)
+%151 = (+.f64 %14 %115)
+%152 = (+.f64 %122 d)
+%153 = (+.f64 %84 %39)
+%154 = (+.f64 %44 %59)
+%155 = (+.f64 %32 %6)
+%156 = (+.f64 %20 %113)
+%157 = (+.f64 d %122)
+%158 = (+.f64 %6 %32)
+%159 = (+.f64 W %118)
+%160 = (-.f64 %73 %144)
+%161 = (*.f64 #s(literal 1 binary64) %160)
+%162 = (pow.f64 %160 #s(literal 1 binary64))
+%164 = (/.f64 #s(literal 1 binary64) (pow.f64 %160 #s(literal -1 binary64)))
+%165 = (-.f64 %141 c)
+%167 = (neg.f64 (-.f64 %165 d))
+%168 = (+.f64 d c)
+%169 = (-.f64 %168 a)
+%170 = (fma.f64 #s(literal 1 binary64) %169 %113)
+%171 = (-.f64 %73 b)
+%172 = (fma.f64 #s(literal 1 binary64) %171 %20)
+%173 = (-.f64 %168 b)
+%174 = (fma.f64 #s(literal 1 binary64) %173 %6)
+%175 = (fma.f64 #s(literal 1 binary64) %113 %169)
+%176 = (-.f64 c a)
+%177 = (fma.f64 #s(literal 1 binary64) %176 %115)
+%178 = (-.f64 c b)
+%179 = (fma.f64 #s(literal 1 binary64) %178 %84)
+%180 = (fma.f64 #s(literal 1 binary64) %115 %176)
+%181 = (+.f64 %168 W)
+%182 = (fma.f64 #s(literal 1 binary64) %181 %59)
+%183 = (fma.f64 #s(literal 1 binary64) %168 %122)
+%184 = (-.f64 %73 a)
+%185 = (fma.f64 #s(literal 1 binary64) %184 %32)
+%186 = (fma.f64 #s(literal 1 binary64) %59 %181)
+%187 = (fma.f64 #s(literal 1 binary64) %118 %73)
+%188 = (-.f64 %54 c)
+%189 = (-.f64 d %188)
+%190 = (fma.f64 #s(literal 1 binary64) %189 W)
+%191 = (-.f64 c %54)
+%192 = (fma.f64 #s(literal 1 binary64) %191 %44)
+%193 = (-.f64 c %89)
+%194 = (fma.f64 #s(literal 1 binary64) %39 %193)
+%195 = (+.f64 %73 %32)
+%196 = (fma.f64 #s(literal 1 binary64) %14 %195)
+%197 = (fma.f64 #s(literal 1 binary64) %193 %39)
+%198 = (fma.f64 #s(literal 1 binary64) %195 %14)
+%199 = (-.f64 %73 %54)
+%200 = (fma.f64 #s(literal 1 binary64) %199 d)
+%201 = (fma.f64 #s(literal 1 binary64) %122 %168)
+%202 = (fma.f64 #s(literal 1 binary64) %106 c)
+%203 = (fma.f64 #s(literal 1 binary64) %84 %178)
+%204 = (fma.f64 #s(literal 1 binary64) %73 %118)
+%205 = (fma.f64 #s(literal 1 binary64) %44 %191)
+%206 = (fma.f64 #s(literal 1 binary64) %32 %184)
+%207 = (fma.f64 #s(literal 1 binary64) %20 %171)
+%208 = (fma.f64 #s(literal 1 binary64) %6 %173)
+%209 = (-.f64 %169 %134)
+%210 = (-.f64 %171 %25)
+%211 = (-.f64 %173 %12)
+%212 = (-.f64 a c)
+%213 = (-.f64 %212 d)
+%214 = (-.f64 %113 %213)
+%215 = (-.f64 %176 %135)
+%216 = (-.f64 %178 %89)
+%217 = (-.f64 %115 %212)
+%218 = (-.f64 %181 %54)
+%219 = (-.f64 %168 %141)
+%220 = (-.f64 %184 %37)
+%221 = (neg.f64 %181)
+%222 = (-.f64 %59 %221)
+%223 = (-.f64 %118 %78)
+%224 = (-.f64 %189 %16)
+%225 = (-.f64 %191 %49)
+%226 = (-.f64 %25 %73)
+%227 = (-.f64 %39 %226)
+%228 = (-.f64 b c)
+%229 = (-.f64 %228 %44)
+%230 = (-.f64 %14 %229)
+%231 = (-.f64 %193 b)
+%232 = (-.f64 %195 a)
+%233 = (-.f64 %199 %28)
+%234 = (neg.f64 %168)
+%235 = (-.f64 %122 %234)
+%236 = (-.f64 %106 %81)
+%237 = (-.f64 %84 %228)
+%238 = (-.f64 %44 %188)
+%239 = (-.f64 %212 W)
+%240 = (-.f64 %32 %239)
+%241 = (-.f64 %134 c)
+%242 = (-.f64 %20 %241)
+%243 = (-.f64 d %165)
+%244 = (-.f64 c %111)
+%245 = (-.f64 %228 d)
+%246 = (-.f64 %6 %245)
+%247 = (-.f64 %188 d)
+%248 = (-.f64 W %247)
+%249 = (+.f64 %169 %113)
+%250 = (+.f64 %171 %20)
+%251 = (+.f64 %173 %6)
+%252 = (+.f64 %113 %169)
+%253 = (+.f64 %176 %115)
+%254 = (+.f64 %178 %84)
+%255 = (+.f64 %115 %176)
+%256 = (+.f64 %181 %59)
+%257 = (+.f64 %168 %122)
+%258 = (+.f64 %184 %32)
+%259 = (+.f64 %59 %181)
+%260 = (+.f64 %118 %73)
+%261 = (+.f64 %189 W)
+%262 = (+.f64 %191 %44)
+%263 = (+.f64 %39 %193)
+%264 = (+.f64 %14 %195)
+%265 = (+.f64 %193 %39)
+%266 = (+.f64 %195 %14)
+%267 = (+.f64 %199 d)
+%268 = (+.f64 %122 %168)
+%269 = (+.f64 %106 c)
+%270 = (+.f64 %84 %178)
+%271 = (+.f64 %73 %118)
+%272 = (+.f64 %44 %191)
+%273 = (+.f64 %32 %184)
+%274 = (+.f64 %20 %171)
+%275 = (+.f64 d %199)
+%276 = (+.f64 c %106)
+%277 = (+.f64 %6 %173)
+%278 = (+.f64 W %189)
+W
+a
+(*.f64 #s(literal 1 binary64) %6)
+(pow.f64 %6 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %6 #s(literal -1 binary64)))
+(neg.f64 %12)
+(fma.f64 #s(literal 1 binary64) %14 W)
+(-.f64 %14 %16)
+%6
+(+.f64 %14 W)
+(+.f64 W %14)
+b
+c
+d
+(*.f64 #s(literal 1 binary64) %20)
+(pow.f64 %20 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %20 #s(literal -1 binary64)))
+(neg.f64 %25)
+(fma.f64 #s(literal 1 binary64) %14 d)
+(-.f64 %14 %28)
+%20
+(+.f64 %14 d)
+(+.f64 d %14)
+(*.f64 #s(literal 1 binary64) %32)
+(pow.f64 %32 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %32 #s(literal -1 binary64)))
+(neg.f64 %37)
+(fma.f64 #s(literal 1 binary64) %39 d)
+(-.f64 %39 %28)
+%32
+(+.f64 %39 d)
+(+.f64 d %39)
+(*.f64 #s(literal 1 binary64) %44)
+(pow.f64 %44 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %44 #s(literal -1 binary64)))
+(neg.f64 %49)
+(-.f64 d %16)
+(-.f64 W %28)
+%44
+(+.f64 W d)
+(*.f64 #s(literal 1 binary64) %54)
+(pow.f64 %54 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %54 #s(literal -1 binary64)))
+(neg.f64 %59)
+(-.f64 b %14)
+(-.f64 a %39)
+%54
+(+.f64 a b)
+(*.f64 #s(literal 1 binary64) %12)
+(pow.f64 %12 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %12 #s(literal -1 binary64)))
+(neg.f64 %6)
+(fma.f64 #s(literal 1 binary64) %16 a)
+(-.f64 %16 %14)
+%12
+(+.f64 %16 a)
+(+.f64 a %16)
+(*.f64 #s(literal 1 binary64) %73)
+(pow.f64 %73 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %73 #s(literal -1 binary64)))
+(neg.f64 %78)
+(-.f64 c %16)
+(-.f64 W %81)
+%73
+(+.f64 W c)
+%85
+%86
+%88
+%90
+%91
+%92
+%93
+%94
+%95
+%84
+%96
+%97
+%98
+%99
+%100
+%101
+%102
+%103
+%104
+%105
+%85
+%86
+%88
+%90
+%91
+%92
+%93
+%94
+%95
+%84
+%96
+%97
+%98
+%99
+%100
+%101
+%102
+%103
+%104
+%105
+%85
+%86
+%88
+%90
+%91
+%92
+%93
+%94
+%95
+%84
+%96
+%97
+%98
+%99
+%100
+%101
+%102
+%103
+%104
+%105
+%107
+%108
+%110
+%112
+%114
+%116
+%117
+%119
+%120
+%121
+%123
+%124
+%125
+%126
+%127
+%128
+%129
+%130
+%131
+%132
+%133
+%136
+%137
+%106
+%138
+%139
+%140
+%142
+%143
+%145
+%146
+%147
+%148
+%149
+%150
+%151
+%152
+%153
+%154
+%155
+%156
+%157
+%158
+%159
+%161
+%162
+%164
+%167
+%170
+%172
+%174
+%175
+%177
+%179
+%180
+%182
+%183
+%185
+%186
+%187
+%190
+%192
+%194
+%196
+%197
+%198
+%200
+%201
+%202
+%203
+%204
+%205
+%206
+%207
+%208
+%209
+%210
+%211
+%214
+%215
+%216
+%217
+%218
+%219
+%220
+%222
+%223
+%224
+%225
+%227
+%230
+%231
+%232
+%233
+%235
+%236
+%237
+%160
+%238
+%240
+%242
+%243
+%244
+%246
+%248
+%249
+%250
+%251
+%252
+%253
+%254
+%255
+%256
+%257
+%258
+%259
+%260
+%261
+%262
+%263
+%264
+%265
+%266
+%267
+%268
+%269
+%270
+%271
+%272
+%273
+%274
+%275
+%276
+%277
+%278
+%107
+%108
+%110
+%112
+%114
+%116
+%117
+%119
+%120
+%121
+%123
+%124
+%125
+%126
+%127
+%128
+%129
+%130
+%131
+%132
+%133
+%136
+%137
+%106
+%138
+%139
+%140
+%142
+%143
+%145
+%146
+%147
+%148
+%149
+%150
+%151
+%152
+%153
+%154
+%155
+%156
+%157
+%158
+%159
+%161
+%162
+%164
+%167
+%170
+%172
+%174
+%175
+%177
+%179
+%180
+%182
+%183
+%185
+%186
+%187
+%190
+%192
+%194
+%196
+%197
+%198
+%200
+%201
+%202
+%203
+%204
+%205
+%206
+%207
+%208
+%209
+%210
+%211
+%214
+%215
+%216
+%217
+%218
+%219
+%220
+%222
+%223
+%224
+%225
+%227
+%230
+%231
+%232
+%233
+%235
+%236
+%237
+%160
+%238
+%240
+%242
+%243
+%244
+%246
+%248
+%249
+%250
+%251
+%252
+%253
+%254
+%255
+%256
+%257
+%258
+%259
+%260
+%261
+%262
+%263
+%264
+%265
+%266
+%267
+%268
+%269
+%270
+%271
+%272
+%273
+%274
+%275
+%276
+%277
+%278
+(*.f64 #s(literal 1 binary64) %144)
+(pow.f64 %144 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %144 #s(literal -1 binary64)))
+(neg.f64 %118)
+(fma.f64 #s(literal 1 binary64) %37 a)
+(fma.f64 #s(literal 1 binary64) %25 b)
+(fma.f64 #s(literal 1 binary64) %28 %54)
+(fma.f64 #s(literal 1 binary64) %54 %28)
+(-.f64 %37 %14)
+(-.f64 %25 %39)
+(-.f64 %28 %59)
+%144
+(-.f64 b %20)
+(-.f64 a %32)
+(+.f64 %37 a)
+(+.f64 %25 b)
+(+.f64 %28 %54)
+(+.f64 %54 %28)
+(+.f64 b %25)
+(+.f64 a %37)
+(*.f64 #s(literal 1 binary64) %247)
+(pow.f64 %247 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %247 #s(literal -1 binary64)))
+(neg.f64 %189)
+(fma.f64 #s(literal 1 binary64) %213 b)
+(fma.f64 #s(literal 1 binary64) %245 a)
+(fma.f64 #s(literal 1 binary64) %234 %54)
+(fma.f64 #s(literal 1 binary64) %228 %25)
+(fma.f64 #s(literal 1 binary64) %212 %37)
+(fma.f64 #s(literal 1 binary64) %37 %212)
+(fma.f64 #s(literal 1 binary64) %25 %228)
+(fma.f64 #s(literal 1 binary64) %28 %188)
+(fma.f64 #s(literal 1 binary64) %81 %144)
+(fma.f64 #s(literal 1 binary64) %188 %28)
+(fma.f64 #s(literal 1 binary64) %144 %81)
+(fma.f64 #s(literal 1 binary64) %54 %234)
+(-.f64 %213 %39)
+(-.f64 %245 %14)
+(-.f64 %234 %59)
+(-.f64 %228 %20)
+(-.f64 %212 %32)
+(-.f64 %37 %176)
+(-.f64 %25 %178)
+(-.f64 %28 %191)
+(-.f64 %81 %118)
+%247
+(-.f64 %144 c)
+(-.f64 %54 %168)
+(-.f64 b %169)
+(-.f64 a %173)
+(+.f64 %213 b)
+(+.f64 %245 a)
+(+.f64 %234 %54)
+(+.f64 %228 %25)
+(+.f64 %212 %37)
+(+.f64 %37 %212)
+(+.f64 %25 %228)
+(+.f64 %28 %188)
+(+.f64 %81 %144)
+(+.f64 %188 %28)
+(+.f64 %144 %81)
+(+.f64 %54 %234)
+(+.f64 b %213)
+(+.f64 a %245)
+%161
+%162
+%164
+%167
+%170
+%172
+%174
+%175
+%177
+%179
+%180
+%182
+%183
+%185
+%186
+%187
+%190
+%192
+%194
+%196
+%197
+%198
+%200
+%201
+%202
+%203
+%204
+%205
+%206
+%207
+%208
+%209
+%210
+%211
+%214
+%215
+%216
+%217
+%218
+%219
+%220
+%222
+%223
+%224
+%225
+%227
+%230
+%231
+%232
+%233
+%235
+%236
+%237
+%160
+%238
+%240
+%242
+%243
+%244
+%246
+%248
+%249
+%250
+%251
+%252
+%253
+%254
+%255
+%256
+%257
+%258
+%259
+%260
+%261
+%262
+%263
+%264
+%265
+%266
+%267
+%268
+%269
+%270
+%271
+%272
+%273
+%274
+%275
+%276
+%277
+%278
+(*.f64 #s(literal 1 binary64) %195)
+(pow.f64 %195 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %195 #s(literal -1 binary64)))
+(neg.f64 %229)
+(fma.f64 #s(literal 1 binary64) %171 d)
+(fma.f64 #s(literal 1 binary64) %173 W)
+(fma.f64 #s(literal 1 binary64) %113 %168)
+(fma.f64 #s(literal 1 binary64) %178 %44)
+(fma.f64 #s(literal 1 binary64) %115 c)
+(fma.f64 #s(literal 1 binary64) %181 %39)
+(fma.f64 #s(literal 1 binary64) %168 %113)
+(fma.f64 #s(literal 1 binary64) %39 %181)
+(fma.f64 #s(literal 1 binary64) %73 %32)
+(fma.f64 #s(literal 1 binary64) %44 %178)
+(fma.f64 #s(literal 1 binary64) %32 %73)
+(-.f64 %171 %28)
+(-.f64 %173 %16)
+(-.f64 %113 %234)
+(-.f64 %178 %49)
+(-.f64 %115 %81)
+(-.f64 %181 b)
+(-.f64 %168 %134)
+(-.f64 %39 %221)
+(-.f64 %73 %37)
+(-.f64 %44 %228)
+(-.f64 %32 %78)
+(-.f64 d %241)
+(-.f64 c %135)
+(-.f64 W %245)
+(+.f64 %171 d)
+(+.f64 %173 W)
+(+.f64 %113 %168)
+(+.f64 %178 %44)
+(+.f64 %115 c)
+(+.f64 %181 %39)
+(+.f64 %168 %113)
+(+.f64 %39 %181)
+%195
+(+.f64 %44 %178)
+(+.f64 %32 %73)
+(+.f64 d %171)
+(+.f64 c %115)
+(+.f64 W %173)
+%161
+%162
+%164
+%167
+%170
+%172
+%174
+%175
+%177
+%179
+%180
+%182
+%183
+%185
+%186
+%187
+%190
+%192
+%194
+%196
+%197
+%198
+%200
+%201
+%202
+%203
+%204
+%205
+%206
+%207
+%208
+%209
+%210
+%211
+%214
+%215
+%216
+%217
+%218
+%219
+%220
+%222
+%223
+%224
+%225
+%227
+%230
+%231
+%232
+%233
+%235
+%236
+%237
+%160
+%238
+%240
+%242
+%243
+%244
+%246
+%248
+%249
+%250
+%251
+%252
+%253
+%254
+%255
+%256
+%257
+%258
+%259
+%260
+%261
+%262
+%263
+%264
+%265
+%266
+%267
+%268
+%269
+%270
+%271
+%272
+%273
+%274
+%275
+%276
+%277
+%278
+(*.f64 #s(literal 1 binary64) %89)
+(pow.f64 %89 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %89 #s(literal -1 binary64)))
+(neg.f64 %84)
+(fma.f64 #s(literal 1 binary64) %49 a)
+(fma.f64 #s(literal 1 binary64) %25 %16)
+(fma.f64 #s(literal 1 binary64) %28 %12)
+(fma.f64 #s(literal 1 binary64) %16 %25)
+(fma.f64 #s(literal 1 binary64) %12 %28)
+(-.f64 %49 %14)
+(-.f64 %25 W)
+(-.f64 %28 %6)
+(-.f64 %16 %20)
+%89
+(-.f64 a %44)
+(+.f64 %49 a)
+(+.f64 %25 %16)
+(+.f64 %28 %12)
+(+.f64 %16 %25)
+(+.f64 %12 %28)
+(+.f64 a %49)
+(*.f64 #s(literal 1 binary64) %193)
+(pow.f64 %193 #s(literal 1 binary64))
+(/.f64 #s(literal 1 binary64) (pow.f64 %193 #s(literal -1 binary64)))
+(neg.f64 %226)
+(fma.f64 #s(literal 1 binary64) %169 W)
+(fma.f64 #s(literal 1 binary64) %176 %44)
+(fma.f64 #s(literal 1 binary64) %181 %14)
+(fma.f64 #s(literal 1 binary64) %168 %6)
+(fma.f64 #s(literal 1 binary64) %184 d)
+(fma.f64 #s(literal 1 binary64) %14 %181)
+(fma.f64 #s(literal 1 binary64) %84 c)
+(fma.f64 #s(literal 1 binary64) %73 %20)
+(fma.f64 #s(literal 1 binary64) %44 %176)
+(fma.f64 #s(literal 1 binary64) %20 %73)
+(fma.f64 #s(literal 1 binary64) %6 %168)
+(-.f64 %169 %16)
+(-.f64 %176 %49)
+(-.f64 %181 a)
+(-.f64 %168 %12)
+(-.f64 %184 %28)
+(-.f64 %14 %221)
+(-.f64 %84 %81)
+(-.f64 %73 %25)
+(-.f64 %44 %212)
+(-.f64 %20 %78)
+(-.f64 d %239)
+%193
+(-.f64 %6 %234)
+(-.f64 W %213)
+(+.f64 %169 W)
+(+.f64 %176 %44)
+(+.f64 %181 %14)
+(+.f64 %168 %6)
+(+.f64 %184 d)
+(+.f64 %14 %181)
+(+.f64 %84 c)
+(+.f64 %73 %20)
+(+.f64 %44 %176)
+(+.f64 %20 %73)
+(+.f64 d %184)
+(+.f64 c %84)
+(+.f64 %6 %168)
+(+.f64 W %169)
+%161
+%162
+%164
+%167
+%170
+%172
+%174
+%175
+%177
+%179
+%180
+%182
+%183
+%185
+%186
+%187
+%190
+%192
+%194
+%196
+%197
+%198
+%200
+%201
+%202
+%203
+%204
+%205
+%206
+%207
+%208
+%209
+%210
+%211
+%214
+%215
+%216
+%217
+%218
+%219
+%220
+%222
+%223
+%224
+%225
+%227
+%230
+%231
+%232
+%233
+%235
+%236
+%237
+%160
+%238
+%240
+%242
+%243
+%244
+%246
+%248
+%249
+%250
+%251
+%252
+%253
+%254
+%255
+%256
+%257
+%258
+%259
+%260
+%261
+%262
+%263
+%264
+%265
+%266
+%267
+%268
+%269
+%270
+%271
+%272
+%273
+%274
+%275
+%276
+%277
+%278
+%107
+%108
+%110
+%112
+%114
+%116
+%117
+%119
+%120
+%121
+%123
+%124
+%125
+%126
+%127
+%128
+%129
+%130
+%131
+%132
+%133
+%136
+%137
+%106
+%138
+%139
+%140
+%142
+%143
+%145
+%146
+%147
+%148
+%149
+%150
+%151
+%152
+%153
+%154
+%155
+%156
+%157
+%158
+%159
+%161
+%162
+%164
+%167
+%170
+%172
+%174
+%175
+%177
+%179
+%180
+%182
+%183
+%185
+%186
+%187
+%190
+%192
+%194
+%196
+%197
+%198
+%200
+%201
+%202
+%203
+%204
+%205
+%206
+%207
+%208
+%209
+%210
+%211
+%214
+%215
+%216
+%217
+%218
+%219
+%220
+%222
+%223
+%224
+%225
+%227
+%230
+%231
+%232
+%233
+%235
+%236
+%237
+%160
+%238
+%240
+%242
+%243
+%244
+%246
+%248
+%249
+%250
+%251
+%252
+%253
+%254
+%255
+%256
+%257
+%258
+%259
+%260
+%261
+%262
+%263
+%264
+%265
+%266
+%267
+%268
+%269
+%270
+%271
+%272
+%273
+%274
+%275
+%276
+%277
+%278
+%107
+%108
+%110
+%112
+%114
+%116
+%117
+%119
+%120
+%121
+%123
+%124
+%125
+%126
+%127
+%128
+%129
+%130
+%131
+%132
+%133
+%136
+%137
+%106
+%138
+%139
+%140
+%142
+%143
+%145
+%146
+%147
+%148
+%149
+%150
+%151
+%152
+%153
+%154
+%155
+%156
+%157
+%158
+%159
+%161
+%162
+%164
+%167
+%170
+%172
+%174
+%175
+%177
+%179
+%180
+%182
+%183
+%185
+%186
+%187
+%190
+%192
+%194
+%196
+%197
+%198
+%200
+%201
+%202
+%203
+%204
+%205
+%206
+%207
+%208
+%209
+%210
+%211
+%214
+%215
+%216
+%217
+%218
+%219
+%220
+%222
+%223
+%224
+%225
+%227
+%230
+%231
+%232
+%233
+%235
+%236
+%237
+%160
+%238
+%240
+%242
+%243
+%244
+%246
+%248
+%249
+%250
+%251
+%252
+%253
+%254
+%255
+%256
+%257
+%258
+%259
+%260
+%261
+%262
+%263
+%264
+%265
+%266
+%267
+%268
+%269
+%270
+%271
+%272
+%273
+%274
+%275
+%276
+%277
+%278</pre></td></tr></table></details></dd></dl></div><div class="timeline-block timeline-reconstruct" id="timeline25"><h3><a href="#timeline25">reconstruct</a><span class="time">44.0ms (4.0%)</span></h3><dl><dt>Counts</dt><dd>1 255 → 416</dd><dt>Compiler</dt><dd><p>Compiled 11 011 to 817 computations (92.6% saved)</p></dd></dl></div><div class="timeline-block timeline-eval" id="timeline26"><h3><a href="#timeline26">eval</a><span class="time">4.0ms (0.4%)</span></h3><dl><dt>Compiler</dt><dd><p>Compiled 2 482 to 569 computations (77.1% saved)</p></dd></dl></div><div class="timeline-block timeline-prune" id="timeline27"><h3><a href="#timeline27">prune</a><span class="time">7.0ms (0.7%)</span></h3><dl><dt>Pruning</dt><dd><p>33 alts after pruning (8 fresh and 25 done)</p><table class="states"><thead><tr><th></th><th>Pruned</th><th>Kept</th><th>Total</th></tr></thead><tbody><tr><th>New</th><td>209</td><td>8</td><td>217</td></tr><tr><th>Fresh</th><td>0</td><td>0</td><td>0</td></tr><tr><th>Picked</th><td>2</td><td>5</td><td>7</td></tr><tr><th>Done</th><td>2</td><td>20</td><td>22</td></tr></tbody><tfoot><tr><th>Total</th><td>213</td><td>33</td><td>246</td></tr></tfoot></table></dd><dt>Taylor</dt><dd><table class="times"><thead><tr><th>Generated</th><th>Kept</th><th>% Kept</th><th># Vars</th><th>Transform</th><th>Order</th></tr></thead><tbody><tr><td>18×</td><td>6×</td><td>33.3%</td><td>2</td><td><code>0</code></td><td>0</td></tr><tr><td>3×</td><td>2×</td><td>66.7%</td><td>2</td><td><code>inf</code></td><td>0</td></tr><tr><td>1×</td><td>0×</td><td>0.0%</td><td>1</td><td><code>-inf</code></td><td>1</td></tr><tr><td>1×</td><td>0×</td><td>0.0%</td><td>1</td><td><code>inf</code></td><td>0</td></tr><tr><td>11×</td><td>0×</td><td>0.0%</td><td>1</td><td><code>inf</code></td><td>1</td></tr><tr><td>33×</td><td>0×</td><td>0.0%</td><td>2</td><td><code>inf</code></td><td>1</td></tr><tr><td>6×</td><td>0×</td><td>0.0%</td><td>1</td><td><code>0</code></td><td>1</td></tr><tr><td>17×</td><td>0×</td><td>0.0%</td><td>2</td><td><code>0</code></td><td>1</td></tr><tr><td>3×</td><td>0×</td><td>0.0%</td><td>1</td><td><code>zero</code></td><td>-1</td></tr><tr><td>33×</td><td>0×</td><td>0.0%</td><td>2</td><td><code>-inf</code></td><td>1</td></tr></tbody></table></dd><dt>Accuracy</dt><dd>100.0%</dd><dt>Counts</dt><dd>246 → 33</dd><dt>Alt Table</dt><dd><details><summary>Click to see full alt table</summary><table class="times"><thead><tr><th>Status</th><th>Accuracy</th><th>Program</th></tr></thead><tr><td><span title="Selected in a prior iteration">✓</span></td><td>99.5%</td><td><pre>(-.f64 (-.f64 W b) (-.f64 (-.f64 a c) d))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>39.5%</td><td><pre>(-.f64 (-.f64 W b) (approx (- (- a c) d) (-.f64 a d)))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>99.5%</td><td><pre>(-.f64 (+.f64 d W) (-.f64 (+.f64 b a) c))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>65.4%</td><td><pre>(-.f64 (+.f64 d W) (approx (- (+ b a) c) (-.f64 b c)))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>99.5%</td><td><pre>(-.f64 W (-.f64 (-.f64 (+.f64 b a) c) d))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>65.4%</td><td><pre>(-.f64 W (-.f64 (approx (- (+ b a) c) (-.f64 b c)) d))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>39.5%</td><td><pre>(-.f64 W (approx (- (- (+ b a) c) d) (-.f64 (+.f64 a b) d)))</pre></td></tr><tr><td></td><td>9.3%</td><td><pre>(-.f64 W (approx (- (- (+ b a) c) d) (-.f64 (+.f64 a b) c)))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>37.6%</td><td><pre>(-.f64 W (approx (- (- (+ b a) c) d) (-.f64 (approx (+ a b) b) d)))</pre></td></tr><tr><td></td><td>13.8%</td><td><pre>(-.f64 W (approx (- (- (+ b a) c) d) (*.f64 #s(literal -1 binary64) c)))</pre></td></tr><tr><td></td><td>31.9%</td><td><pre>(-.f64 W (approx (- (- (+ b a) c) d) (approx (- (+ a b) d) (*.f64 #s(literal -1 binary64) d))))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>99.9%</td><td><pre>(+.f64 (+.f64 (-.f64 (-.f64 W a) b) c) d)</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>99.3%</td><td><pre>(+.f64 W (-.f64 (-.f64 (+.f64 d c) b) a))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>39.5%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (-.f64 (-.f64 (+.f64 d W) a) b))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>65.4%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (-.f64 (+.f64 W (+.f64 c d)) b))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>43.5%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (-.f64 (+.f64 W (+.f64 c d)) a))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>39.5%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (-.f64 (+.f64 W d) (+.f64 a b)))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>37.6%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (-.f64 (+.f64 W d) (approx (+ a b) b)))</pre></td></tr><tr><td></td><td>9.3%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (-.f64 (+.f64 W c) (+.f64 a b)))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>37.5%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (-.f64 (approx (+ W d) d) (approx (+ a b) b)))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>43.5%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (-.f64 c (-.f64 (-.f64 a W) d)))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>65.4%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (+.f64 (+.f64 d c) (-.f64 W b)))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>43.5%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (+.f64 (+.f64 d W) (-.f64 c a)))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>65.4%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (+.f64 (+.f64 c W) (-.f64 d b)))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>43.5%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (+.f64 (+.f64 c W) (-.f64 d a)))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>32.0%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (approx (- (+ W d) (+ a b)) (-.f64 (+.f64 W d) a)))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>31.9%</td><td><pre>%28 = (+ W d)
+(approx (+ (+ (- (- W a) b) c) d) (approx (- %28 (+ a b)) (-.f64 (approx %28 d) a)))</pre></td></tr><tr><td></td><td>4.5%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (approx (- (+ W d) (+ a b)) (-.f64 W (+.f64 a b))))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>32.0%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (approx (- (+ W d) (+ a b)) (+.f64 d (-.f64 W a))))</pre></td></tr><tr><td><span title="Selected in a prior iteration">✓</span></td><td>32.0%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (approx (- (+ W d) (+ a b)) (+.f64 W (-.f64 d a))))</pre></td></tr><tr><td></td><td>12.2%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (approx (- c (- (- a W) d)) (-.f64 (+.f64 W c) a)))</pre></td></tr><tr><td></td><td>43.4%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (approx (- c (- (- a W) d)) (+.f64 W (+.f64 c d))))</pre></td></tr><tr><td></td><td>9.3%</td><td><pre>(approx (+ (+ (- (- W a) b) c) d) (approx (+ (+ c W) (- d b)) (-.f64 (+.f64 W c) b)))</pre></td></tr></table></details></dd><dt>Compiler</dt><dd><p>Compiled 253 to 71 computations (71.9% saved)</p></dd></dl></div><div class="timeline-block timeline-regimes" id="timeline28"><h3><a href="#timeline28">regimes</a><span class="time">75.0ms (6.7%)</span></h3><dl><dt>Accuracy</dt><dd><p>Total 4.5b remaining (1.7%)<p>Threshold costs 1.2b (0.5%)</p><table class="times"><tr><td>1.6b</td><td>0.0%</td></tr><tr><td>1.6b</td><td>0.0%</td></tr><tr><td>0.3b</td><td>0.0%</td></tr><tr><td>0.3b</td><td>0.0%</td></tr><tr><td>0.2b</td><td>93.1%</td></tr></table></p></dd><dt>Counts</dt><dd>1 → 1</dd><dd>2 → 1</dd><dd>4 → 2</dd><dd>10 → 2</dd><dd>19 → 2</dd><dd>20 → 1</dd><dd>22 → 1</dd><dd>35 → 1</dd><dd>36 → 1</dd><dd>38 → 1</dd><dd>39 → 1</dd><dt>Calls</dt><dd><details><summary>Call 1</summary><table><thead><tr><th>Inputs</th></tr></thead><tr><td><pre>%5 = (+ W d)
+%6 = (approx %5 d)
+%8 = (+ a b)
+%9 = (- %5 %8)
+%12 = (- (- W a) b)
+%13 = (+ %12 c)
+%14 = (+ %13 d)
+%16 = (approx %8 b)
+%19 = (+.f64 W c)
+%20 = (-.f64 %19 b)
+%21 = (+ c W)
+%26 = (+.f64 c d)
+%27 = (+.f64 W %26)
+%28 = (- a W)
+%30 = (- c (- %28 d))
+%33 = (-.f64 %19 a)
+%36 = (-.f64 d a)
+%40 = (-.f64 W a)
+%44 = (+.f64 a b)
+%48 = (+.f64 W d)
+%53 = (-.f64 d b)
+%68 = (approx (+ W c) c)
+%77 = (- (+ b a) c)
+%78 = (- %77 d)
+%90 = (+.f64 c W)
+%95 = (+.f64 d W)
+%99 = (+.f64 d c)
+%100 = (-.f64 W b)
+%134 = (approx %77 (-.f64 b c))
+%150 = (-.f64 (+.f64 b a) c)
+(approx %14 (approx %9 (-.f64 %6 a)))
+(approx %14 (-.f64 %6 %16))
+(approx %14 (approx (+ %21 (- d b)) %20))
+(approx %14 (approx %30 %27))
+(approx %14 (approx %30 %33))
+(approx %14 (approx %9 (+.f64 W %36)))
+(approx %14 (approx %9 (+.f64 d %40)))
+(approx %14 (approx %9 (-.f64 W %44)))
+(approx %14 (approx %9 (-.f64 %48 a)))
+(approx %14 (+.f64 (approx %21 c) %53))
+(approx %14 (-.f64 c (-.f64 (approx %28 a) d)))
+(approx %14 (-.f64 (approx (+ W (+ c d)) %26) a))
+(approx %14 (-.f64 %48 %16))
+(+.f64 (approx %13 (-.f64 %68 a)) d)
+(+.f64 (approx %13 (-.f64 %68 b)) d)
+(-.f64 W (approx %78 (-.f64 %16 d)))
+(-.f64 W (approx %78 (approx (- %8 d) (*.f64 #s(literal -1 binary64) d))))
+(-.f64 W (approx %78 (*.f64 #s(literal -1 binary64) c)))
+(approx %14 (+.f64 %90 %36))
+(approx %14 (+.f64 %90 %53))
+(approx %14 (+.f64 %95 (-.f64 c a)))
+(approx %14 (+.f64 %99 %100))
+(approx %14 (+.f64 %40 %53))
+(approx %14 (-.f64 c (-.f64 (-.f64 a W) d)))
+(approx %14 (-.f64 %19 %44))
+(approx %14 (-.f64 %48 %44))
+(approx %14 (-.f64 %27 a))
+(approx %14 (-.f64 %27 b))
+(approx %14 (-.f64 (-.f64 %95 a) b))
+(+.f64 (approx %13 %33) d)
+(+.f64 (approx %13 %20) d)
+(+.f64 (+.f64 (approx %12 %100) c) d)
+(-.f64 W (approx %78 (-.f64 %44 c)))
+(-.f64 W (approx %78 (-.f64 %44 d)))
+(-.f64 W (-.f64 %134 d))
+(-.f64 %95 %134)
+(-.f64 %100 (approx (- (- a c) d) (-.f64 a d)))
+(+.f64 W (-.f64 (-.f64 %99 b) a))
+(+.f64 (+.f64 (-.f64 %40 b) c) d)
+(-.f64 W (-.f64 %150 d))
+(-.f64 %95 %150)
+(-.f64 %100 (-.f64 (-.f64 a c) d))</pre></td></tr></table><table><thead><tr><th>Outputs</th></tr></thead><tr><td><pre>%9 = (+.f64 d c)
+%17 = (approx (- (+ b a) c) (-.f64 b c))
+%26 = (+ (+ (- (- W a) b) c) d)
+%28 = (+.f64 c W)
+%29 = (-.f64 d b)
+%46 = (+ W d)
+%47 = (approx %46 d)
+%48 = (+ a b)
+(+.f64 (+.f64 (-.f64 (-.f64 W a) b) c) d)
+(+.f64 W (-.f64 (-.f64 %9 b) a))
+(-.f64 (+.f64 d W) %17)
+(-.f64 W (-.f64 %17 d))
+(approx %26 (+.f64 %9 (-.f64 W b)))
+(approx %26 (+.f64 %28 %29))
+(approx %26 (+.f64 (approx (+ c W) c) %29))
+(approx %26 (+.f64 %28 (-.f64 d a)))
+(approx %26 (approx (- c (- (- a W) d)) (+.f64 W (+.f64 c d))))
+(approx %26 (-.f64 %47 (approx %48 b)))
+(approx %26 (approx (- %46 %48) (-.f64 %47 a)))</pre></td></tr></table></details></dd><dt>Calls</dt><dd><p>9 calls:</p><canvas id="calls-5" title="Weighted histogram; height corresponds to percentage of runtime in that bucket."></canvas><script>histogram('calls-5', [8.00634765625,7.98486328125,8.20849609375,8.113525390625,8.14111328125,8.103271484375,8.14111328125,11.017333984375,8.185546875])</script><table class="times"><tr><td>11.0ms</td><td><pre>W</pre></td></tr><tr><td>8.0ms</td><td><pre>b</pre></td></tr><tr><td>8.0ms</td><td><pre>(+.f64 (+.f64 (-.f64 (-.f64 W a) b) c) d)</pre></td></tr><tr><td>8.0ms</td><td><pre>(+.f64 (-.f64 (-.f64 W a) b) c)</pre></td></tr><tr><td>8.0ms</td><td><pre>(-.f64 W a)</pre></td></tr></table></dd><dt>Results</dt><dd><table class="times"><thead><tr><th>Accuracy</th><th>Segments</th><th>Branch</th></tr></thead><tr><td>31.9%</td><td>1</td><td><pre>d</pre></td></tr><tr><td>31.9%</td><td>1</td><td><pre>c</pre></td></tr><tr><td>31.9%</td><td>1</td><td><pre>b</pre></td></tr><tr><td>31.9%</td><td>1</td><td><pre>a</pre></td></tr><tr><td>31.9%</td><td>1</td><td><pre>(+.f64 (-.f64 (-.f64 W a) b) c)</pre></td></tr><tr><td>31.9%</td><td>1</td><td><pre>(-.f64 (-.f64 W a) b)</pre></td></tr><tr><td>31.9%</td><td>1</td><td><pre>(-.f64 W a)</pre></td></tr><tr><td>31.9%</td><td>1</td><td><pre>W</pre></td></tr><tr><td>31.9%</td><td>1</td><td><pre>(+.f64 (+.f64 (-.f64 (-.f64 W a) b) c) d)</pre></td></tr></table></dd><dt>Compiler</dt><dd><p>Compiled 349 to 93 computations (73.4% saved)</p></dd></dl></div><div class="timeline-block timeline-bsearch" id="timeline29"><h3><a href="#timeline29">bsearch</a><span class="time">0.0ms (0.0%)</span></h3><dl></dl></div><div class="timeline-block timeline-bsearch" id="timeline30"><h3><a href="#timeline30">bsearch</a><span class="time">0.0ms (0.0%)</span></h3><dl></dl></div><div class="timeline-block timeline-bsearch" id="timeline31"><h3><a href="#timeline31">bsearch</a><span class="time">0.0ms (0.0%)</span></h3><dl></dl></div><div class="timeline-block timeline-bsearch" id="timeline32"><h3><a href="#timeline32">bsearch</a><span class="time">0.0ms (0.0%)</span></h3><dl></dl></div><div class="timeline-block timeline-bsearch" id="timeline33"><h3><a href="#timeline33">bsearch</a><span class="time">0.0ms (0.0%)</span></h3><dl></dl></div><div class="timeline-block timeline-bsearch" id="timeline34"><h3><a href="#timeline34">bsearch</a><span class="time">0.0ms (0.0%)</span></h3><dl></dl></div><div class="timeline-block timeline-bsearch" id="timeline35"><h3><a href="#timeline35">bsearch</a><span class="time">0.0ms (0.0%)</span></h3><dl><dt>Algorithm</dt><dd><table class="times"><tr><td>1×</td><td>left-value</td></tr></table></dd><dt>Steps</dt><dd><table><tr><th>Time</th><th>Left</th><th>Right</th></tr><tr><td>0.0ms</td><td><pre>-0.015786185648742013</pre></td><td><pre>1.0027629184337423</pre></td></tr></table></dd><dt>Compiler</dt><dd><p>Compiled 5 to 5 computations (0.0% saved)</p></dd></dl></div><div class="timeline-block timeline-bsearch" id="timeline36"><h3><a href="#timeline36">bsearch</a><span class="time">0.0ms (0.0%)</span></h3><dl><dt>Algorithm</dt><dd><table class="times"><tr><td>1×</td><td>left-value</td></tr></table></dd><dt>Steps</dt><dd><table><tr><th>Time</th><th>Left</th><th>Right</th></tr><tr><td>0.0ms</td><td><pre>-0.015786185648742013</pre></td><td><pre>1.0027629184337423</pre></td></tr></table></dd><dt>Compiler</dt><dd><p>Compiled 5 to 5 computations (0.0% saved)</p></dd></dl></div><div class="timeline-block timeline-bsearch" id="timeline37"><h3><a href="#timeline37">bsearch</a><span class="time">0.0ms (0.0%)</span></h3><dl><dt>Algorithm</dt><dd><table class="times"><tr><td>1×</td><td>left-value</td></tr></table></dd><dt>Steps</dt><dd><table><tr><th>Time</th><th>Left</th><th>Right</th></tr><tr><td>0.0ms</td><td><pre>-5.8427733946283</pre></td><td><pre>2.7782639716263704</pre></td></tr></table></dd><dt>Compiler</dt><dd><p>Compiled 7 to 7 computations (0.0% saved)</p></dd></dl></div><div class="timeline-block timeline-bsearch" id="timeline38"><h3><a href="#timeline38">bsearch</a><span class="time">0.0ms (0.0%)</span></h3><dl></dl></div><div class="timeline-block timeline-bsearch" id="timeline39"><h3><a href="#timeline39">bsearch</a><span class="time">0.0ms (0.0%)</span></h3><dl></dl></div><div class="timeline-block timeline-derivations" id="timeline40"><h3><a href="#timeline40">derivations</a><span class="time">100.0ms (8.9%)</span></h3><dl><dt>Stop Event</dt><dd><table class="times"><tr><td>1×</td><td>fuel</td></tr></table></dd><dt>Compiler</dt><dd><p>Compiled 130 to 37 computations (71.5% saved)</p></dd></dl></div><div class="timeline-block timeline-preprocess" id="timeline41"><h3><a href="#timeline41">preprocess</a><span class="time">67.0ms (6.0%)</span></h3><dl><dt>Symmetry</dt><dd><p>(sort W d)</p><p>(sort c d)</p></dd><dt>Compiler</dt><dd><p>Compiled 1 633 to 1 037 computations (36.5% saved)</p></dd></dl></div><div class="timeline-block timeline-end" id="timeline42"><h3><a href="#timeline42">end</a><span class="time">0.0ms (0.0%)</span></h3><dl></dl></div><div class="timeline-block timeline-gc" id="timeline43"><h3><a href="#timeline43">gc</a><span class="time">72ms (6.4%)</span></h3><dl><dt>Allocations</dt><dd><table class="times"><thead><tr><th>Allocated</th><th>Percent</th><th>Phase</th></tr></thead><tr><td>337.7 MiB</td><td>26.9%</td><td><code>sample</code></td></tr><tr><td>233.7 MiB</td><td>18.6%</td><td><code>regimes</code></td></tr><tr><td>210.0 MiB</td><td>16.7%</td><td><code>reconstruct</code></td></tr><tr><td>144.0 MiB</td><td>11.5%</td><td><code>preprocess</code></td></tr><tr><td>94.6 MiB</td><td>7.5%</td><td><code>rewrite</code></td></tr><tr><td>74.3 MiB</td><td>5.9%</td><td><code>series</code></td></tr><tr><td>53.2 MiB</td><td>4.2%</td><td><code>prune</code></td></tr><tr><td>52.2 MiB</td><td>4.2%</td><td><code>analyze</code></td></tr><tr><td>48.8 MiB</td><td>3.9%</td><td><code>eval</code></td></tr><tr><td>7.4 MiB</td><td>0.6%</td><td><code>derivations</code></td></tr><tr><td>1.6 MiB</td><td>0.1%</td><td><code>bsearch</code></td></tr><tr><td>0.0 MiB</td><td>0.0%</td><td><code>start</code></td></tr><tr><td>0.0 MiB</td><td>0.0%</td><td><code>end</code></td></tr><tfoot><tr><td>1 257.6 MiB</td><td>100.0%</td><td><code>total</code></td></tr></tfoot></table></dd></dl></div></section><section id="profile"><h1>Profiling</h1><p class="load-text">Loading profile data...</p></section></body></html>

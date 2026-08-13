@@ -1,8 +1,10 @@
+use crate::chain::AugmentedMatch;
 use crate::cooling_schedule::CoolingSchedule;
 use crate::cooling_state::{Matrix, State};
-use crate::filter::{AugmentedMatch, MetropolisFilter};
 use crate::graph;
 use crate::graph::Match;
+use rand::SeedableRng;
+use rand::rngs::SmallRng;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 use std::iter::Sum;
 use std::sync::atomic::AtomicUsize;
@@ -58,19 +60,28 @@ impl AtomicMatrix {
                 sum
             })
             .sum::<f64>();
-        let scale = self.size as f64 / sum;
-        matrix.transform(|x| (1.0 / (x * scale)).min(f64::MAX / ((2 * self.size) as f64)));
+        // Cap the weights well below the scale where f64 addition starts
+        // dropping the other summands of W(M) (ulp(1e12) ~ 2e-4): the chain
+        // tracks W incrementally, and a cap near f64::MAX makes W collapse to
+        // 0 by cancellation the moment a capped edge leaves the matching,
+        // which turns the 1/W rejection probability into infinity. The cap
+        // only limits how strongly unlikely edges are boosted for mixing; any
+        // finite weight matrix keeps the estimator unbiased.
+        const WEIGHT_CAP: f64 = 1e12;
+        let n = self.size as f64;
+        // algebraically 1 / (x * (n / sum)), with one fewer rounding step
+        matrix.transform(|x| (sum / (x * n)).min(WEIGHT_CAP));
         matrix
     }
 }
 
-pub struct MCState<T: MetropolisFilter> {
+pub struct MCState {
     #[allow(dead_code)]
     graph: graph::Graph,
     size: usize,
     config: Config,
     pub global_state: State,
-    chains: Vec<AugmentedMatch<T>>,
+    chains: Vec<AugmentedMatch>,
 }
 
 impl Default for Config {
@@ -94,22 +105,16 @@ impl Sum for AddPair {
     }
 }
 
-impl<T: MetropolisFilter + 'static + Send + Sync> MCState<T> {
+impl MCState {
     pub fn new(graph: graph::Graph, config: Config) -> Self {
         let global_state = State::from(&graph);
         let size = graph.size;
         let chains = (0..config.num_of_chains)
             .map(|_| {
                 let matching = Match::random(graph.size);
-                let attr = T::initial_attr(&matching, &global_state);
                 let weight = global_state.weight_of_match(&matching);
                 let active_count = global_state.active_count_of_match(&matching);
-                AugmentedMatch {
-                    matching,
-                    attr,
-                    weight,
-                    active_count,
-                }
+                AugmentedMatch::new(matching, weight, active_count)
             })
             .collect();
         MCState {
@@ -122,23 +127,34 @@ impl<T: MetropolisFilter + 'static + Send + Sync> MCState<T> {
     }
     pub fn warmup(&mut self) {
         self.chains.par_iter_mut().for_each(|x| {
-            x.transit_n_times(&self.global_state, self.config.warmup_times);
+            let mut rng = SmallRng::from_rng(&mut rand::rng());
+            x.transit_n_times(&self.global_state, self.config.warmup_times, &mut rng);
         });
     }
-    fn evolve(&mut self, next_beta: f64, recompute: bool, penalty: f64) -> f64 {
+    fn evolve(&mut self, next_beta: f64, penalty: f64) -> f64 {
         let matrix = AtomicMatrix::new(self.size);
-        let diff = self.global_state.beta - next_beta;
+        let diff = self.global_state.beta() - next_beta;
         let global_sum = self
             .chains
             .par_iter_mut()
             .map(|x| {
-                if recompute {
-                    x.weight = self.global_state.weight_of_match(&x.matching);
-                    x.attr = T::initial_attr(&x.matching, &self.global_state);
-                }
+                let mut rng = SmallRng::from_rng(&mut rand::rng());
+                // The weight matrix was replaced at the end of the previous
+                // evolve step, so the cached per-chain weight must be
+                // refreshed here: both the Metropolis acceptance and the 1/W
+                // rejection probability rely on x.weight being exactly
+                // W(matching) under the *current* matrix. Keeping the stale
+                // cache and patching it incrementally lets a per-chain offset
+                // accumulate, which biases the rejection sampler (W >= 1 no
+                // longer holds).
+                x.set_weight(self.global_state.weight_of_match(&x.matching));
                 for _ in 0..self.config.num_of_weight_estimations {
-                    x.transit_n_times(&self.global_state, self.config.weight_sample_intervals);
-                    let sample = x.choose_weighted_edge(&self.global_state);
+                    x.transit_n_times(
+                        &self.global_state,
+                        self.config.weight_sample_intervals,
+                        &mut rng,
+                    );
+                    let sample = x.choose_weighted_edge(&self.global_state, &mut rng);
                     matrix.inc(sample.0, sample.1);
                 }
                 let mut local_sample_count = 0.0;
@@ -147,10 +163,11 @@ impl<T: MetropolisFilter + 'static + Send + Sync> MCState<T> {
                     if let Some(sample) = x.rejection_sample(
                         &self.global_state,
                         self.config.estimator_sample_intervals,
+                        &mut rng,
                     ) {
                         let importance = (x.active_count as f64 * penalty).exp();
                         local_sample_count += importance;
-                        local_sum += (diff * sample as f64).exp() * importance as f64;
+                        local_sum += (diff * sample as f64).exp() * importance;
                     }
                 }
                 AddPair(local_sample_count, local_sum)
@@ -163,18 +180,20 @@ impl<T: MetropolisFilter + 'static + Send + Sync> MCState<T> {
             global_sum.1 / global_sum.0
         }
     }
-    pub fn cooling_evolve(&mut self, mut sequence: CoolingSchedule, recompute: bool) -> f64 {
-        let factorial = (1..=self.size).product::<usize>() as f64;
+    pub fn cooling_evolve(&mut self, sequence: CoolingSchedule) -> f64 {
+        // accumulate in f64: usize overflows for n >= 21
+        let factorial = (1..=self.size).map(|x| x as f64).product::<f64>();
         let mut estimator = factorial;
-        sequence.next();
-        for i in sequence {
-            let ratio = self.evolve(i, recompute, 0.0);
-            info!(
-                "beta = {:.5}, estimator: {:.5}, ratio: {:.5}",
-                self.global_state.beta, estimator, ratio
-            );
+        for i in sequence.skip(1) {
+            let ratio = self.evolve(i, 0.0);
             estimator *= ratio;
-            self.global_state.beta = i;
+            self.global_state.set_beta(i);
+            info!(
+                "beta = {:.5}, ratio: {:.5}, estimator: {:.5e}",
+                self.global_state.beta(),
+                ratio,
+                estimator
+            );
         }
         estimator
     }
@@ -186,30 +205,51 @@ mod test {
 
     use crate::{cooling_schedule::CoolingConfig, graph::Graph};
 
-    #[test]
-    fn box_example() {
-        let path: PathBuf = env!("PWD").into();
-        let path = path.join("data").join("4-cycles.json");
+    fn estimate(name: &str, config: super::Config) -> (f64, f64) {
+        let path: PathBuf = env!("CARGO_MANIFEST_DIR").into();
+        let path = path.join("data").join(name);
         let graph = Graph::load(path).unwrap();
-        println!("{:?}", graph);
-        let config = super::Config::default();
-        let mut state = super::MCState::<crate::filter::Additive>::new(graph, config);
+        let exact = crate::exact::permanent(&graph);
+        let mut state = super::MCState::new(graph, config);
         state.warmup();
-        println!("warmup done");
-        let size = state.size;
         let cooling_cfg = CoolingConfig {
-            n: NonZeroUsize::new(size).unwrap(),
-            additive_ratio: NonZeroUsize::new(16).unwrap(),
-            multiplicative_ratio: NonZeroUsize::new(16).unwrap(),
+            n: NonZeroUsize::new(state.size).unwrap(),
+            additive_ratio: NonZeroUsize::new(4).unwrap(),
+            multiplicative_ratio: NonZeroUsize::new(4).unwrap(),
         };
         let schedule = crate::cooling_schedule::CoolingSchedule::from(cooling_cfg);
-        state.cooling_evolve(schedule, false);
-        for i in 0..size {
-            for j in 0..size {
-                // print state.global_state.weight.get(i, j)
-                print!("{:.2} ", 1.0 / state.global_state.weight.get(i, j));
-            }
-            println!();
+        let estimator = state.cooling_evolve(schedule);
+        (estimator, exact)
+    }
+
+    fn light_config() -> super::Config {
+        super::Config {
+            num_of_chains: 256,
+            warmup_times: 2048,
+            weight_sample_intervals: 8,
+            estimator_sample_intervals: 16,
+            num_of_weight_estimations: 256,
+            num_of_estimator_estimations: 16,
         }
+    }
+
+    #[test]
+    fn four_cycles_example() {
+        let (estimator, exact) = estimate("4-cycles.json", light_config());
+        println!("estimator: {estimator}, exact: {exact}");
+        assert!(
+            (estimator / exact).ln().abs() < 0.5f64.ln().abs(),
+            "estimator {estimator} too far from exact {exact}"
+        );
+    }
+
+    #[test]
+    fn box_example() {
+        let (estimator, exact) = estimate("box.json", light_config());
+        println!("estimator: {estimator}, exact: {exact}");
+        assert!(
+            (estimator / exact).ln().abs() < 0.5f64.ln().abs(),
+            "estimator {estimator} too far from exact {exact}"
+        );
     }
 }

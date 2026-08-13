@@ -97,7 +97,7 @@ mod test {
 
     #[test]
     fn box_example() {
-        let path: PathBuf = env!("PWD").into();
+        let path: PathBuf = env!("CARGO_MANIFEST_DIR").into();
         let path = path.join("data").join("box.json");
         let graph = super::Graph::load(path).unwrap();
         println!("{:?}", graph);
@@ -111,7 +111,7 @@ mod test {
 
     #[test]
     fn complete_example() {
-        let path: PathBuf = env!("PWD").into();
+        let path: PathBuf = env!("CARGO_MANIFEST_DIR").into();
         let path = path.join("data").join("complete.json");
         let graph = super::Graph::load(path).unwrap();
         println!("{:?}", graph);

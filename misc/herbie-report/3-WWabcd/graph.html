@@ -1,0 +1,1047 @@
+<!doctype html>
+<html><head><meta charset="utf-8"/><title>Result for W' = W - a - b + c + d</title><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.css" integrity="sha384-5TcZemv2l/9On385z///+d7MSYlvIEw9FuZTIdZ14vJLqWphw7e7ZPuOiCHJcFCP" crossorigin="anonymous"/><script defer="" src="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.js" integrity="sha384-cMkvdD8LoxVzGF/RPUKAcvmm49FQ0oxwDF3BGKtDXcEc+T1b2N+teh/OJfpU0jr6" crossorigin="anonymous"></script><script defer="" src="https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/contrib/auto-render.min.js" integrity="sha384-hCXGrW6PitJEwbkoStFjeJxv+fSOOQKOPbJxSfM6G5sWZjAyWhXiTIIAmQqnlLlh" crossorigin="anonymous"></script><script src="https://cdn.jsdelivr.net/npm/d3@7" defer=""></script><script src="https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6" defer=""></script><link rel="stylesheet" type="text/css" href="../report.css"/><script src="../report.js"></script></head><body><header><h1>W' = W - a - b + c + d</h1><img src="../logo-car.png"/><nav><ul><li><a href="../index.html">Report</a></li><li><a href="timeline.html">Metrics</a></li></ul></nav></header><div id="large"><div>Percentage Accurate: <span class="number" title="Minimum Accuracy: 94.2% → 92.5%">99.5%<span class="unit"> → </span>99.9%</span></div><div>Time: <span class="number">1.1s</span></div><div>Alternatives: <span class="number">11</span></div><div>Speedup: <span class="number" title="Relative speed of fastest alternative that improves accuracy.">1.0×</span></div></div><section><details id="specification" class="programs"><summary><h2>Specification</h2><select><option>Math</option><option>FPCore</option><option>C</option><option>Fortran</option><option>Java</option><option>Python</option><option>Julia</option><option>MATLAB</option><option>Wolfram</option><option>ReFlow</option><option>TeX</option></select><a class="help-button float" href="https://herbie.uwplse.org/doc/2.3/report.html#spec" target="_blank">?</a></summary><div><div id="precondition"><div class="program math">\[\left(\left(\left(\left(\left(1 \leq W \land W \leq 100000000000000\right) \land \left(\frac{1}{1000} \leq a \land a \leq 1000000000000\right)\right) \land \left(\frac{1}{1000} \leq b \land b \leq 1000000000000\right)\right) \land \left(\frac{1}{1000} \leq c \land c \leq 1000000000000\right)\right) \land \left(\frac{1}{1000} \leq d \land d \leq 1000000000000\right)\right) \land a + b \leq W\]</div></div><div class="implementation" data-language="Math"><div class="program math">\[\left(\left(\left(W - a\right) - b\right) + c\right) + d
+\]</div></div><div class="implementation" data-language="FPCore"><pre class="program">(FPCore weight-update (W a b c d)
+  :precision binary64
+  :pre (and (and (and (and (and (and (&lt;= 1 W) (&lt;= W 100000000000000))
+                         (and (&lt;= 1/1000 a)
+                              (&lt;= a 1000000000000)))
+                    (and (&lt;= 1/1000 b) (&lt;= b 1000000000000)))
+               (and (&lt;= 1/1000 c) (&lt;= c 1000000000000)))
+          (and (&lt;= 1/1000 d) (&lt;= d 1000000000000)))
+     (&lt;= (+ a b) W))
+  (+ (+ (- (- W a) b) c) d))</pre></div><div class="implementation" data-language="C"><pre class="program">double weight_45_update(double W, double a, double b, double c, double d) {
+	return (((W - a) - b) + c) + d;
+}
+</pre></div><div class="implementation" data-language="Fortran"><pre class="program">real(8) function weight_45update(w, a, b, c, d)
+use fmin_fmax_functions
+    real(8), intent (in) :: w
+    real(8), intent (in) :: a
+    real(8), intent (in) :: b
+    real(8), intent (in) :: c
+    real(8), intent (in) :: d
+    weight_45update = (((w - a) - b) + c) + d
+end function
+</pre></div><div class="implementation" data-language="Java"><pre class="program">public static double weight_45_update(double W, double a, double b, double c, double d) {
+	return (((W - a) - b) + c) + d;
+}
+</pre></div><div class="implementation" data-language="Python"><pre class="program">def weight_45_update(W, a, b, c, d):
+	return (((W - a) - b) + c) + d
+</pre></div><div class="implementation" data-language="Julia"><pre class="program">function weight_45_update(W, a, b, c, d)
+	return Float64(Float64(Float64(Float64(W - a) - b) + c) + d)
+end
+</pre></div><div class="implementation" data-language="MATLAB"><pre class="program">function tmp = weight_45_update(W, a, b, c, d)
+	tmp = (((W - a) - b) + c) + d;
+end
+</pre></div><div class="implementation" data-language="Wolfram"><pre class="program">weight$45$update[W_, a_, b_, c_, d_] := N[(N[(N[(N[(W - a), $MachinePrecision] - b), $MachinePrecision] + c), $MachinePrecision] + d), $MachinePrecision]
+</pre></div><div class="implementation" data-language="ReFlow"><pre class="program">f(W, a, b, c, d):
+	W in [1, 1e14],
+	a in [1e-3, 1e12],
+	b in [1e-3, 1e12],
+	c in [1e-3, 1e12],
+	d in [1e-3, 1e12]
+weight_45_update: THEORY
+BEGIN
+f(W, a, b, c, d: real): real =
+	(((W - a) - b) + c) + d
+END weight_45_update</pre></div><div class="implementation" data-language="TeX"><pre class="program">\left(\left(\left(W - a\right) - b\right) + c\right) + d
+</pre></div></div></details></section><figure id="graphs"><h2>Local Percentage Accuracy vs <span id="variables"></span><a class="help-button float" href="https://herbie.uwplse.org/doc/2.3/report.html#graph" target="_blank">?</a></h2><svg></svg><div id="functions"></div><figcaption>The average percentage accuracy by input value. Horizontal axis shows value of an input variable; the variable is choosen in the title. Vertical axis is accuracy; higher is better. Red represent the original program, while blue represents Herbie's suggestion. These can be toggled with buttons below the plot. The line is an average while dots represent individual samples.</figcaption></figure><section id="cost-accuracy" class="section" data-benchmark-name="W' = W - a - b + c + d"><h2>Accuracy vs Speed<a class="help-button float" href="https://herbie.uwplse.org/doc/2.3/report.html#cost-accuracy" target="_blank">?</a></h2><div class="figure-row"><svg></svg><div><p>Herbie found 11 alternatives:</p><table><thead><tr><th>Alternative</th><th class="numeric">Accuracy</th><th class="numeric">Speedup</th></tr></thead><tbody></tbody></table></div></div><figcaption>The accuracy (vertical axis) and speed (horizontal axis) of each alternatives. Up and to the right is better. The red square shows the initial program, and each blue circle shows an alternative.The line shows the best available speed-accuracy tradeoffs.</figcaption></section><section id="initial" class="programs"><h2>Initial Program: <span class="subhead"><data>99.5%</data> accurate, <data>1.0×</data> speedup</span><select><option>Math</option><option>FPCore</option><option>C</option><option>Fortran</option><option>Java</option><option>Python</option><option>Julia</option><option>MATLAB</option><option>Wolfram</option><option>ReFlow</option><option>TeX</option></select><a class="help-button float" href="https://herbie.uwplse.org/doc/2.3/report.html#alternatives" target="_blank">?</a></h2><div><div id="precondition"><div class="program math">\[\left(\left(\left(\left(\left(1 \leq W \land W \leq 100000000000000\right) \land \left(\frac{1}{1000} \leq a \land a \leq 1000000000000\right)\right) \land \left(\frac{1}{1000} \leq b \land b \leq 1000000000000\right)\right) \land \left(\frac{1}{1000} \leq c \land c \leq 1000000000000\right)\right) \land \left(\frac{1}{1000} \leq d \land d \leq 1000000000000\right)\right) \land a + b \leq W\]</div></div><div class="implementation" data-language="Math"><div class="program math">\[\left(\left(\left(W - a\right) - b\right) + c\right) + d
+\]</div></div><div class="implementation" data-language="FPCore"><pre class="program">(FPCore weight-update (W a b c d)
+  :precision binary64
+  :pre (and (and (and (and (and (and (&lt;= 1 W) (&lt;= W 100000000000000))
+                         (and (&lt;= 1/1000 a)
+                              (&lt;= a 1000000000000)))
+                    (and (&lt;= 1/1000 b) (&lt;= b 1000000000000)))
+               (and (&lt;= 1/1000 c) (&lt;= c 1000000000000)))
+          (and (&lt;= 1/1000 d) (&lt;= d 1000000000000)))
+     (&lt;= (+ a b) W))
+  (+ (+ (- (- W a) b) c) d))</pre></div><div class="implementation" data-language="C"><pre class="program">double weight_45_update(double W, double a, double b, double c, double d) {
+	return (((W - a) - b) + c) + d;
+}
+</pre></div><div class="implementation" data-language="Fortran"><pre class="program">real(8) function weight_45update(w, a, b, c, d)
+use fmin_fmax_functions
+    real(8), intent (in) :: w
+    real(8), intent (in) :: a
+    real(8), intent (in) :: b
+    real(8), intent (in) :: c
+    real(8), intent (in) :: d
+    weight_45update = (((w - a) - b) + c) + d
+end function
+</pre></div><div class="implementation" data-language="Java"><pre class="program">public static double weight_45_update(double W, double a, double b, double c, double d) {
+	return (((W - a) - b) + c) + d;
+}
+</pre></div><div class="implementation" data-language="Python"><pre class="program">def weight_45_update(W, a, b, c, d):
+	return (((W - a) - b) + c) + d
+</pre></div><div class="implementation" data-language="Julia"><pre class="program">function weight_45_update(W, a, b, c, d)
+	return Float64(Float64(Float64(Float64(W - a) - b) + c) + d)
+end
+</pre></div><div class="implementation" data-language="MATLAB"><pre class="program">function tmp = weight_45_update(W, a, b, c, d)
+	tmp = (((W - a) - b) + c) + d;
+end
+</pre></div><div class="implementation" data-language="Wolfram"><pre class="program">weight$45$update[W_, a_, b_, c_, d_] := N[(N[(N[(N[(W - a), $MachinePrecision] - b), $MachinePrecision] + c), $MachinePrecision] + d), $MachinePrecision]
+</pre></div><div class="implementation" data-language="ReFlow"><pre class="program">f(W, a, b, c, d):
+	W in [1, 1e14],
+	a in [1e-3, 1e12],
+	b in [1e-3, 1e12],
+	c in [1e-3, 1e12],
+	d in [1e-3, 1e12]
+weight_45_update: THEORY
+BEGIN
+f(W, a, b, c, d: real): real =
+	(((W - a) - b) + c) + d
+END weight_45_update</pre></div><div class="implementation" data-language="TeX"><pre class="program">\left(\left(\left(W - a\right) - b\right) + c\right) + d
+</pre></div></div></section><section id="alternative1" class="programs"><h2>Alternative 1: <span class="subhead"><data>99.9%</data> accurate, <data>0.3×</data> speedup</span><select><option>Math</option><option>FPCore</option><option>C</option><option>Fortran</option><option>Java</option><option>Python</option><option>Julia</option><option>MATLAB</option><option>Wolfram</option><option>ReFlow</option><option>TeX</option></select><a class="help-button float" href="https://herbie.uwplse.org/doc/2.3/report.html#alternatives" target="_blank">?</a></h2><div><div id="precondition"><div class="program math">\[\left(\left(\left(\left(\left(1 \leq W \land W \leq 100000000000000\right) \land \left(\frac{1}{1000} \leq a \land a \leq 1000000000000\right)\right) \land \left(\frac{1}{1000} \leq b \land b \leq 1000000000000\right)\right) \land \left(\frac{1}{1000} \leq c \land c \leq 1000000000000\right)\right) \land \left(\frac{1}{1000} \leq d \land d \leq 1000000000000\right)\right) \land a + b \leq W\]</div></div><div class="implementation" data-language="Math"><div class="program math">\[\left(\left(\left(\mathsf{min}\left(W, d\right) - \mathsf{min}\left(a, b\right)\right) - \mathsf{max}\left(a, b\right)\right) + \mathsf{min}\left(c, \mathsf{max}\left(W, d\right)\right)\right) + \mathsf{max}\left(c, \mathsf{max}\left(W, d\right)\right)
+\]</div></div><div class="implementation" data-language="FPCore"><pre class="program">(FPCore weight-update (W a b c d)
+  :precision binary64
+  :pre (and (and (and (and (and (and (&lt;= 1 W) (&lt;= W 100000000000000))
+                         (and (&lt;= 1/1000 a)
+                              (&lt;= a 1000000000000)))
+                    (and (&lt;= 1/1000 b) (&lt;= b 1000000000000)))
+               (and (&lt;= 1/1000 c) (&lt;= c 1000000000000)))
+          (and (&lt;= 1/1000 d) (&lt;= d 1000000000000)))
+     (&lt;= (+ a b) W))
+  (+
+ (+ (- (- (fmin W d) (fmin a b)) (fmax a b)) (fmin c (fmax W d)))
+ (fmax c (fmax W d))))</pre></div><div class="implementation" data-language="C"><pre class="program">double weight_45_update(double W, double a, double b, double c, double d) {
+	return (((fmin(W, d) - fmin(a, b)) - fmax(a, b)) + fmin(c, fmax(W, d))) + fmax(c, fmax(W, d));
+}
+</pre></div><div class="implementation" data-language="Fortran"><pre class="program">real(8) function weight_45update(w, a, b, c, d)
+use fmin_fmax_functions
+    real(8), intent (in) :: w
+    real(8), intent (in) :: a
+    real(8), intent (in) :: b
+    real(8), intent (in) :: c
+    real(8), intent (in) :: d
+    weight_45update = (((fmin(w, d) - fmin(a, b)) - fmax(a, b)) + fmin(c, fmax(w, d))) + fmax(c, fmax(w, d))
+end function
+</pre></div><div class="implementation" data-language="Java"><pre class="program">public static double weight_45_update(double W, double a, double b, double c, double d) {
+	return (((fmin(W, d) - fmin(a, b)) - fmax(a, b)) + fmin(c, fmax(W, d))) + fmax(c, fmax(W, d));
+}
+</pre></div><div class="implementation" data-language="Python"><pre class="program">def weight_45_update(W, a, b, c, d):
+	return (((fmin(W, d) - fmin(a, b)) - fmax(a, b)) + fmin(c, fmax(W, d))) + fmax(c, fmax(W, d))
+</pre></div><div class="implementation" data-language="Julia"><pre class="program">function weight_45_update(W, a, b, c, d)
+	return Float64(Float64(Float64(Float64(fmin(W, d) - fmin(a, b)) - fmax(a, b)) + fmin(c, fmax(W, d))) + fmax(c, fmax(W, d)))
+end
+</pre></div><div class="implementation" data-language="MATLAB"><pre class="program">function tmp = weight_45_update(W, a, b, c, d)
+	tmp = (((min(W, d) - min(a, b)) - max(a, b)) + min(c, max(W, d))) + max(c, max(W, d));
+end
+</pre></div><div class="implementation" data-language="Wolfram"><pre class="program">weight$45$update[W_, a_, b_, c_, d_] := N[(N[(N[(N[(N[Min[W, d], $MachinePrecision] - N[Min[a, b], $MachinePrecision]), $MachinePrecision] - N[Max[a, b], $MachinePrecision]), $MachinePrecision] + N[Min[c, N[Max[W, d], $MachinePrecision]], $MachinePrecision]), $MachinePrecision] + N[Max[c, N[Max[W, d], $MachinePrecision]], $MachinePrecision]), $MachinePrecision]
+</pre></div><div class="implementation" data-language="ReFlow"><pre class="program">f(W, a, b, c, d):
+	W in [1, 1e14],
+	a in [1e-3, 1e12],
+	b in [1e-3, 1e12],
+	c in [1e-3, 1e12],
+	d in [1e-3, 1e12]
+weight_45_update: THEORY
+BEGIN
+f(W, a, b, c, d: real): real =
+	LET tmp = IF (W &lt; d) THEN W ELSE d ENDIF IN
+	LET tmp_1 = IF (a &lt; b) THEN a ELSE b ENDIF IN
+	LET tmp_2 = IF (a &gt; b) THEN a ELSE b ENDIF IN
+	LET tmp_4 = IF (W &gt; d) THEN W ELSE d ENDIF IN
+	LET tmp_5 = IF (W &gt; d) THEN W ELSE d ENDIF IN
+	LET tmp_3 = IF (c &lt; tmp_4) THEN c ELSE tmp_5 ENDIF IN
+	LET tmp_7 = IF (W &gt; d) THEN W ELSE d ENDIF IN
+	LET tmp_8 = IF (W &gt; d) THEN W ELSE d ENDIF IN
+	LET tmp_6 = IF (c &gt; tmp_7) THEN c ELSE tmp_8 ENDIF IN
+	(((tmp - tmp_1) - tmp_2) + tmp_3) + tmp_6
+END weight_45_update</pre></div><div class="implementation" data-language="TeX"><pre class="program">\left(\left(\left(\mathsf{min}\left(W, d\right) - \mathsf{min}\left(a, b\right)\right) - \mathsf{max}\left(a, b\right)\right) + \mathsf{min}\left(c, \mathsf{max}\left(W, d\right)\right)\right) + \mathsf{max}\left(c, \mathsf{max}\left(W, d\right)\right)
+</pre></div></div><details><summary>Derivation</summary><ol class="history"><li><p>Initial program <span class="error">99.5%</span></p><div class="math">\[\left(\left(\left(W - a\right) - b\right) + c\right) + d
+\]</div></li><li>Add Preprocessing</li></ol></details></section><section id="alternative2" class="programs"><h2>Alternative 2: <span class="subhead"><data>99.8%</data> accurate, <data>1.0×</data> speedup</span><select><option>Math</option><option>FPCore</option><option>C</option><option>Fortran</option><option>Java</option><option>Python</option><option>Julia</option><option>MATLAB</option><option>Wolfram</option><option>ReFlow</option><option>TeX</option></select><a class="help-button float" href="https://herbie.uwplse.org/doc/2.3/report.html#alternatives" target="_blank">?</a></h2><div><div id="precondition"><div class="program math">\[\left(\left(\left(\left(\left(1 \leq W \land W \leq 100000000000000\right) \land \left(\frac{1}{1000} \leq a \land a \leq 1000000000000\right)\right) \land \left(\frac{1}{1000} \leq b \land b \leq 1000000000000\right)\right) \land \left(\frac{1}{1000} \leq c \land c \leq 1000000000000\right)\right) \land \left(\frac{1}{1000} \leq d \land d \leq 1000000000000\right)\right) \land a + b \leq W\]</div></div><div class="implementation" data-language="Math"><div class="program math">\[W + \left(\left(\left(d + c\right) - b\right) - a\right)
+\]</div></div><div class="implementation" data-language="FPCore"><pre class="program">(FPCore weight-update (W a b c d)
+  :precision binary64
+  :pre (and (and (and (and (and (and (&lt;= 1 W) (&lt;= W 100000000000000))
+                         (and (&lt;= 1/1000 a)
+                              (&lt;= a 1000000000000)))
+                    (and (&lt;= 1/1000 b) (&lt;= b 1000000000000)))
+               (and (&lt;= 1/1000 c) (&lt;= c 1000000000000)))
+          (and (&lt;= 1/1000 d) (&lt;= d 1000000000000)))
+     (&lt;= (+ a b) W))
+  (+ W (- (- (+ d c) b) a)))</pre></div><div class="implementation" data-language="C"><pre class="program">double weight_45_update(double W, double a, double b, double c, double d) {
+	return W + (((d + c) - b) - a);
+}
+</pre></div><div class="implementation" data-language="Fortran"><pre class="program">real(8) function weight_45update(w, a, b, c, d)
+use fmin_fmax_functions
+    real(8), intent (in) :: w
+    real(8), intent (in) :: a
+    real(8), intent (in) :: b
+    real(8), intent (in) :: c
+    real(8), intent (in) :: d
+    weight_45update = w + (((d + c) - b) - a)
+end function
+</pre></div><div class="implementation" data-language="Java"><pre class="program">public static double weight_45_update(double W, double a, double b, double c, double d) {
+	return W + (((d + c) - b) - a);
+}
+</pre></div><div class="implementation" data-language="Python"><pre class="program">def weight_45_update(W, a, b, c, d):
+	return W + (((d + c) - b) - a)
+</pre></div><div class="implementation" data-language="Julia"><pre class="program">function weight_45_update(W, a, b, c, d)
+	return Float64(W + Float64(Float64(Float64(d + c) - b) - a))
+end
+</pre></div><div class="implementation" data-language="MATLAB"><pre class="program">function tmp = weight_45_update(W, a, b, c, d)
+	tmp = W + (((d + c) - b) - a);
+end
+</pre></div><div class="implementation" data-language="Wolfram"><pre class="program">weight$45$update[W_, a_, b_, c_, d_] := N[(W + N[(N[(N[(d + c), $MachinePrecision] - b), $MachinePrecision] - a), $MachinePrecision]), $MachinePrecision]
+</pre></div><div class="implementation" data-language="ReFlow"><pre class="program">f(W, a, b, c, d):
+	W in [1, 1e14],
+	a in [1e-3, 1e12],
+	b in [1e-3, 1e12],
+	c in [1e-3, 1e12],
+	d in [1e-3, 1e12]
+weight_45_update: THEORY
+BEGIN
+f(W, a, b, c, d: real): real =
+	W + (((d + c) - b) - a)
+END weight_45_update</pre></div><div class="implementation" data-language="TeX"><pre class="program">W + \left(\left(\left(d + c\right) - b\right) - a\right)
+</pre></div></div><details><summary>Derivation</summary><ol class="history"><li><p>Initial program <span class="error">99.5%</span></p><div class="math">\[\left(\left(\left(W - a\right) - b\right) + c\right) + d
+\]</div></li><li><div class="proof"><details><summary>Step-by-step derivation</summary><ol></ol></details></div></li><li><p>Applied rewrites<span class="error">99.8%</span></p><div class="math">\[\leadsto W + \left(\left(\left(d + c\right) - b\right) - a\right)
+\]</div></li><li>Add Preprocessing</li></ol></details></section><section id="alternative3" class="programs"><h2>Alternative 3: <span class="subhead"><data>66.7%</data> accurate, <data>0.4×</data> speedup</span><select><option>Math</option><option>FPCore</option><option>C</option><option>Fortran</option><option>Java</option><option>Python</option><option>Julia</option><option>MATLAB</option><option>Wolfram</option><option>ReFlow</option><option>TeX</option></select><a class="help-button float" href="https://herbie.uwplse.org/doc/2.3/report.html#alternatives" target="_blank">?</a></h2><div><div id="precondition"><div class="program math">\[\left(\left(\left(\left(\left(1 \leq W \land W \leq 100000000000000\right) \land \left(\frac{1}{1000} \leq a \land a \leq 1000000000000\right)\right) \land \left(\frac{1}{1000} \leq b \land b \leq 1000000000000\right)\right) \land \left(\frac{1}{1000} \leq c \land c \leq 1000000000000\right)\right) \land \left(\frac{1}{1000} \leq d \land d \leq 1000000000000\right)\right) \land a + b \leq W\]</div></div><div class="implementation" data-language="Math"><div class="program math">\[\left(\mathsf{max}\left(\mathsf{max}\left(W, c\right), d\right) + \mathsf{min}\left(W, c\right)\right) - \left(\mathsf{max}\left(a, b\right) - \mathsf{min}\left(\mathsf{max}\left(W, c\right), d\right)\right)
+\]</div></div><div class="implementation" data-language="FPCore"><pre class="program">(FPCore weight-update (W a b c d)
+  :precision binary64
+  :pre (and (and (and (and (and (and (&lt;= 1 W) (&lt;= W 100000000000000))
+                         (and (&lt;= 1/1000 a)
+                              (&lt;= a 1000000000000)))
+                    (and (&lt;= 1/1000 b) (&lt;= b 1000000000000)))
+               (and (&lt;= 1/1000 c) (&lt;= c 1000000000000)))
+          (and (&lt;= 1/1000 d) (&lt;= d 1000000000000)))
+     (&lt;= (+ a b) W))
+  (-
+ (+ (fmax (fmax W c) d) (fmin W c))
+ (- (fmax a b) (fmin (fmax W c) d))))</pre></div><div class="implementation" data-language="C"><pre class="program">double weight_45_update(double W, double a, double b, double c, double d) {
+	return (fmax(fmax(W, c), d) + fmin(W, c)) - (fmax(a, b) - fmin(fmax(W, c), d));
+}
+</pre></div><div class="implementation" data-language="Fortran"><pre class="program">real(8) function weight_45update(w, a, b, c, d)
+use fmin_fmax_functions
+    real(8), intent (in) :: w
+    real(8), intent (in) :: a
+    real(8), intent (in) :: b
+    real(8), intent (in) :: c
+    real(8), intent (in) :: d
+    weight_45update = (fmax(fmax(w, c), d) + fmin(w, c)) - (fmax(a, b) - fmin(fmax(w, c), d))
+end function
+</pre></div><div class="implementation" data-language="Java"><pre class="program">public static double weight_45_update(double W, double a, double b, double c, double d) {
+	return (fmax(fmax(W, c), d) + fmin(W, c)) - (fmax(a, b) - fmin(fmax(W, c), d));
+}
+</pre></div><div class="implementation" data-language="Python"><pre class="program">def weight_45_update(W, a, b, c, d):
+	return (fmax(fmax(W, c), d) + fmin(W, c)) - (fmax(a, b) - fmin(fmax(W, c), d))
+</pre></div><div class="implementation" data-language="Julia"><pre class="program">function weight_45_update(W, a, b, c, d)
+	return Float64(Float64(fmax(fmax(W, c), d) + fmin(W, c)) - Float64(fmax(a, b) - fmin(fmax(W, c), d)))
+end
+</pre></div><div class="implementation" data-language="MATLAB"><pre class="program">function tmp = weight_45_update(W, a, b, c, d)
+	tmp = (max(max(W, c), d) + min(W, c)) - (max(a, b) - min(max(W, c), d));
+end
+</pre></div><div class="implementation" data-language="Wolfram"><pre class="program">weight$45$update[W_, a_, b_, c_, d_] := N[(N[(N[Max[N[Max[W, c], $MachinePrecision], d], $MachinePrecision] + N[Min[W, c], $MachinePrecision]), $MachinePrecision] - N[(N[Max[a, b], $MachinePrecision] - N[Min[N[Max[W, c], $MachinePrecision], d], $MachinePrecision]), $MachinePrecision]), $MachinePrecision]
+</pre></div><div class="implementation" data-language="ReFlow"><pre class="program">f(W, a, b, c, d):
+	W in [1, 1e14],
+	a in [1e-3, 1e12],
+	b in [1e-3, 1e12],
+	c in [1e-3, 1e12],
+	d in [1e-3, 1e12]
+weight_45_update: THEORY
+BEGIN
+f(W, a, b, c, d: real): real =
+	LET tmp_2 = IF (W &gt; c) THEN W ELSE c ENDIF IN
+	LET tmp_3 = IF (W &gt; c) THEN W ELSE c ENDIF IN
+	LET tmp_1 = IF (tmp_2 &gt; d) THEN tmp_3 ELSE d ENDIF IN
+	LET tmp_4 = IF (W &lt; c) THEN W ELSE c ENDIF IN
+	LET tmp_5 = IF (a &gt; b) THEN a ELSE b ENDIF IN
+	LET tmp_8 = IF (W &gt; c) THEN W ELSE c ENDIF IN
+	LET tmp_9 = IF (W &gt; c) THEN W ELSE c ENDIF IN
+	LET tmp_7 = IF (tmp_8 &lt; d) THEN tmp_9 ELSE d ENDIF IN
+	(tmp_1 + tmp_4) - (tmp_5 - tmp_7)
+END weight_45_update</pre></div><div class="implementation" data-language="TeX"><pre class="program">\left(\mathsf{max}\left(\mathsf{max}\left(W, c\right), d\right) + \mathsf{min}\left(W, c\right)\right) - \left(\mathsf{max}\left(a, b\right) - \mathsf{min}\left(\mathsf{max}\left(W, c\right), d\right)\right)
+</pre></div></div><details><summary>Derivation</summary><ol class="history"><li><p>Initial program <span class="error">99.5%</span></p><div class="math">\[\left(\left(\left(W - a\right) - b\right) + c\right) + d
+\]</div></li><li><div class="proof"><details><summary>Step-by-step derivation</summary><ol></ol></details></div></li><li><p>Applied rewrites<span class="error">99.6%</span></p><div class="math">\[\leadsto \left(d + W\right) - \left(\left(b + a\right) - c\right)
+\]</div></li><li><p>Taylor expanded in a around 0 to order 0</p><div class="math">\[\leadsto \left(d + W\right) - \left(b - c\right)
+\]</div></li><li><div class="proof"><details><summary>Step-by-step derivation</summary><ol></ol></details></div></li><li><p>Applied rewrites<span class="error">56.2%</span></p><div class="math">\[\leadsto \left(d + W\right) - \left(b - c\right)
+\]</div></li><li>Add Preprocessing</li></ol></details></section><section id="alternative4" class="programs"><h2>Alternative 4: <span class="subhead"><data>66.7%</data> accurate, <data>0.4×</data> speedup</span><select><option>Math</option><option>FPCore</option><option>C</option><option>Fortran</option><option>Java</option><option>Python</option><option>Julia</option><option>MATLAB</option><option>Wolfram</option><option>ReFlow</option><option>TeX</option></select><a class="help-button float" href="https://herbie.uwplse.org/doc/2.3/report.html#alternatives" target="_blank">?</a></h2><div><div id="precondition"><div class="program math">\[\left(\left(\left(\left(\left(1 \leq W \land W \leq 100000000000000\right) \land \left(\frac{1}{1000} \leq a \land a \leq 1000000000000\right)\right) \land \left(\frac{1}{1000} \leq b \land b \leq 1000000000000\right)\right) \land \left(\frac{1}{1000} \leq c \land c \leq 1000000000000\right)\right) \land \left(\frac{1}{1000} \leq d \land d \leq 1000000000000\right)\right) \land a + b \leq W\]</div></div><div class="implementation" data-language="Math"><div class="program math">\[\mathsf{min}\left(W, c\right) - \left(\left(\mathsf{max}\left(a, b\right) - \mathsf{min}\left(\mathsf{max}\left(W, c\right), d\right)\right) - \mathsf{max}\left(\mathsf{max}\left(W, c\right), d\right)\right)
+\]</div></div><div class="implementation" data-language="FPCore"><pre class="program">(FPCore weight-update (W a b c d)
+  :precision binary64
+  :pre (and (and (and (and (and (and (&lt;= 1 W) (&lt;= W 100000000000000))
+                         (and (&lt;= 1/1000 a)
+                              (&lt;= a 1000000000000)))
+                    (and (&lt;= 1/1000 b) (&lt;= b 1000000000000)))
+               (and (&lt;= 1/1000 c) (&lt;= c 1000000000000)))
+          (and (&lt;= 1/1000 d) (&lt;= d 1000000000000)))
+     (&lt;= (+ a b) W))
+  (-
+ (fmin W c)
+ (- (- (fmax a b) (fmin (fmax W c) d)) (fmax (fmax W c) d))))</pre></div><div class="implementation" data-language="C"><pre class="program">double weight_45_update(double W, double a, double b, double c, double d) {
+	return fmin(W, c) - ((fmax(a, b) - fmin(fmax(W, c), d)) - fmax(fmax(W, c), d));
+}
+</pre></div><div class="implementation" data-language="Fortran"><pre class="program">real(8) function weight_45update(w, a, b, c, d)
+use fmin_fmax_functions
+    real(8), intent (in) :: w
+    real(8), intent (in) :: a
+    real(8), intent (in) :: b
+    real(8), intent (in) :: c
+    real(8), intent (in) :: d
+    weight_45update = fmin(w, c) - ((fmax(a, b) - fmin(fmax(w, c), d)) - fmax(fmax(w, c), d))
+end function
+</pre></div><div class="implementation" data-language="Java"><pre class="program">public static double weight_45_update(double W, double a, double b, double c, double d) {
+	return fmin(W, c) - ((fmax(a, b) - fmin(fmax(W, c), d)) - fmax(fmax(W, c), d));
+}
+</pre></div><div class="implementation" data-language="Python"><pre class="program">def weight_45_update(W, a, b, c, d):
+	return fmin(W, c) - ((fmax(a, b) - fmin(fmax(W, c), d)) - fmax(fmax(W, c), d))
+</pre></div><div class="implementation" data-language="Julia"><pre class="program">function weight_45_update(W, a, b, c, d)
+	return Float64(fmin(W, c) - Float64(Float64(fmax(a, b) - fmin(fmax(W, c), d)) - fmax(fmax(W, c), d)))
+end
+</pre></div><div class="implementation" data-language="MATLAB"><pre class="program">function tmp = weight_45_update(W, a, b, c, d)
+	tmp = min(W, c) - ((max(a, b) - min(max(W, c), d)) - max(max(W, c), d));
+end
+</pre></div><div class="implementation" data-language="Wolfram"><pre class="program">weight$45$update[W_, a_, b_, c_, d_] := N[(N[Min[W, c], $MachinePrecision] - N[(N[(N[Max[a, b], $MachinePrecision] - N[Min[N[Max[W, c], $MachinePrecision], d], $MachinePrecision]), $MachinePrecision] - N[Max[N[Max[W, c], $MachinePrecision], d], $MachinePrecision]), $MachinePrecision]), $MachinePrecision]
+</pre></div><div class="implementation" data-language="ReFlow"><pre class="program">f(W, a, b, c, d):
+	W in [1, 1e14],
+	a in [1e-3, 1e12],
+	b in [1e-3, 1e12],
+	c in [1e-3, 1e12],
+	d in [1e-3, 1e12]
+weight_45_update: THEORY
+BEGIN
+f(W, a, b, c, d: real): real =
+	LET tmp = IF (W &lt; c) THEN W ELSE c ENDIF IN
+	LET tmp_1 = IF (a &gt; b) THEN a ELSE b ENDIF IN
+	LET tmp_4 = IF (W &gt; c) THEN W ELSE c ENDIF IN
+	LET tmp_5 = IF (W &gt; c) THEN W ELSE c ENDIF IN
+	LET tmp_3 = IF (tmp_4 &lt; d) THEN tmp_5 ELSE d ENDIF IN
+	LET tmp_8 = IF (W &gt; c) THEN W ELSE c ENDIF IN
+	LET tmp_9 = IF (W &gt; c) THEN W ELSE c ENDIF IN
+	LET tmp_7 = IF (tmp_8 &gt; d) THEN tmp_9 ELSE d ENDIF IN
+	tmp - ((tmp_1 - tmp_3) - tmp_7)
+END weight_45_update</pre></div><div class="implementation" data-language="TeX"><pre class="program">\mathsf{min}\left(W, c\right) - \left(\left(\mathsf{max}\left(a, b\right) - \mathsf{min}\left(\mathsf{max}\left(W, c\right), d\right)\right) - \mathsf{max}\left(\mathsf{max}\left(W, c\right), d\right)\right)
+</pre></div></div><details><summary>Derivation</summary><ol class="history"><li><p>Initial program <span class="error">99.5%</span></p><div class="math">\[\left(\left(\left(W - a\right) - b\right) + c\right) + d
+\]</div></li><li><div class="proof"><details><summary>Step-by-step derivation</summary><ol></ol></details></div></li><li><p>Applied rewrites<span class="error">99.8%</span></p><div class="math">\[\leadsto W - \left(\left(\left(b + a\right) - c\right) - d\right)
+\]</div></li><li><p>Taylor expanded in a around 0 to order 0</p><div class="math">\[\leadsto W - \left(\left(b - c\right) - d\right)
+\]</div></li><li><div class="proof"><details><summary>Step-by-step derivation</summary><ol></ol></details></div></li><li><p>Applied rewrites<span class="error">56.2%</span></p><div class="math">\[\leadsto W - \left(\left(b - c\right) - d\right)
+\]</div></li><li>Add Preprocessing</li></ol></details></section><section id="alternative5" class="programs"><h2>Alternative 5: <span class="subhead"><data>66.7%</data> accurate, <data>0.6×</data> speedup</span><select><option>Math</option><option>FPCore</option><option>C</option><option>Fortran</option><option>Java</option><option>Python</option><option>Julia</option><option>MATLAB</option><option>Wolfram</option><option>ReFlow</option><option>TeX</option></select><a class="help-button float" href="https://herbie.uwplse.org/doc/2.3/report.html#alternatives" target="_blank">?</a></h2><div><div id="precondition"><div class="program math">\[\left(\left(\left(\left(\left(1 \leq W \land W \leq 100000000000000\right) \land \left(\frac{1}{1000} \leq a \land a \leq 1000000000000\right)\right) \land \left(\frac{1}{1000} \leq b \land b \leq 1000000000000\right)\right) \land \left(\frac{1}{1000} \leq c \land c \leq 1000000000000\right)\right) \land \left(\frac{1}{1000} \leq d \land d \leq 1000000000000\right)\right) \land a + b \leq W\]</div></div><div class="implementation" data-language="Math"><div class="program math">\[\left(\mathsf{max}\left(W, d\right) + c\right) + \left(\mathsf{min}\left(W, d\right) - \mathsf{max}\left(a, b\right)\right)
+\]</div></div><div class="implementation" data-language="FPCore"><pre class="program">(FPCore weight-update (W a b c d)
+  :precision binary64
+  :pre (and (and (and (and (and (and (&lt;= 1 W) (&lt;= W 100000000000000))
+                         (and (&lt;= 1/1000 a)
+                              (&lt;= a 1000000000000)))
+                    (and (&lt;= 1/1000 b) (&lt;= b 1000000000000)))
+               (and (&lt;= 1/1000 c) (&lt;= c 1000000000000)))
+          (and (&lt;= 1/1000 d) (&lt;= d 1000000000000)))
+     (&lt;= (+ a b) W))
+  (+ (+ (fmax W d) c) (- (fmin W d) (fmax a b))))</pre></div><div class="implementation" data-language="C"><pre class="program">double weight_45_update(double W, double a, double b, double c, double d) {
+	return (fmax(W, d) + c) + (fmin(W, d) - fmax(a, b));
+}
+</pre></div><div class="implementation" data-language="Fortran"><pre class="program">real(8) function weight_45update(w, a, b, c, d)
+use fmin_fmax_functions
+    real(8), intent (in) :: w
+    real(8), intent (in) :: a
+    real(8), intent (in) :: b
+    real(8), intent (in) :: c
+    real(8), intent (in) :: d
+    weight_45update = (fmax(w, d) + c) + (fmin(w, d) - fmax(a, b))
+end function
+</pre></div><div class="implementation" data-language="Java"><pre class="program">public static double weight_45_update(double W, double a, double b, double c, double d) {
+	return (fmax(W, d) + c) + (fmin(W, d) - fmax(a, b));
+}
+</pre></div><div class="implementation" data-language="Python"><pre class="program">def weight_45_update(W, a, b, c, d):
+	return (fmax(W, d) + c) + (fmin(W, d) - fmax(a, b))
+</pre></div><div class="implementation" data-language="Julia"><pre class="program">function weight_45_update(W, a, b, c, d)
+	return Float64(Float64(fmax(W, d) + c) + Float64(fmin(W, d) - fmax(a, b)))
+end
+</pre></div><div class="implementation" data-language="MATLAB"><pre class="program">function tmp = weight_45_update(W, a, b, c, d)
+	tmp = (max(W, d) + c) + (min(W, d) - max(a, b));
+end
+</pre></div><div class="implementation" data-language="Wolfram"><pre class="program">weight$45$update[W_, a_, b_, c_, d_] := N[(N[(N[Max[W, d], $MachinePrecision] + c), $MachinePrecision] + N[(N[Min[W, d], $MachinePrecision] - N[Max[a, b], $MachinePrecision]), $MachinePrecision]), $MachinePrecision]
+</pre></div><div class="implementation" data-language="ReFlow"><pre class="program">f(W, a, b, c, d):
+	W in [1, 1e14],
+	a in [1e-3, 1e12],
+	b in [1e-3, 1e12],
+	c in [1e-3, 1e12],
+	d in [1e-3, 1e12]
+weight_45_update: THEORY
+BEGIN
+f(W, a, b, c, d: real): real =
+	LET tmp = IF (W &gt; d) THEN W ELSE d ENDIF IN
+	LET tmp_1 = IF (W &lt; d) THEN W ELSE d ENDIF IN
+	LET tmp_2 = IF (a &gt; b) THEN a ELSE b ENDIF IN
+	(tmp + c) + (tmp_1 - tmp_2)
+END weight_45_update</pre></div><div class="implementation" data-language="TeX"><pre class="program">\left(\mathsf{max}\left(W, d\right) + c\right) + \left(\mathsf{min}\left(W, d\right) - \mathsf{max}\left(a, b\right)\right)
+</pre></div></div><details><summary>Derivation</summary><ol class="history"><li><p>Initial program <span class="error">99.5%</span></p><div class="math">\[\left(\left(\left(W - a\right) - b\right) + c\right) + d
+\]</div></li><li><p>Taylor expanded in a around 0 to order 0</p><div class="math">\[\leadsto \left(W + \left(c + d\right)\right) - b
+\]</div></li><li><div class="proof"><details><summary>Step-by-step derivation</summary><ol></ol></details></div></li><li><p>Applied rewrites<span class="error">56.2%</span></p><div class="math">\[\leadsto \left(W + \left(c + d\right)\right) - b
+\]</div></li><li><div class="proof"><details><summary>Step-by-step derivation</summary><ol></ol></details></div></li><li><p>Applied rewrites<span class="error">56.2%</span></p><div class="math">\[\leadsto \left(d + c\right) + \left(W - b\right)
+\]</div></li><li>Add Preprocessing</li></ol></details></section><section id="alternative6" class="programs"><h2>Alternative 6: <span class="subhead"><data>66.7%</data> accurate, <data>0.9×</data> speedup</span><select><option>Math</option><option>FPCore</option><option>C</option><option>Fortran</option><option>Java</option><option>Python</option><option>Julia</option><option>MATLAB</option><option>Wolfram</option><option>ReFlow</option><option>TeX</option></select><a class="help-button float" href="https://herbie.uwplse.org/doc/2.3/report.html#alternatives" target="_blank">?</a></h2><div><div id="precondition"><div class="program math">\[\left(\left(\left(\left(\left(1 \leq W \land W \leq 100000000000000\right) \land \left(\frac{1}{1000} \leq a \land a \leq 1000000000000\right)\right) \land \left(\frac{1}{1000} \leq b \land b \leq 1000000000000\right)\right) \land \left(\frac{1}{1000} \leq c \land c \leq 1000000000000\right)\right) \land \left(\frac{1}{1000} \leq d \land d \leq 1000000000000\right)\right) \land a + b \leq W\]</div></div><div class="implementation" data-language="Math"><div class="program math">\[\left(c + W\right) + \left(d - \mathsf{max}\left(a, b\right)\right)
+\]</div></div><div class="implementation" data-language="FPCore"><pre class="program">(FPCore weight-update (W a b c d)
+  :precision binary64
+  :pre (and (and (and (and (and (and (&lt;= 1 W) (&lt;= W 100000000000000))
+                         (and (&lt;= 1/1000 a)
+                              (&lt;= a 1000000000000)))
+                    (and (&lt;= 1/1000 b) (&lt;= b 1000000000000)))
+               (and (&lt;= 1/1000 c) (&lt;= c 1000000000000)))
+          (and (&lt;= 1/1000 d) (&lt;= d 1000000000000)))
+     (&lt;= (+ a b) W))
+  (+ (+ c W) (- d (fmax a b))))</pre></div><div class="implementation" data-language="C"><pre class="program">double weight_45_update(double W, double a, double b, double c, double d) {
+	return (c + W) + (d - fmax(a, b));
+}
+</pre></div><div class="implementation" data-language="Fortran"><pre class="program">real(8) function weight_45update(w, a, b, c, d)
+use fmin_fmax_functions
+    real(8), intent (in) :: w
+    real(8), intent (in) :: a
+    real(8), intent (in) :: b
+    real(8), intent (in) :: c
+    real(8), intent (in) :: d
+    weight_45update = (c + w) + (d - fmax(a, b))
+end function
+</pre></div><div class="implementation" data-language="Java"><pre class="program">public static double weight_45_update(double W, double a, double b, double c, double d) {
+	return (c + W) + (d - fmax(a, b));
+}
+</pre></div><div class="implementation" data-language="Python"><pre class="program">def weight_45_update(W, a, b, c, d):
+	return (c + W) + (d - fmax(a, b))
+</pre></div><div class="implementation" data-language="Julia"><pre class="program">function weight_45_update(W, a, b, c, d)
+	return Float64(Float64(c + W) + Float64(d - fmax(a, b)))
+end
+</pre></div><div class="implementation" data-language="MATLAB"><pre class="program">function tmp = weight_45_update(W, a, b, c, d)
+	tmp = (c + W) + (d - max(a, b));
+end
+</pre></div><div class="implementation" data-language="Wolfram"><pre class="program">weight$45$update[W_, a_, b_, c_, d_] := N[(N[(c + W), $MachinePrecision] + N[(d - N[Max[a, b], $MachinePrecision]), $MachinePrecision]), $MachinePrecision]
+</pre></div><div class="implementation" data-language="ReFlow"><pre class="program">f(W, a, b, c, d):
+	W in [1, 1e14],
+	a in [1e-3, 1e12],
+	b in [1e-3, 1e12],
+	c in [1e-3, 1e12],
+	d in [1e-3, 1e12]
+weight_45_update: THEORY
+BEGIN
+f(W, a, b, c, d: real): real =
+	LET tmp = IF (a &gt; b) THEN a ELSE b ENDIF IN
+	(c + W) + (d - tmp)
+END weight_45_update</pre></div><div class="implementation" data-language="TeX"><pre class="program">\left(c + W\right) + \left(d - \mathsf{max}\left(a, b\right)\right)
+</pre></div></div><details><summary>Derivation</summary><ol class="history"><li><p>Initial program <span class="error">99.5%</span></p><div class="math">\[\left(\left(\left(W - a\right) - b\right) + c\right) + d
+\]</div></li><li><p>Taylor expanded in a around 0 to order 0</p><div class="math">\[\leadsto \left(W + \left(c + d\right)\right) - b
+\]</div></li><li><div class="proof"><details><summary>Step-by-step derivation</summary><ol></ol></details></div></li><li><p>Applied rewrites<span class="error">56.2%</span></p><div class="math">\[\leadsto \left(W + \left(c + d\right)\right) - b
+\]</div></li><li><div class="proof"><details><summary>Step-by-step derivation</summary><ol></ol></details></div></li><li><p>Applied rewrites<span class="error">56.2%</span></p><div class="math">\[\leadsto \left(c + W\right) + \left(d - b\right)
+\]</div></li><li>Add Preprocessing</li></ol></details></section><section id="alternative7" class="programs"><h2>Alternative 7: <span class="subhead"><data>59.2%</data> accurate, <data>0.2×</data> speedup</span><select><option>Math</option><option>FPCore</option><option>C</option><option>Fortran</option><option>Java</option><option>Python</option><option>Julia</option><option>MATLAB</option><option>Wolfram</option><option>ReFlow</option><option>TeX</option></select><a class="help-button float" href="https://herbie.uwplse.org/doc/2.3/report.html#alternatives" target="_blank">?</a></h2><div><div id="precondition"><div class="program math">\[\left(\left(\left(\left(\left(1 \leq W \land W \leq 100000000000000\right) \land \left(\frac{1}{1000} \leq a \land a \leq 1000000000000\right)\right) \land \left(\frac{1}{1000} \leq b \land b \leq 1000000000000\right)\right) \land \left(\frac{1}{1000} \leq c \land c \leq 1000000000000\right)\right) \land \left(\frac{1}{1000} \leq d \land d \leq 1000000000000\right)\right) \land a + b \leq W\]</div></div><div class="implementation" data-language="Math"><div class="program math">\[\begin{array}{l}
+t_0 := \mathsf{max}\left(\mathsf{min}\left(W, c\right), d\right)\\
+t_1 := \mathsf{min}\left(\mathsf{max}\left(W, c\right), t\_0\right)\\
+t_2 := \mathsf{max}\left(\mathsf{max}\left(W, c\right), t\_0\right)\\
+t_3 := \mathsf{min}\left(\mathsf{min}\left(W, c\right), d\right)\\
+\mathbf{if}\;\left(t\_3 - \mathsf{min}\left(a, b\right)\right) - \mathsf{max}\left(a, b\right) \leq -0.01:\\
+\;\;\;\;t\_1 + \left(t\_2 - \mathsf{max}\left(a, b\right)\right)\\
+
+\mathbf{else}:\\
+\;\;\;\;\left(t\_1 + t\_3\right) + \left(t\_2 - \mathsf{min}\left(a, b\right)\right)\\
+
+
+\end{array}
+\]</div></div><div class="implementation" data-language="FPCore"><pre class="program">(FPCore weight-update (W a b c d)
+  :precision binary64
+  :pre (and (and (and (and (and (and (&lt;= 1 W) (&lt;= W 100000000000000))
+                         (and (&lt;= 1/1000 a)
+                              (&lt;= a 1000000000000)))
+                    (and (&lt;= 1/1000 b) (&lt;= b 1000000000000)))
+               (and (&lt;= 1/1000 c) (&lt;= c 1000000000000)))
+          (and (&lt;= 1/1000 d) (&lt;= d 1000000000000)))
+     (&lt;= (+ a b) W))
+  (let* ((t_0 (fmax (fmin W c) d))
+       (t_1 (fmin (fmax W c) t_0))
+       (t_2 (fmax (fmax W c) t_0))
+       (t_3 (fmin (fmin W c) d)))
+  (if (&lt;= (- (- t_3 (fmin a b)) (fmax a b)) -0.01)
+    (+ t_1 (- t_2 (fmax a b)))
+    (+ (+ t_1 t_3) (- t_2 (fmin a b))))))</pre></div><div class="implementation" data-language="C"><pre class="program">double weight_45_update(double W, double a, double b, double c, double d) {
+	double t_0 = fmax(fmin(W, c), d);
+	double t_1 = fmin(fmax(W, c), t_0);
+	double t_2 = fmax(fmax(W, c), t_0);
+	double t_3 = fmin(fmin(W, c), d);
+	double tmp;
+	if (((t_3 - fmin(a, b)) - fmax(a, b)) &lt;= -0.01) {
+		tmp = t_1 + (t_2 - fmax(a, b));
+	} else {
+		tmp = (t_1 + t_3) + (t_2 - fmin(a, b));
+	}
+	return tmp;
+}
+</pre></div><div class="implementation" data-language="Fortran"><pre class="program">real(8) function weight_45update(w, a, b, c, d)
+use fmin_fmax_functions
+    real(8), intent (in) :: w
+    real(8), intent (in) :: a
+    real(8), intent (in) :: b
+    real(8), intent (in) :: c
+    real(8), intent (in) :: d
+    real(8) :: t_0
+    real(8) :: t_1
+    real(8) :: t_2
+    real(8) :: t_3
+    real(8) :: tmp
+    t_0 = fmax(fmin(w, c), d)
+    t_1 = fmin(fmax(w, c), t_0)
+    t_2 = fmax(fmax(w, c), t_0)
+    t_3 = fmin(fmin(w, c), d)
+    if (((t_3 - fmin(a, b)) - fmax(a, b)) &lt;= (-0.01d0)) then
+        tmp = t_1 + (t_2 - fmax(a, b))
+    else
+        tmp = (t_1 + t_3) + (t_2 - fmin(a, b))
+    end if
+    weight_45update = tmp
+end function
+</pre></div><div class="implementation" data-language="Java"><pre class="program">public static double weight_45_update(double W, double a, double b, double c, double d) {
+	double t_0 = fmax(fmin(W, c), d);
+	double t_1 = fmin(fmax(W, c), t_0);
+	double t_2 = fmax(fmax(W, c), t_0);
+	double t_3 = fmin(fmin(W, c), d);
+	double tmp;
+	if (((t_3 - fmin(a, b)) - fmax(a, b)) &lt;= -0.01) {
+		tmp = t_1 + (t_2 - fmax(a, b));
+	} else {
+		tmp = (t_1 + t_3) + (t_2 - fmin(a, b));
+	}
+	return tmp;
+}
+</pre></div><div class="implementation" data-language="Python"><pre class="program">def weight_45_update(W, a, b, c, d):
+	t_0 = fmax(fmin(W, c), d)
+	t_1 = fmin(fmax(W, c), t_0)
+	t_2 = fmax(fmax(W, c), t_0)
+	t_3 = fmin(fmin(W, c), d)
+	tmp = 0
+	if ((t_3 - fmin(a, b)) - fmax(a, b)) &lt;= -0.01:
+		tmp = t_1 + (t_2 - fmax(a, b))
+	else:
+		tmp = (t_1 + t_3) + (t_2 - fmin(a, b))
+	return tmp
+</pre></div><div class="implementation" data-language="Julia"><pre class="program">function weight_45_update(W, a, b, c, d)
+	t_0 = fmax(fmin(W, c), d)
+	t_1 = fmin(fmax(W, c), t_0)
+	t_2 = fmax(fmax(W, c), t_0)
+	t_3 = fmin(fmin(W, c), d)
+	tmp = 0.0
+	if (Float64(Float64(t_3 - fmin(a, b)) - fmax(a, b)) &lt;= -0.01)
+		tmp = Float64(t_1 + Float64(t_2 - fmax(a, b)));
+	else
+		tmp = Float64(Float64(t_1 + t_3) + Float64(t_2 - fmin(a, b)));
+	end
+	return tmp
+end
+</pre></div><div class="implementation" data-language="MATLAB"><pre class="program">function tmp_2 = weight_45_update(W, a, b, c, d)
+	t_0 = max(min(W, c), d);
+	t_1 = min(max(W, c), t_0);
+	t_2 = max(max(W, c), t_0);
+	t_3 = min(min(W, c), d);
+	tmp = 0.0;
+	if (((t_3 - min(a, b)) - max(a, b)) &lt;= -0.01)
+		tmp = t_1 + (t_2 - max(a, b));
+	else
+		tmp = (t_1 + t_3) + (t_2 - min(a, b));
+	end
+	tmp_2 = tmp;
+end
+</pre></div><div class="implementation" data-language="Wolfram"><pre class="program">weight$45$update[W_, a_, b_, c_, d_] := Block[{t$95$0 = N[Max[N[Min[W, c], $MachinePrecision], d], $MachinePrecision]}, Block[{t$95$1 = N[Min[N[Max[W, c], $MachinePrecision], t$95$0], $MachinePrecision]}, Block[{t$95$2 = N[Max[N[Max[W, c], $MachinePrecision], t$95$0], $MachinePrecision]}, Block[{t$95$3 = N[Min[N[Min[W, c], $MachinePrecision], d], $MachinePrecision]}, If[LessEqual[N[(N[(t$95$3 - N[Min[a, b], $MachinePrecision]), $MachinePrecision] - N[Max[a, b], $MachinePrecision]), $MachinePrecision], -0.01], N[(t$95$1 + N[(t$95$2 - N[Max[a, b], $MachinePrecision]), $MachinePrecision]), $MachinePrecision], N[(N[(t$95$1 + t$95$3), $MachinePrecision] + N[(t$95$2 - N[Min[a, b], $MachinePrecision]), $MachinePrecision]), $MachinePrecision]]]]]]
+</pre></div><div class="implementation" data-language="ReFlow"><pre class="program">f(W, a, b, c, d):
+	W in [1, 1e14],
+	a in [1e-3, 1e12],
+	b in [1e-3, 1e12],
+	c in [1e-3, 1e12],
+	d in [1e-3, 1e12]
+weight_45_update: THEORY
+BEGIN
+f(W, a, b, c, d: real): real =
+	LET tmp_2 = IF (W &lt; c) THEN W ELSE c ENDIF IN
+	LET tmp_3 = IF (W &lt; c) THEN W ELSE c ENDIF IN
+	LET tmp_1 = IF (tmp_2 &gt; d) THEN tmp_3 ELSE d ENDIF IN
+	LET t_0 = tmp_1 IN
+		LET tmp_6 = IF (W &gt; c) THEN W ELSE c ENDIF IN
+		LET tmp_7 = IF (W &gt; c) THEN W ELSE c ENDIF IN
+		LET tmp_5 = IF (tmp_6 &lt; t_0) THEN tmp_7 ELSE t_0 ENDIF IN
+		LET t_1 = tmp_5 IN
+			LET tmp_10 = IF (W &gt; c) THEN W ELSE c ENDIF IN
+			LET tmp_11 = IF (W &gt; c) THEN W ELSE c ENDIF IN
+			LET tmp_9 = IF (tmp_10 &gt; t_0) THEN tmp_11 ELSE t_0 ENDIF IN
+			LET t_2 = tmp_9 IN
+				LET tmp_14 = IF (W &lt; c) THEN W ELSE c ENDIF IN
+				LET tmp_15 = IF (W &lt; c) THEN W ELSE c ENDIF IN
+				LET tmp_13 = IF (tmp_14 &lt; d) THEN tmp_15 ELSE d ENDIF IN
+				LET t_3 = tmp_13 IN
+					LET tmp_18 = IF (a &lt; b) THEN a ELSE b ENDIF IN
+					LET tmp_19 = IF (a &gt; b) THEN a ELSE b ENDIF IN
+					LET tmp_20 = IF (a &gt; b) THEN a ELSE b ENDIF IN
+					LET tmp_21 = IF (a &lt; b) THEN a ELSE b ENDIF IN
+					LET tmp_17 = IF (((t_3 - tmp_18) - tmp_19) &lt;= (-1000000000000000020816681711721685132943093776702880859375e-59)) THEN (t_1 + (t_2 - tmp_20)) ELSE ((t_1 + t_3) + (t_2 - tmp_21)) ENDIF IN
+	tmp_17
+END weight_45_update</pre></div><div class="implementation" data-language="TeX"><pre class="program">\begin{array}{l}
+t_0 := \mathsf{max}\left(\mathsf{min}\left(W, c\right), d\right)\\
+t_1 := \mathsf{min}\left(\mathsf{max}\left(W, c\right), t\_0\right)\\
+t_2 := \mathsf{max}\left(\mathsf{max}\left(W, c\right), t\_0\right)\\
+t_3 := \mathsf{min}\left(\mathsf{min}\left(W, c\right), d\right)\\
+\mathbf{if}\;\left(t\_3 - \mathsf{min}\left(a, b\right)\right) - \mathsf{max}\left(a, b\right) \leq -0.01:\\
+\;\;\;\;t\_1 + \left(t\_2 - \mathsf{max}\left(a, b\right)\right)\\
+
+\mathbf{else}:\\
+\;\;\;\;\left(t\_1 + t\_3\right) + \left(t\_2 - \mathsf{min}\left(a, b\right)\right)\\
+
+
+\end{array}
+</pre></div></div><details><summary>Derivation</summary><ol class="history"><li class="event">Split input into 2 regimes</li><li><h2><code>if <span class="condition"> (-.f64 (-.f64 W a) b)  &lt; -0.01</span></code></h2><ol><li><p>Initial program <span class="error">99.5%</span></p><div class="math">\[\left(\left(\left(W - a\right) - b\right) + c\right) + d
+\]</div></li><li><p>Taylor expanded in a around 0 to order 0</p><div class="math">\[\leadsto \left(W + \left(c + d\right)\right) - b
+\]</div></li><li><div class="proof"><details><summary>Step-by-step derivation</summary><ol></ol></details></div></li><li><p>Applied rewrites<span class="error">56.2%</span></p><div class="math">\[\leadsto \left(W + \left(c + d\right)\right) - b
+\]</div></li><li><div class="proof"><details><summary>Step-by-step derivation</summary><ol></ol></details></div></li><li><p>Applied rewrites<span class="error">56.2%</span></p><div class="math">\[\leadsto \left(c + W\right) + \left(d - b\right)
+\]</div></li><li><p>Taylor expanded in W around 0 to order 0</p><div class="math">\[\leadsto c + \left(d - b\right)
+\]</div></li><li><div class="proof"><details><summary>Step-by-step derivation</summary><ol></ol></details></div></li><li><p>Applied rewrites<span class="error">16.8%</span></p><div class="math">\[\leadsto c + \left(d - b\right)
+\]</div></li></ol><h2><code>if <span class="condition">-0.01 &lt;  (-.f64 (-.f64 W a) b) </span></code></h2><ol><li><p>Initial program <span class="error">99.5%</span></p><div class="math">\[\left(\left(\left(W - a\right) - b\right) + c\right) + d
+\]</div></li><li><p>Taylor expanded in b around 0 to order 0</p><div class="math">\[\leadsto \left(W + \left(c + d\right)\right) - a
+\]</div></li><li><div class="proof"><details><summary>Step-by-step derivation</summary><ol></ol></details></div></li><li><p>Applied rewrites<span class="error">56.1%</span></p><div class="math">\[\leadsto \left(W + \left(c + d\right)\right) - a
+\]</div></li><li><div class="proof"><details><summary>Step-by-step derivation</summary><ol></ol></details></div></li><li><p>Applied rewrites<span class="error">56.1%</span></p><div class="math">\[\leadsto \left(c + W\right) + \left(d - a\right)
+\]</div></li></ol></li><li class="event">Recombined 2 regimes into one program.</li><li>Add Preprocessing</li></ol></details></section><section id="alternative8" class="programs"><h2>Alternative 8: <span class="subhead"><data>59.2%</data> accurate, <data>0.2×</data> speedup</span><select><option>Math</option><option>FPCore</option><option>C</option><option>Fortran</option><option>Java</option><option>Python</option><option>Julia</option><option>MATLAB</option><option>Wolfram</option><option>ReFlow</option><option>TeX</option></select><a class="help-button float" href="https://herbie.uwplse.org/doc/2.3/report.html#alternatives" target="_blank">?</a></h2><div><div id="precondition"><div class="program math">\[\left(\left(\left(\left(\left(1 \leq W \land W \leq 100000000000000\right) \land \left(\frac{1}{1000} \leq a \land a \leq 1000000000000\right)\right) \land \left(\frac{1}{1000} \leq b \land b \leq 1000000000000\right)\right) \land \left(\frac{1}{1000} \leq c \land c \leq 1000000000000\right)\right) \land \left(\frac{1}{1000} \leq d \land d \leq 1000000000000\right)\right) \land a + b \leq W\]</div></div><div class="implementation" data-language="Math"><div class="program math">\[\begin{array}{l}
+t_0 := \mathsf{max}\left(\mathsf{min}\left(W, c\right), d\right)\\
+t_1 := \mathsf{min}\left(\mathsf{max}\left(W, c\right), t\_0\right)\\
+t_2 := \mathsf{max}\left(\mathsf{max}\left(W, c\right), t\_0\right)\\
+t_3 := \mathsf{min}\left(\mathsf{min}\left(W, c\right), d\right)\\
+\mathbf{if}\;\left(t\_3 - \mathsf{min}\left(a, b\right)\right) - \mathsf{max}\left(a, b\right) \leq -0.01:\\
+\;\;\;\;t\_1 + \left(t\_2 - \mathsf{max}\left(a, b\right)\right)\\
+
+\mathbf{else}:\\
+\;\;\;\;t\_3 + \left(t\_1 + t\_2\right)\\
+
+
+\end{array}
+\]</div></div><div class="implementation" data-language="FPCore"><pre class="program">(FPCore weight-update (W a b c d)
+  :precision binary64
+  :pre (and (and (and (and (and (and (&lt;= 1 W) (&lt;= W 100000000000000))
+                         (and (&lt;= 1/1000 a)
+                              (&lt;= a 1000000000000)))
+                    (and (&lt;= 1/1000 b) (&lt;= b 1000000000000)))
+               (and (&lt;= 1/1000 c) (&lt;= c 1000000000000)))
+          (and (&lt;= 1/1000 d) (&lt;= d 1000000000000)))
+     (&lt;= (+ a b) W))
+  (let* ((t_0 (fmax (fmin W c) d))
+       (t_1 (fmin (fmax W c) t_0))
+       (t_2 (fmax (fmax W c) t_0))
+       (t_3 (fmin (fmin W c) d)))
+  (if (&lt;= (- (- t_3 (fmin a b)) (fmax a b)) -0.01)
+    (+ t_1 (- t_2 (fmax a b)))
+    (+ t_3 (+ t_1 t_2)))))</pre></div><div class="implementation" data-language="C"><pre class="program">double weight_45_update(double W, double a, double b, double c, double d) {
+	double t_0 = fmax(fmin(W, c), d);
+	double t_1 = fmin(fmax(W, c), t_0);
+	double t_2 = fmax(fmax(W, c), t_0);
+	double t_3 = fmin(fmin(W, c), d);
+	double tmp;
+	if (((t_3 - fmin(a, b)) - fmax(a, b)) &lt;= -0.01) {
+		tmp = t_1 + (t_2 - fmax(a, b));
+	} else {
+		tmp = t_3 + (t_1 + t_2);
+	}
+	return tmp;
+}
+</pre></div><div class="implementation" data-language="Fortran"><pre class="program">real(8) function weight_45update(w, a, b, c, d)
+use fmin_fmax_functions
+    real(8), intent (in) :: w
+    real(8), intent (in) :: a
+    real(8), intent (in) :: b
+    real(8), intent (in) :: c
+    real(8), intent (in) :: d
+    real(8) :: t_0
+    real(8) :: t_1
+    real(8) :: t_2
+    real(8) :: t_3
+    real(8) :: tmp
+    t_0 = fmax(fmin(w, c), d)
+    t_1 = fmin(fmax(w, c), t_0)
+    t_2 = fmax(fmax(w, c), t_0)
+    t_3 = fmin(fmin(w, c), d)
+    if (((t_3 - fmin(a, b)) - fmax(a, b)) &lt;= (-0.01d0)) then
+        tmp = t_1 + (t_2 - fmax(a, b))
+    else
+        tmp = t_3 + (t_1 + t_2)
+    end if
+    weight_45update = tmp
+end function
+</pre></div><div class="implementation" data-language="Java"><pre class="program">public static double weight_45_update(double W, double a, double b, double c, double d) {
+	double t_0 = fmax(fmin(W, c), d);
+	double t_1 = fmin(fmax(W, c), t_0);
+	double t_2 = fmax(fmax(W, c), t_0);
+	double t_3 = fmin(fmin(W, c), d);
+	double tmp;
+	if (((t_3 - fmin(a, b)) - fmax(a, b)) &lt;= -0.01) {
+		tmp = t_1 + (t_2 - fmax(a, b));
+	} else {
+		tmp = t_3 + (t_1 + t_2);
+	}
+	return tmp;
+}
+</pre></div><div class="implementation" data-language="Python"><pre class="program">def weight_45_update(W, a, b, c, d):
+	t_0 = fmax(fmin(W, c), d)
+	t_1 = fmin(fmax(W, c), t_0)
+	t_2 = fmax(fmax(W, c), t_0)
+	t_3 = fmin(fmin(W, c), d)
+	tmp = 0
+	if ((t_3 - fmin(a, b)) - fmax(a, b)) &lt;= -0.01:
+		tmp = t_1 + (t_2 - fmax(a, b))
+	else:
+		tmp = t_3 + (t_1 + t_2)
+	return tmp
+</pre></div><div class="implementation" data-language="Julia"><pre class="program">function weight_45_update(W, a, b, c, d)
+	t_0 = fmax(fmin(W, c), d)
+	t_1 = fmin(fmax(W, c), t_0)
+	t_2 = fmax(fmax(W, c), t_0)
+	t_3 = fmin(fmin(W, c), d)
+	tmp = 0.0
+	if (Float64(Float64(t_3 - fmin(a, b)) - fmax(a, b)) &lt;= -0.01)
+		tmp = Float64(t_1 + Float64(t_2 - fmax(a, b)));
+	else
+		tmp = Float64(t_3 + Float64(t_1 + t_2));
+	end
+	return tmp
+end
+</pre></div><div class="implementation" data-language="MATLAB"><pre class="program">function tmp_2 = weight_45_update(W, a, b, c, d)
+	t_0 = max(min(W, c), d);
+	t_1 = min(max(W, c), t_0);
+	t_2 = max(max(W, c), t_0);
+	t_3 = min(min(W, c), d);
+	tmp = 0.0;
+	if (((t_3 - min(a, b)) - max(a, b)) &lt;= -0.01)
+		tmp = t_1 + (t_2 - max(a, b));
+	else
+		tmp = t_3 + (t_1 + t_2);
+	end
+	tmp_2 = tmp;
+end
+</pre></div><div class="implementation" data-language="Wolfram"><pre class="program">weight$45$update[W_, a_, b_, c_, d_] := Block[{t$95$0 = N[Max[N[Min[W, c], $MachinePrecision], d], $MachinePrecision]}, Block[{t$95$1 = N[Min[N[Max[W, c], $MachinePrecision], t$95$0], $MachinePrecision]}, Block[{t$95$2 = N[Max[N[Max[W, c], $MachinePrecision], t$95$0], $MachinePrecision]}, Block[{t$95$3 = N[Min[N[Min[W, c], $MachinePrecision], d], $MachinePrecision]}, If[LessEqual[N[(N[(t$95$3 - N[Min[a, b], $MachinePrecision]), $MachinePrecision] - N[Max[a, b], $MachinePrecision]), $MachinePrecision], -0.01], N[(t$95$1 + N[(t$95$2 - N[Max[a, b], $MachinePrecision]), $MachinePrecision]), $MachinePrecision], N[(t$95$3 + N[(t$95$1 + t$95$2), $MachinePrecision]), $MachinePrecision]]]]]]
+</pre></div><div class="implementation" data-language="ReFlow"><pre class="program">f(W, a, b, c, d):
+	W in [1, 1e14],
+	a in [1e-3, 1e12],
+	b in [1e-3, 1e12],
+	c in [1e-3, 1e12],
+	d in [1e-3, 1e12]
+weight_45_update: THEORY
+BEGIN
+f(W, a, b, c, d: real): real =
+	LET tmp_2 = IF (W &lt; c) THEN W ELSE c ENDIF IN
+	LET tmp_3 = IF (W &lt; c) THEN W ELSE c ENDIF IN
+	LET tmp_1 = IF (tmp_2 &gt; d) THEN tmp_3 ELSE d ENDIF IN
+	LET t_0 = tmp_1 IN
+		LET tmp_6 = IF (W &gt; c) THEN W ELSE c ENDIF IN
+		LET tmp_7 = IF (W &gt; c) THEN W ELSE c ENDIF IN
+		LET tmp_5 = IF (tmp_6 &lt; t_0) THEN tmp_7 ELSE t_0 ENDIF IN
+		LET t_1 = tmp_5 IN
+			LET tmp_10 = IF (W &gt; c) THEN W ELSE c ENDIF IN
+			LET tmp_11 = IF (W &gt; c) THEN W ELSE c ENDIF IN
+			LET tmp_9 = IF (tmp_10 &gt; t_0) THEN tmp_11 ELSE t_0 ENDIF IN
+			LET t_2 = tmp_9 IN
+				LET tmp_14 = IF (W &lt; c) THEN W ELSE c ENDIF IN
+				LET tmp_15 = IF (W &lt; c) THEN W ELSE c ENDIF IN
+				LET tmp_13 = IF (tmp_14 &lt; d) THEN tmp_15 ELSE d ENDIF IN
+				LET t_3 = tmp_13 IN
+					LET tmp_18 = IF (a &lt; b) THEN a ELSE b ENDIF IN
+					LET tmp_19 = IF (a &gt; b) THEN a ELSE b ENDIF IN
+					LET tmp_20 = IF (a &gt; b) THEN a ELSE b ENDIF IN
+					LET tmp_17 = IF (((t_3 - tmp_18) - tmp_19) &lt;= (-1000000000000000020816681711721685132943093776702880859375e-59)) THEN (t_1 + (t_2 - tmp_20)) ELSE (t_3 + (t_1 + t_2)) ENDIF IN
+	tmp_17
+END weight_45_update</pre></div><div class="implementation" data-language="TeX"><pre class="program">\begin{array}{l}
+t_0 := \mathsf{max}\left(\mathsf{min}\left(W, c\right), d\right)\\
+t_1 := \mathsf{min}\left(\mathsf{max}\left(W, c\right), t\_0\right)\\
+t_2 := \mathsf{max}\left(\mathsf{max}\left(W, c\right), t\_0\right)\\
+t_3 := \mathsf{min}\left(\mathsf{min}\left(W, c\right), d\right)\\
+\mathbf{if}\;\left(t\_3 - \mathsf{min}\left(a, b\right)\right) - \mathsf{max}\left(a, b\right) \leq -0.01:\\
+\;\;\;\;t\_1 + \left(t\_2 - \mathsf{max}\left(a, b\right)\right)\\
+
+\mathbf{else}:\\
+\;\;\;\;t\_3 + \left(t\_1 + t\_2\right)\\
+
+
+\end{array}
+</pre></div></div><details><summary>Derivation</summary><ol class="history"><li class="event">Split input into 2 regimes</li><li><h2><code>if <span class="condition"> (-.f64 (-.f64 W a) b)  &lt; -0.01</span></code></h2><ol><li><p>Initial program <span class="error">99.5%</span></p><div class="math">\[\left(\left(\left(W - a\right) - b\right) + c\right) + d
+\]</div></li><li><p>Taylor expanded in a around 0 to order 0</p><div class="math">\[\leadsto \left(W + \left(c + d\right)\right) - b
+\]</div></li><li><div class="proof"><details><summary>Step-by-step derivation</summary><ol></ol></details></div></li><li><p>Applied rewrites<span class="error">56.2%</span></p><div class="math">\[\leadsto \left(W + \left(c + d\right)\right) - b
+\]</div></li><li><div class="proof"><details><summary>Step-by-step derivation</summary><ol></ol></details></div></li><li><p>Applied rewrites<span class="error">56.2%</span></p><div class="math">\[\leadsto \left(c + W\right) + \left(d - b\right)
+\]</div></li><li><p>Taylor expanded in W around 0 to order 0</p><div class="math">\[\leadsto c + \left(d - b\right)
+\]</div></li><li><div class="proof"><details><summary>Step-by-step derivation</summary><ol></ol></details></div></li><li><p>Applied rewrites<span class="error">16.8%</span></p><div class="math">\[\leadsto c + \left(d - b\right)
+\]</div></li></ol><h2><code>if <span class="condition">-0.01 &lt;  (-.f64 (-.f64 W a) b) </span></code></h2><ol><li><p>Initial program <span class="error">99.5%</span></p><div class="math">\[\left(\left(\left(W - a\right) - b\right) + c\right) + d
+\]</div></li><li><p>Taylor expanded in b around 0 to order 0</p><div class="math">\[\leadsto \left(W + \left(c + d\right)\right) - a
+\]</div></li><li><div class="proof"><details><summary>Step-by-step derivation</summary><ol></ol></details></div></li><li><p>Applied rewrites<span class="error">56.1%</span></p><div class="math">\[\leadsto \left(W + \left(c + d\right)\right) - a
+\]</div></li><li><div class="proof"><details><summary>Step-by-step derivation</summary><ol></ol></details></div></li><li><p>Applied rewrites<span class="error">56.1%</span></p><div class="math">\[\leadsto c - \left(\left(a - W\right) - d\right)
+\]</div></li><li><p>Taylor expanded in W around 0 to order 0</p><div class="math">\[\leadsto c - \left(a - d\right)
+\]</div></li><li><div class="proof"><details><summary>Step-by-step derivation</summary><ol></ol></details></div></li><li><p>Applied rewrites<span class="error">16.8%</span></p><div class="math">\[\leadsto c - \left(a - d\right)
+\]</div></li><li><p>Taylor expanded in a around 0 to order 0</p><div class="math">\[\leadsto W + \left(c + d\right)
+\]</div></li><li><div class="proof"><details><summary>Step-by-step derivation</summary><ol></ol></details></div></li><li><p>Applied rewrites<span class="error">45.4%</span></p><div class="math">\[\leadsto W + \left(c + d\right)
+\]</div></li></ol></li><li class="event">Recombined 2 regimes into one program.</li><li>Add Preprocessing</li></ol></details></section><section id="alternative9" class="programs"><h2>Alternative 9: <span class="subhead"><data>50.4%</data> accurate, <data>0.1×</data> speedup</span><select><option>Math</option><option>FPCore</option><option>C</option><option>Fortran</option><option>Java</option><option>Python</option><option>Julia</option><option>MATLAB</option><option>Wolfram</option><option>ReFlow</option><option>TeX</option></select><a class="help-button float" href="https://herbie.uwplse.org/doc/2.3/report.html#alternatives" target="_blank">?</a></h2><div><div id="precondition"><div class="program math">\[\left(\left(\left(\left(\left(1 \leq W \land W \leq 100000000000000\right) \land \left(\frac{1}{1000} \leq a \land a \leq 1000000000000\right)\right) \land \left(\frac{1}{1000} \leq b \land b \leq 1000000000000\right)\right) \land \left(\frac{1}{1000} \leq c \land c \leq 1000000000000\right)\right) \land \left(\frac{1}{1000} \leq d \land d \leq 1000000000000\right)\right) \land a + b \leq W\]</div></div><div class="implementation" data-language="Math"><div class="program math">\[\begin{array}{l}
+t_0 := \mathsf{max}\left(\mathsf{min}\left(W, c\right), d\right)\\
+t_1 := \mathsf{min}\left(\mathsf{max}\left(W, c\right), t\_0\right)\\
+t_2 := \mathsf{max}\left(\mathsf{max}\left(W, c\right), t\_0\right)\\
+t_3 := \mathsf{min}\left(\mathsf{min}\left(W, c\right), d\right)\\
+\mathbf{if}\;\left(\left(t\_3 - \mathsf{min}\left(a, b\right)\right) - \mathsf{max}\left(a, b\right)\right) + t\_1 \leq -5:\\
+\;\;\;\;t\_2 - \mathsf{max}\left(a, b\right)\\
+
+\mathbf{else}:\\
+\;\;\;\;t\_3 + \left(t\_1 + t\_2\right)\\
+
+
+\end{array}
+\]</div></div><div class="implementation" data-language="FPCore"><pre class="program">(FPCore weight-update (W a b c d)
+  :precision binary64
+  :pre (and (and (and (and (and (and (&lt;= 1 W) (&lt;= W 100000000000000))
+                         (and (&lt;= 1/1000 a)
+                              (&lt;= a 1000000000000)))
+                    (and (&lt;= 1/1000 b) (&lt;= b 1000000000000)))
+               (and (&lt;= 1/1000 c) (&lt;= c 1000000000000)))
+          (and (&lt;= 1/1000 d) (&lt;= d 1000000000000)))
+     (&lt;= (+ a b) W))
+  (let* ((t_0 (fmax (fmin W c) d))
+       (t_1 (fmin (fmax W c) t_0))
+       (t_2 (fmax (fmax W c) t_0))
+       (t_3 (fmin (fmin W c) d)))
+  (if (&lt;= (+ (- (- t_3 (fmin a b)) (fmax a b)) t_1) -5.0)
+    (- t_2 (fmax a b))
+    (+ t_3 (+ t_1 t_2)))))</pre></div><div class="implementation" data-language="C"><pre class="program">double weight_45_update(double W, double a, double b, double c, double d) {
+	double t_0 = fmax(fmin(W, c), d);
+	double t_1 = fmin(fmax(W, c), t_0);
+	double t_2 = fmax(fmax(W, c), t_0);
+	double t_3 = fmin(fmin(W, c), d);
+	double tmp;
+	if ((((t_3 - fmin(a, b)) - fmax(a, b)) + t_1) &lt;= -5.0) {
+		tmp = t_2 - fmax(a, b);
+	} else {
+		tmp = t_3 + (t_1 + t_2);
+	}
+	return tmp;
+}
+</pre></div><div class="implementation" data-language="Fortran"><pre class="program">real(8) function weight_45update(w, a, b, c, d)
+use fmin_fmax_functions
+    real(8), intent (in) :: w
+    real(8), intent (in) :: a
+    real(8), intent (in) :: b
+    real(8), intent (in) :: c
+    real(8), intent (in) :: d
+    real(8) :: t_0
+    real(8) :: t_1
+    real(8) :: t_2
+    real(8) :: t_3
+    real(8) :: tmp
+    t_0 = fmax(fmin(w, c), d)
+    t_1 = fmin(fmax(w, c), t_0)
+    t_2 = fmax(fmax(w, c), t_0)
+    t_3 = fmin(fmin(w, c), d)
+    if ((((t_3 - fmin(a, b)) - fmax(a, b)) + t_1) &lt;= (-5.0d0)) then
+        tmp = t_2 - fmax(a, b)
+    else
+        tmp = t_3 + (t_1 + t_2)
+    end if
+    weight_45update = tmp
+end function
+</pre></div><div class="implementation" data-language="Java"><pre class="program">public static double weight_45_update(double W, double a, double b, double c, double d) {
+	double t_0 = fmax(fmin(W, c), d);
+	double t_1 = fmin(fmax(W, c), t_0);
+	double t_2 = fmax(fmax(W, c), t_0);
+	double t_3 = fmin(fmin(W, c), d);
+	double tmp;
+	if ((((t_3 - fmin(a, b)) - fmax(a, b)) + t_1) &lt;= -5.0) {
+		tmp = t_2 - fmax(a, b);
+	} else {
+		tmp = t_3 + (t_1 + t_2);
+	}
+	return tmp;
+}
+</pre></div><div class="implementation" data-language="Python"><pre class="program">def weight_45_update(W, a, b, c, d):
+	t_0 = fmax(fmin(W, c), d)
+	t_1 = fmin(fmax(W, c), t_0)
+	t_2 = fmax(fmax(W, c), t_0)
+	t_3 = fmin(fmin(W, c), d)
+	tmp = 0
+	if (((t_3 - fmin(a, b)) - fmax(a, b)) + t_1) &lt;= -5.0:
+		tmp = t_2 - fmax(a, b)
+	else:
+		tmp = t_3 + (t_1 + t_2)
+	return tmp
+</pre></div><div class="implementation" data-language="Julia"><pre class="program">function weight_45_update(W, a, b, c, d)
+	t_0 = fmax(fmin(W, c), d)
+	t_1 = fmin(fmax(W, c), t_0)
+	t_2 = fmax(fmax(W, c), t_0)
+	t_3 = fmin(fmin(W, c), d)
+	tmp = 0.0
+	if (Float64(Float64(Float64(t_3 - fmin(a, b)) - fmax(a, b)) + t_1) &lt;= -5.0)
+		tmp = Float64(t_2 - fmax(a, b));
+	else
+		tmp = Float64(t_3 + Float64(t_1 + t_2));
+	end
+	return tmp
+end
+</pre></div><div class="implementation" data-language="MATLAB"><pre class="program">function tmp_2 = weight_45_update(W, a, b, c, d)
+	t_0 = max(min(W, c), d);
+	t_1 = min(max(W, c), t_0);
+	t_2 = max(max(W, c), t_0);
+	t_3 = min(min(W, c), d);
+	tmp = 0.0;
+	if ((((t_3 - min(a, b)) - max(a, b)) + t_1) &lt;= -5.0)
+		tmp = t_2 - max(a, b);
+	else
+		tmp = t_3 + (t_1 + t_2);
+	end
+	tmp_2 = tmp;
+end
+</pre></div><div class="implementation" data-language="Wolfram"><pre class="program">weight$45$update[W_, a_, b_, c_, d_] := Block[{t$95$0 = N[Max[N[Min[W, c], $MachinePrecision], d], $MachinePrecision]}, Block[{t$95$1 = N[Min[N[Max[W, c], $MachinePrecision], t$95$0], $MachinePrecision]}, Block[{t$95$2 = N[Max[N[Max[W, c], $MachinePrecision], t$95$0], $MachinePrecision]}, Block[{t$95$3 = N[Min[N[Min[W, c], $MachinePrecision], d], $MachinePrecision]}, If[LessEqual[N[(N[(N[(t$95$3 - N[Min[a, b], $MachinePrecision]), $MachinePrecision] - N[Max[a, b], $MachinePrecision]), $MachinePrecision] + t$95$1), $MachinePrecision], -5.0], N[(t$95$2 - N[Max[a, b], $MachinePrecision]), $MachinePrecision], N[(t$95$3 + N[(t$95$1 + t$95$2), $MachinePrecision]), $MachinePrecision]]]]]]
+</pre></div><div class="implementation" data-language="ReFlow"><pre class="program">f(W, a, b, c, d):
+	W in [1, 1e14],
+	a in [1e-3, 1e12],
+	b in [1e-3, 1e12],
+	c in [1e-3, 1e12],
+	d in [1e-3, 1e12]
+weight_45_update: THEORY
+BEGIN
+f(W, a, b, c, d: real): real =
+	LET tmp_2 = IF (W &lt; c) THEN W ELSE c ENDIF IN
+	LET tmp_3 = IF (W &lt; c) THEN W ELSE c ENDIF IN
+	LET tmp_1 = IF (tmp_2 &gt; d) THEN tmp_3 ELSE d ENDIF IN
+	LET t_0 = tmp_1 IN
+		LET tmp_6 = IF (W &gt; c) THEN W ELSE c ENDIF IN
+		LET tmp_7 = IF (W &gt; c) THEN W ELSE c ENDIF IN
+		LET tmp_5 = IF (tmp_6 &lt; t_0) THEN tmp_7 ELSE t_0 ENDIF IN
+		LET t_1 = tmp_5 IN
+			LET tmp_10 = IF (W &gt; c) THEN W ELSE c ENDIF IN
+			LET tmp_11 = IF (W &gt; c) THEN W ELSE c ENDIF IN
+			LET tmp_9 = IF (tmp_10 &gt; t_0) THEN tmp_11 ELSE t_0 ENDIF IN
+			LET t_2 = tmp_9 IN
+				LET tmp_14 = IF (W &lt; c) THEN W ELSE c ENDIF IN
+				LET tmp_15 = IF (W &lt; c) THEN W ELSE c ENDIF IN
+				LET tmp_13 = IF (tmp_14 &lt; d) THEN tmp_15 ELSE d ENDIF IN
+				LET t_3 = tmp_13 IN
+					LET tmp_18 = IF (a &lt; b) THEN a ELSE b ENDIF IN
+					LET tmp_19 = IF (a &gt; b) THEN a ELSE b ENDIF IN
+					LET tmp_20 = IF (a &gt; b) THEN a ELSE b ENDIF IN
+					LET tmp_17 = IF ((((t_3 - tmp_18) - tmp_19) + t_1) &lt;= (-5)) THEN (t_2 - tmp_20) ELSE (t_3 + (t_1 + t_2)) ENDIF IN
+	tmp_17
+END weight_45_update</pre></div><div class="implementation" data-language="TeX"><pre class="program">\begin{array}{l}
+t_0 := \mathsf{max}\left(\mathsf{min}\left(W, c\right), d\right)\\
+t_1 := \mathsf{min}\left(\mathsf{max}\left(W, c\right), t\_0\right)\\
+t_2 := \mathsf{max}\left(\mathsf{max}\left(W, c\right), t\_0\right)\\
+t_3 := \mathsf{min}\left(\mathsf{min}\left(W, c\right), d\right)\\
+\mathbf{if}\;\left(\left(t\_3 - \mathsf{min}\left(a, b\right)\right) - \mathsf{max}\left(a, b\right)\right) + t\_1 \leq -5:\\
+\;\;\;\;t\_2 - \mathsf{max}\left(a, b\right)\\
+
+\mathbf{else}:\\
+\;\;\;\;t\_3 + \left(t\_1 + t\_2\right)\\
+
+
+\end{array}
+</pre></div></div><details><summary>Derivation</summary><ol class="history"><li class="event">Split input into 2 regimes</li><li><h2><code>if <span class="condition"> (+.f64 (-.f64 (-.f64 W a) b) c)  &lt; -5</span></code></h2><ol><li><p>Initial program <span class="error">99.5%</span></p><div class="math">\[\left(\left(\left(W - a\right) - b\right) + c\right) + d
+\]</div></li><li><p>Taylor expanded in c around 0 to order 0</p><div class="math">\[\leadsto \left(W + d\right) - \left(a + b\right)
+\]</div></li><li><div class="proof"><details><summary>Step-by-step derivation</summary><ol></ol></details></div></li><li><p>Applied rewrites<span class="error">48.2%</span></p><div class="math">\[\leadsto \left(W + d\right) - \left(a + b\right)
+\]</div></li><li><p>Taylor expanded in a around 0 to order 0</p><div class="math">\[\leadsto \left(W + d\right) - b
+\]</div></li><li><div class="proof"><details><summary>Step-by-step derivation</summary><ol></ol></details></div></li><li><p>Applied rewrites<span class="error">39.4%</span></p><div class="math">\[\leadsto \left(W + d\right) - b
+\]</div></li><li><p>Taylor expanded in W around 0 to order 0</p><div class="math">\[\leadsto d - b
+\]</div></li><li><div class="proof"><details><summary>Step-by-step derivation</summary><ol></ol></details></div></li><li><p>Applied rewrites<span class="error">10.9%</span></p><div class="math">\[\leadsto d - b
+\]</div></li></ol><h2><code>if <span class="condition">-5 &lt;  (+.f64 (-.f64 (-.f64 W a) b) c) </span></code></h2><ol><li><p>Initial program <span class="error">99.5%</span></p><div class="math">\[\left(\left(\left(W - a\right) - b\right) + c\right) + d
+\]</div></li><li><p>Taylor expanded in b around 0 to order 0</p><div class="math">\[\leadsto \left(W + \left(c + d\right)\right) - a
+\]</div></li><li><div class="proof"><details><summary>Step-by-step derivation</summary><ol></ol></details></div></li><li><p>Applied rewrites<span class="error">56.1%</span></p><div class="math">\[\leadsto \left(W + \left(c + d\right)\right) - a
+\]</div></li><li><div class="proof"><details><summary>Step-by-step derivation</summary><ol></ol></details></div></li><li><p>Applied rewrites<span class="error">56.1%</span></p><div class="math">\[\leadsto c - \left(\left(a - W\right) - d\right)
+\]</div></li><li><p>Taylor expanded in W around 0 to order 0</p><div class="math">\[\leadsto c - \left(a - d\right)
+\]</div></li><li><div class="proof"><details><summary>Step-by-step derivation</summary><ol></ol></details></div></li><li><p>Applied rewrites<span class="error">16.8%</span></p><div class="math">\[\leadsto c - \left(a - d\right)
+\]</div></li><li><p>Taylor expanded in a around 0 to order 0</p><div class="math">\[\leadsto W + \left(c + d\right)
+\]</div></li><li><div class="proof"><details><summary>Step-by-step derivation</summary><ol></ol></details></div></li><li><p>Applied rewrites<span class="error">45.4%</span></p><div class="math">\[\leadsto W + \left(c + d\right)
+\]</div></li></ol></li><li class="event">Recombined 2 regimes into one program.</li><li>Add Preprocessing</li></ol></details></section><section id="alternative10" class="programs"><h2>Alternative 10: <span class="subhead"><data>37.9%</data> accurate, <data>0.8×</data> speedup</span><select><option>Math</option><option>FPCore</option><option>C</option><option>Fortran</option><option>Java</option><option>Python</option><option>Julia</option><option>MATLAB</option><option>Wolfram</option><option>ReFlow</option><option>TeX</option></select><a class="help-button float" href="https://herbie.uwplse.org/doc/2.3/report.html#alternatives" target="_blank">?</a></h2><div><div id="precondition"><div class="program math">\[\left(\left(\left(\left(\left(1 \leq W \land W \leq 100000000000000\right) \land \left(\frac{1}{1000} \leq a \land a \leq 1000000000000\right)\right) \land \left(\frac{1}{1000} \leq b \land b \leq 1000000000000\right)\right) \land \left(\frac{1}{1000} \leq c \land c \leq 1000000000000\right)\right) \land \left(\frac{1}{1000} \leq d \land d \leq 1000000000000\right)\right) \land a + b \leq W\]</div></div><div class="implementation" data-language="Math"><div class="program math">\[\mathsf{max}\left(c, \mathsf{max}\left(W, d\right)\right) - \mathsf{max}\left(a, b\right)
+\]</div></div><div class="implementation" data-language="FPCore"><pre class="program">(FPCore weight-update (W a b c d)
+  :precision binary64
+  :pre (and (and (and (and (and (and (&lt;= 1 W) (&lt;= W 100000000000000))
+                         (and (&lt;= 1/1000 a)
+                              (&lt;= a 1000000000000)))
+                    (and (&lt;= 1/1000 b) (&lt;= b 1000000000000)))
+               (and (&lt;= 1/1000 c) (&lt;= c 1000000000000)))
+          (and (&lt;= 1/1000 d) (&lt;= d 1000000000000)))
+     (&lt;= (+ a b) W))
+  (- (fmax c (fmax W d)) (fmax a b)))</pre></div><div class="implementation" data-language="C"><pre class="program">double weight_45_update(double W, double a, double b, double c, double d) {
+	return fmax(c, fmax(W, d)) - fmax(a, b);
+}
+</pre></div><div class="implementation" data-language="Fortran"><pre class="program">real(8) function weight_45update(w, a, b, c, d)
+use fmin_fmax_functions
+    real(8), intent (in) :: w
+    real(8), intent (in) :: a
+    real(8), intent (in) :: b
+    real(8), intent (in) :: c
+    real(8), intent (in) :: d
+    weight_45update = fmax(c, fmax(w, d)) - fmax(a, b)
+end function
+</pre></div><div class="implementation" data-language="Java"><pre class="program">public static double weight_45_update(double W, double a, double b, double c, double d) {
+	return fmax(c, fmax(W, d)) - fmax(a, b);
+}
+</pre></div><div class="implementation" data-language="Python"><pre class="program">def weight_45_update(W, a, b, c, d):
+	return fmax(c, fmax(W, d)) - fmax(a, b)
+</pre></div><div class="implementation" data-language="Julia"><pre class="program">function weight_45_update(W, a, b, c, d)
+	return Float64(fmax(c, fmax(W, d)) - fmax(a, b))
+end
+</pre></div><div class="implementation" data-language="MATLAB"><pre class="program">function tmp = weight_45_update(W, a, b, c, d)
+	tmp = max(c, max(W, d)) - max(a, b);
+end
+</pre></div><div class="implementation" data-language="Wolfram"><pre class="program">weight$45$update[W_, a_, b_, c_, d_] := N[(N[Max[c, N[Max[W, d], $MachinePrecision]], $MachinePrecision] - N[Max[a, b], $MachinePrecision]), $MachinePrecision]
+</pre></div><div class="implementation" data-language="ReFlow"><pre class="program">f(W, a, b, c, d):
+	W in [1, 1e14],
+	a in [1e-3, 1e12],
+	b in [1e-3, 1e12],
+	c in [1e-3, 1e12],
+	d in [1e-3, 1e12]
+weight_45_update: THEORY
+BEGIN
+f(W, a, b, c, d: real): real =
+	LET tmp_1 = IF (W &gt; d) THEN W ELSE d ENDIF IN
+	LET tmp_2 = IF (W &gt; d) THEN W ELSE d ENDIF IN
+	LET tmp = IF (c &gt; tmp_1) THEN c ELSE tmp_2 ENDIF IN
+	LET tmp_3 = IF (a &gt; b) THEN a ELSE b ENDIF IN
+	tmp - tmp_3
+END weight_45_update</pre></div><div class="implementation" data-language="TeX"><pre class="program">\mathsf{max}\left(c, \mathsf{max}\left(W, d\right)\right) - \mathsf{max}\left(a, b\right)
+</pre></div></div><details><summary>Derivation</summary><ol class="history"><li><p>Initial program <span class="error">99.5%</span></p><div class="math">\[\left(\left(\left(W - a\right) - b\right) + c\right) + d
+\]</div></li><li><p>Taylor expanded in c around 0 to order 0</p><div class="math">\[\leadsto \left(W + d\right) - \left(a + b\right)
+\]</div></li><li><div class="proof"><details><summary>Step-by-step derivation</summary><ol></ol></details></div></li><li><p>Applied rewrites<span class="error">48.2%</span></p><div class="math">\[\leadsto \left(W + d\right) - \left(a + b\right)
+\]</div></li><li><p>Taylor expanded in a around 0 to order 0</p><div class="math">\[\leadsto \left(W + d\right) - b
+\]</div></li><li><div class="proof"><details><summary>Step-by-step derivation</summary><ol></ol></details></div></li><li><p>Applied rewrites<span class="error">39.4%</span></p><div class="math">\[\leadsto \left(W + d\right) - b
+\]</div></li><li><p>Taylor expanded in W around 0 to order 0</p><div class="math">\[\leadsto d - b
+\]</div></li><li><div class="proof"><details><summary>Step-by-step derivation</summary><ol></ol></details></div></li><li><p>Applied rewrites<span class="error">10.9%</span></p><div class="math">\[\leadsto d - b
+\]</div></li><li>Add Preprocessing</li></ol></details></section><section id="alternative11" class="programs"><h2>Alternative 11: <span class="subhead"><data>35.6%</data> accurate, <data>1.1×</data> speedup</span><select><option>Math</option><option>FPCore</option><option>C</option><option>Fortran</option><option>Java</option><option>Python</option><option>Julia</option><option>MATLAB</option><option>Wolfram</option><option>ReFlow</option><option>TeX</option></select><a class="help-button float" href="https://herbie.uwplse.org/doc/2.3/report.html#alternatives" target="_blank">?</a></h2><div><div id="precondition"><div class="program math">\[\left(\left(\left(\left(\left(1 \leq W \land W \leq 100000000000000\right) \land \left(\frac{1}{1000} \leq a \land a \leq 1000000000000\right)\right) \land \left(\frac{1}{1000} \leq b \land b \leq 1000000000000\right)\right) \land \left(\frac{1}{1000} \leq c \land c \leq 1000000000000\right)\right) \land \left(\frac{1}{1000} \leq d \land d \leq 1000000000000\right)\right) \land a + b \leq W\]</div></div><div class="implementation" data-language="Math"><div class="program math">\[\mathsf{max}\left(c, \mathsf{max}\left(W, d\right)\right) - a
+\]</div></div><div class="implementation" data-language="FPCore"><pre class="program">(FPCore weight-update (W a b c d)
+  :precision binary64
+  :pre (and (and (and (and (and (and (&lt;= 1 W) (&lt;= W 100000000000000))
+                         (and (&lt;= 1/1000 a)
+                              (&lt;= a 1000000000000)))
+                    (and (&lt;= 1/1000 b) (&lt;= b 1000000000000)))
+               (and (&lt;= 1/1000 c) (&lt;= c 1000000000000)))
+          (and (&lt;= 1/1000 d) (&lt;= d 1000000000000)))
+     (&lt;= (+ a b) W))
+  (- (fmax c (fmax W d)) a))</pre></div><div class="implementation" data-language="C"><pre class="program">double weight_45_update(double W, double a, double b, double c, double d) {
+	return fmax(c, fmax(W, d)) - a;
+}
+</pre></div><div class="implementation" data-language="Fortran"><pre class="program">real(8) function weight_45update(w, a, b, c, d)
+use fmin_fmax_functions
+    real(8), intent (in) :: w
+    real(8), intent (in) :: a
+    real(8), intent (in) :: b
+    real(8), intent (in) :: c
+    real(8), intent (in) :: d
+    weight_45update = fmax(c, fmax(w, d)) - a
+end function
+</pre></div><div class="implementation" data-language="Java"><pre class="program">public static double weight_45_update(double W, double a, double b, double c, double d) {
+	return fmax(c, fmax(W, d)) - a;
+}
+</pre></div><div class="implementation" data-language="Python"><pre class="program">def weight_45_update(W, a, b, c, d):
+	return fmax(c, fmax(W, d)) - a
+</pre></div><div class="implementation" data-language="Julia"><pre class="program">function weight_45_update(W, a, b, c, d)
+	return Float64(fmax(c, fmax(W, d)) - a)
+end
+</pre></div><div class="implementation" data-language="MATLAB"><pre class="program">function tmp = weight_45_update(W, a, b, c, d)
+	tmp = max(c, max(W, d)) - a;
+end
+</pre></div><div class="implementation" data-language="Wolfram"><pre class="program">weight$45$update[W_, a_, b_, c_, d_] := N[(N[Max[c, N[Max[W, d], $MachinePrecision]], $MachinePrecision] - a), $MachinePrecision]
+</pre></div><div class="implementation" data-language="ReFlow"><pre class="program">f(W, a, b, c, d):
+	W in [1, 1e14],
+	a in [1e-3, 1e12],
+	b in [1e-3, 1e12],
+	c in [1e-3, 1e12],
+	d in [1e-3, 1e12]
+weight_45_update: THEORY
+BEGIN
+f(W, a, b, c, d: real): real =
+	LET tmp_1 = IF (W &gt; d) THEN W ELSE d ENDIF IN
+	LET tmp_2 = IF (W &gt; d) THEN W ELSE d ENDIF IN
+	LET tmp = IF (c &gt; tmp_1) THEN c ELSE tmp_2 ENDIF IN
+	tmp - a
+END weight_45_update</pre></div><div class="implementation" data-language="TeX"><pre class="program">\mathsf{max}\left(c, \mathsf{max}\left(W, d\right)\right) - a
+</pre></div></div><details><summary>Derivation</summary><ol class="history"><li><p>Initial program <span class="error">99.5%</span></p><div class="math">\[\left(\left(\left(W - a\right) - b\right) + c\right) + d
+\]</div></li><li><p>Taylor expanded in c around 0 to order 0</p><div class="math">\[\leadsto \left(W + d\right) - \left(a + b\right)
+\]</div></li><li><div class="proof"><details><summary>Step-by-step derivation</summary><ol></ol></details></div></li><li><p>Applied rewrites<span class="error">48.2%</span></p><div class="math">\[\leadsto \left(W + d\right) - \left(a + b\right)
+\]</div></li><li><p>Taylor expanded in b around 0 to order 0</p><div class="math">\[\leadsto \left(W + d\right) - a
+\]</div></li><li><div class="proof"><details><summary>Step-by-step derivation</summary><ol></ol></details></div></li><li><p>Applied rewrites<span class="error">39.2%</span></p><div class="math">\[\leadsto \left(W + d\right) - a
+\]</div></li><li><p>Taylor expanded in W around 0 to order 0</p><div class="math">\[\leadsto d - a
+\]</div></li><li><div class="proof"><details><summary>Step-by-step derivation</summary><ol></ol></details></div></li><li><p>Applied rewrites<span class="error">10.9%</span></p><div class="math">\[\leadsto d - a
+\]</div></li><li>Add Preprocessing</li></ol></details></section><section id="reproduce"><details><summary><h2>Reproduce</h2><a class="help-button float" href="https://herbie.uwplse.org/doc/2.3/report.html#reproduction" target="_blank">?</a></summary><pre class="shell"><code>herbie shell --seed 1 
+(FPCore weight-update (W a b c d)
+  :name "W' = W - a - b + c + d"
+  :precision binary64
+  :pre (and (and (and (and (and (and (&lt;= 1 W) (&lt;= W 100000000000000)) (and (&lt;= 1/1000 a) (&lt;= a 1000000000000))) (and (&lt;= 1/1000 b) (&lt;= b 1000000000000))) (and (&lt;= 1/1000 c) (&lt;= c 1000000000000))) (and (&lt;= 1/1000 d) (&lt;= d 1000000000000))) (&lt;= (+ a b) W))
+  (+ (+ (- (- W a) b) c) d))
+</code></pre></details></section></body></html>

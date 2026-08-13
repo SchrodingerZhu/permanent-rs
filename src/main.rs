@@ -1,7 +1,6 @@
 use std::num::NonZeroUsize;
 
-use clap::{Parser, ValueEnum};
-use filter::MetropolisFilter;
+use clap::Parser;
 use tracing::{error, info, level_filters::LevelFilter};
 use tracing_subscriber::EnvFilter;
 
@@ -11,10 +10,11 @@ use crate::{
     markov_chain::{Config, MCState},
 };
 
+pub mod chain;
 pub mod cooling_schedule;
 pub mod cooling_state;
 pub mod dinic;
-pub mod filter;
+pub mod exact;
 pub mod graph;
 
 pub mod markov_chain;
@@ -54,26 +54,20 @@ pub struct Cli {
     /// Slow down factor of the multiplicative increment.
     #[arg(long, default_value_t = NonZeroUsize::new(4).unwrap())]
     pub multiplicative_slow_down: NonZeroUsize,
-    /// Metroplis filter to use.
-    #[arg(short = 'f', long, default_value = "additive")]
-    pub filter: Filter,
+    /// Also compute the exact permanent via Ryser's formula (feasible for
+    /// small graphs only) and report it alongside the estimate.
+    #[arg(long, default_value_t = false)]
+    pub exact: bool,
 }
 
-#[derive(Parser, Debug, ValueEnum, Clone, Copy, PartialEq, Eq)]
-pub enum Filter {
-    Additive,
-    Multiplicative,
-    Constant,
-}
-
-fn run_chain<F: MetropolisFilter + Send + Sync + 'static>(
+fn run_chain(
     graph: Graph,
     config: Config,
     add_factor: NonZeroUsize,
     mul_factor: NonZeroUsize,
-) {
+) -> f64 {
     let size = graph.size;
-    let mut state = MCState::<F>::new(graph, config);
+    let mut state = MCState::new(graph, config);
     state.warmup();
     info!("Warmup finished");
     let cooling_cfg = CoolingConfig {
@@ -82,7 +76,7 @@ fn run_chain<F: MetropolisFilter + Send + Sync + 'static>(
         multiplicative_ratio: mul_factor,
     };
     let schedule = crate::cooling_schedule::CoolingSchedule::from(cooling_cfg);
-    state.cooling_evolve(schedule, false);
+    let estimator = state.cooling_evolve(schedule);
     info!("final weight matrix:");
     for i in 0..size {
         for j in 0..size {
@@ -91,6 +85,7 @@ fn run_chain<F: MetropolisFilter + Send + Sync + 'static>(
         }
         println!();
     }
+    estimator
 }
 
 fn main() {
@@ -136,24 +131,18 @@ fn main() {
         cli.multiplicative_slow_down
     );
     info!("{:#?}", config);
-    match cli.filter {
-        Filter::Additive => run_chain::<filter::Additive>(
-            graph,
-            config,
-            cli.additive_slow_down,
-            cli.multiplicative_slow_down,
-        ),
-        Filter::Multiplicative => run_chain::<filter::Multiplicative>(
-            graph,
-            config,
-            cli.additive_slow_down,
-            cli.multiplicative_slow_down,
-        ),
-        Filter::Constant => run_chain::<filter::Constant>(
-            graph,
-            config,
-            cli.additive_slow_down,
-            cli.multiplicative_slow_down,
-        ),
+    let exact = cli.exact.then(|| exact::permanent(&graph));
+    let estimator = run_chain(
+        graph,
+        config,
+        cli.additive_slow_down,
+        cli.multiplicative_slow_down,
+    );
+    info!("estimated permanent: {estimator:.6e}");
+    if let Some(exact) = exact {
+        info!(
+            "exact permanent (Ryser): {exact:.6e}, relative error: {:.2}%",
+            (estimator - exact).abs() / exact * 100.0
+        );
     }
 }

@@ -1,0 +1,28 @@
+<!doctype html><pre>dict-map: contract violation
+  expected: dict?
+  given: #f
+  in: the d argument of
+      (->i
+       ((d dict?)
+        (proc
+         (d)
+         (->
+          (dict-key-contract d)
+          (dict-value-contract d)
+          any)))
+       (_r (listof any/c)))
+  contract from: <collects>/racket/dict.rkt
+  blaming: <pkgs>/fpbench/src/core2reflow.rkt
+   (assuming the contract is correct)
+  at: <collects>/racket/dict.rkt:242:2
+  context...:
+   /nix/store/j7mxvqpgyahv2kj6vc4yfml9d2kjnp4n-racket-9.2/share/racket/collects/racket/contract/private/blame.rkt:350:0: raise-blame-error
+   /nix/store/j7mxvqpgyahv2kj6vc4yfml9d2kjnp4n-racket-9.2/share/racket/collects/racket/contract/private/arr-i.rkt:1086:19: ...ects/racket/dict.rkt:243:2
+   /home/schrodingerzy/.local/share/racket/9.2/pkgs/fpbench/src/core2reflow.rkt:228:0: pre->reflow-input
+   /home/schrodingerzy/.local/share/racket/9.2/pkgs/fpbench/src/core2reflow.rkt:250:0: program->reflow
+   /tmp/claude-1000/-home-schrodingerzy-Documents-permanent-rs/8f0471f0-4767-4274-9418-a1cddbd8dc2e/scratchpad/herbie/src/reports/common.rkt:167:0: render-program
+   /tmp/claude-1000/-home-schrodingerzy-Documents-permanent-rs/8f0471f0-4767-4274-9418-a1cddbd8dc2e/scratchpad/herbie/src/reports/common.rkt:137:0: render-specification
+   /tmp/claude-1000/-home-schrodingerzy-Documents-permanent-rs/8f0471f0-4767-4274-9418-a1cddbd8dc2e/scratchpad/herbie/src/reports/traceback.rkt:15:0: render-failure
+   /tmp/claude-1000/-home-schrodingerzy-Documents-permanent-rs/8f0471f0-4767-4274-9418-a1cddbd8dc2e/scratchpad/herbie/src/reports/pages.rkt:41:0: make-page
+   /nix/store/j7mxvqpgyahv2kj6vc4yfml9d2kjnp4n-racket-9.2/share/racket/collects/racket/engine.rkt:42:24
+</pre>

@@ -1,0 +1,37 @@
+;; Metropolis acceptance probability in chain.rs::transit.
+;; W = sum of n edge weights, each in [1/n, 1e12]; a,b are weights of edges
+;; currently in the matching (so a + b <= W); c,d are the proposed
+;; replacements; E = e^{beta * delta_active} in [e^-120, 1] during cooling.
+(FPCore accept-probability (W a b c d E)
+  :name "acceptance p = ((W - a - b + c + d) / W) * E"
+  :pre (and (<= 1 W 1e14) (<= 1e-3 a 1e12) (<= 1e-3 b 1e12)
+            (<= 1e-3 c 1e12) (<= 1e-3 d 1e12) (<= (+ a b) W)
+            (<= 1e-60 E 1))
+  (* (/ (+ (+ (- (- W a) b) c) d) W) E))
+
+;; Incremental weight update: the value stored back into the chain state.
+(FPCore weight-update (W a b c d)
+  :name "W' = W - a - b + c + d"
+  :pre (and (<= 1 W 1e14) (<= 1e-3 a 1e12) (<= 1e-3 b 1e12)
+            (<= 1e-3 c 1e12) (<= 1e-3 d 1e12) (<= (+ a b) W))
+  (+ (+ (- (- W a) b) c) d))
+
+;; Weight-matrix refresh in markov_chain.rs::finish:
+;; x = count / w_old, scale = n / S where S is the matrix total of x.
+(FPCore weight-normalize (x n S)
+  :name "w_new = 1 / (x * (n / S))"
+  :pre (and (<= 1e-12 x 1e9) (<= 2 n 64) (<= 1e-6 S 1e12))
+  (/ 1 (* x (/ n S))))
+
+;; Telescoping ratio estimator term: diff = beta - beta' < 0, k = number of
+;; inactive edges in the sampled matching.
+(FPCore ratio-term (diff k)
+  :name "e^(diff * k)"
+  :pre (and (<= -1 diff 0) (<= 0 k 64))
+  (exp (* diff k)))
+
+;; Rejection-sampling acceptance threshold.
+(FPCore rejection-threshold (W)
+  :name "1/W + 2*eps"
+  :pre (<= 1 W 1e14)
+  (+ (/ 1 W) (* 2 1.1102230246251565e-16)))
