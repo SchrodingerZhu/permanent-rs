@@ -303,16 +303,20 @@ fn render_estimator_chart(frame: &mut Frame, app: &App, area: Rect) {
         frame.render_widget(Block::bordered().title(" log10(estimator) "), area);
         return;
     }
-    let total = app
-        .latest
-        .as_ref()
-        .map(|l| l.total_steps as f64)
-        .unwrap_or(1.0);
+    // scale the x axis to the history so far, not the whole schedule:
+    // against a fixed [0, total] the early steep descent compresses into
+    // the leftmost columns and renders as a static vertical line
+    let current = app
+        .estimator_history
+        .last()
+        .map(|p| p.0)
+        .unwrap_or(1.0)
+        .max(1.0);
     let ys = app.estimator_history.iter().map(|p| p.1);
     let mut y_min = ys.clone().fold(f64::INFINITY, f64::min);
     let mut y_max = ys.fold(f64::NEG_INFINITY, f64::max);
     let target = app.exact.map(|e| e.log10());
-    let target_line = target.map(|t| [(0.0, t), (total, t)]);
+    let target_line = target.map(|t| [(0.0, t), (current, t)]);
     if let Some(t) = target {
         y_min = y_min.min(t);
         y_max = y_max.max(t);
@@ -337,12 +341,17 @@ fn render_estimator_chart(frame: &mut Frame, app: &App, area: Rect) {
                 .data(line),
         );
     }
+    let latest_value = app
+        .estimator_history
+        .last()
+        .map(|p| p.1)
+        .unwrap_or_default();
     let chart = Chart::new(datasets)
-        .block(Block::bordered().title(" log10(estimator) "))
+        .block(Block::bordered().title(format!(" log10(estimator) = {latest_value:.4} ")))
         .x_axis(
             Axis::default()
-                .bounds([0.0, total])
-                .labels(["0".to_string(), format!("{total:.0}")]),
+                .bounds([0.0, current])
+                .labels(["0".to_string(), format!("{current:.0}")]),
         )
         .y_axis(
             Axis::default()
