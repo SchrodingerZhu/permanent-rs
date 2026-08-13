@@ -7,12 +7,11 @@ use rand::RngExt;
 ///
 /// The chain proposes a uniformly random transposition of two matched edges
 /// and accepts with probability `(W'/W) * e^{beta * (a' - a)}`, giving the
-/// stationary distribution `pi(M) ∝ W(M) e^{beta a(M)}`. The `1/W(M)`
-/// rejection sampling in `rejection_sample` turns samples from `pi` into
+/// stationary distribution `pi(M) ∝ W(M) e^{beta a(M)}`. The `L/W(M)`
+/// rejection sampling in `rejection_sample`, for a shared lower bound `L`,
+/// turns samples from `pi` into
 /// samples from the Gibbs distribution `e^{beta a(M)}` required by the
-/// telescoping-product estimator; this is valid because the weight
-/// normalization (sum of 1/w over all entries = n, hence w >= 1/n entrywise)
-/// guarantees `W(M) >= 1`.
+/// telescoping-product estimator.
 pub struct AugmentedMatch {
     pub matching: Match,
     /// primary accumulator of W(M)
@@ -94,23 +93,27 @@ impl AugmentedMatch {
         }
     }
 
-    /// Accept the current matching with probability `1/W(M)`, turning the
-    /// chain's stationary distribution `W(M) e^{beta a(M)}` into the Gibbs
-    /// distribution `e^{beta a(M)}`; the epsilon absorbs float rounding at
-    /// the boundary.
+    /// Accept the current matching with probability `L/W(M)`, where `L` is a
+    /// shared lower bound on every matching's weight. This turns the chain's
+    /// stationary distribution `W(M) e^{beta a(M)}` into the Gibbs
+    /// distribution `e^{beta a(M)}`. Using the largest cheap lower bound
+    /// available avoids needless rejection while preserving that distribution;
+    /// the epsilon absorbs float rounding at the boundary.
     pub fn rejection_sample(
         &mut self,
         state: &State,
+        weight_lower_bound: f64,
         n: usize,
         rng: &mut impl RngExt,
-    ) -> Option<usize> {
-        for _ in 0..2 * state.weight.dimension() * state.weight.dimension() {
+    ) -> (Option<usize>, usize) {
+        let max_attempts = 2 * state.weight.dimension() * state.weight.dimension();
+        for attempt in 1..=max_attempts {
             self.transit_n_times(state, n, rng);
-            if rng.random::<f64>() < 1.0 / self.weight() + 2.0 * f64::EPSILON {
-                return Some(state.weight.dimension() - self.active_count);
+            if rng.random::<f64>() < weight_lower_bound / self.weight() + 2.0 * f64::EPSILON {
+                return (Some(state.weight.dimension() - self.active_count), attempt);
             }
         }
-        None
+        (None, max_attempts)
     }
 
     pub fn transit(
@@ -192,14 +195,21 @@ mod test {
             }
         }
         let mut rng = SmallRng::seed_from_u64(7);
-        let matching = crate::graph::Match::random(n);
+        let matching = crate::graph::Match {
+            // A deterministic, well-scrambled permutation. Since 97 is odd,
+            // it is coprime to this power-of-two n.
+            edges: (0..n).map(|u| (u, (u * 97 + 13) % n)).collect(),
+        };
         let weight = state.weight_of_match(&matching);
         let active_count = state.active_count_of_match(&matching);
         let mut chain = AugmentedMatch::new(matching, weight, active_count);
         // shadow-track W the naive way (plain f64 sum) for comparison
         let mut plain = chain.weight();
+        let mut float_weight = chain.weight() as f32;
+        let mut float_compensation = 0.0f32;
         let mut worst: f64 = 0.0;
         let mut worst_plain: f64 = 0.0;
+        let mut worst_float = 0.0f64;
         for _ in 0..1_000_000 {
             let pair = {
                 let n = chain.matching.edges.len() as u64;
@@ -210,19 +220,35 @@ mod test {
             };
             let (u1, v1) = chain.matching.edges[pair.0];
             let (u2, v2) = chain.matching.edges[pair.1];
-            let delta = state.weight_of_edge(u1, v2) + state.weight_of_edge(u2, v1)
-                - state.weight_of_edge(u1, v1)
-                - state.weight_of_edge(u2, v2);
+            let (a, b) = (state.weight_of_edge(u1, v1), state.weight_of_edge(u2, v2));
+            let (c, d) = (state.weight_of_edge(u1, v2), state.weight_of_edge(u2, v1));
+            let delta = c + d - a - b;
             if chain.transit(pair, &state, &mut rng) {
                 plain += delta;
+                for value in [-a, -b, c, d] {
+                    let value = value as f32;
+                    let next = float_weight + value;
+                    float_compensation += if float_weight.abs() >= value.abs() {
+                        (float_weight - next) + value
+                    } else {
+                        (value - next) + float_weight
+                    };
+                    float_weight = next;
+                }
             }
             let fresh = state.weight_of_match(&chain.matching);
             worst = worst.max(((chain.weight() - fresh) / fresh).abs());
             worst_plain = worst_plain.max(((plain - fresh) / fresh).abs());
+            worst_float = worst_float
+                .max((((float_weight + float_compensation) as f64 - fresh) / fresh).abs());
         }
         println!(
-            "worst relative drift over 1e6 transits: compensated {worst:.3e}, plain {worst_plain:.3e}"
+            "worst relative drift over 1e6 transits: f64 compensated {worst:.3e}, f64 plain {worst_plain:.3e}, f32 compensated {worst_float:.3e}"
         );
         assert!(worst < 1e-12, "tracked W drifted: {worst:.3e}");
+        assert!(
+            worst_float < 1e-5,
+            "compensated f32 shadow drifted: {worst_float:.3e}"
+        );
     }
 }

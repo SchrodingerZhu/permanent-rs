@@ -16,6 +16,13 @@
       system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
+        rustDevPackages = with pkgs; [
+          cargo
+          rustc
+          clippy
+          rustfmt
+          rust-analyzer
+        ];
       in
       {
         packages.default = pkgs.rustPlatform.buildRustPackage {
@@ -31,19 +38,22 @@
               base != "flake.nix" && base != "flake.lock" && base != ".cargo";
           };
           cargoLock.lockFile = ./Cargo.lock;
+          nativeBuildInputs = [ pkgs.makeWrapper ];
+          postInstall = ''
+            wrapProgram $out/bin/permanent \
+              --prefix LD_LIBRARY_PATH : ${pkgs.lib.makeLibraryPath [ pkgs.vulkan-loader ]}
+          '';
           # .cargo/config.toml sets target-cpu=native which is impure; the
           # source filter above drops it so the nix build stays reproducible.
         };
 
         devShells.default = pkgs.mkShell {
-          packages = with pkgs; [
-            cargo
-            rustc
-            clippy
-            rustfmt
-            rust-analyzer
-          ];
+          packages = rustDevPackages ++ (with pkgs; [
+            pkg-config
+            vulkan-loader
+          ]);
           env.RUST_BACKTRACE = "1";
+          env.LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [ pkgs.vulkan-loader ];
         };
       }
     );

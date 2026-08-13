@@ -1,11 +1,13 @@
 use std::num::NonZeroUsize;
 
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use tracing::{error, info, level_filters::LevelFilter};
 use tracing_subscriber::EnvFilter;
 
 use crate::{
     cooling_schedule::CoolingConfig,
+    cooling_state::State,
+    gpu_markov_chain::GpuMCState,
     graph::Graph,
     markov_chain::{Config, MCState},
 };
@@ -15,6 +17,7 @@ pub mod cooling_schedule;
 pub mod cooling_state;
 pub mod dinic;
 pub mod exact;
+pub mod gpu_markov_chain;
 pub mod graph;
 
 pub mod markov_chain;
@@ -23,11 +26,20 @@ pub mod tui;
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Backend {
+    Cpu,
+    Gpu,
+}
+
 #[derive(Parser, Debug)]
 pub struct Cli {
     /// Path to the graph file.
     #[arg(short, long)]
     pub graph_path: std::path::PathBuf,
+    /// Markov-chain execution backend.
+    #[arg(long, value_enum, default_value_t = Backend::Cpu)]
+    pub backend: Backend,
     /// Number of chains.
     #[arg(short, long, default_value_t = 2048)]
     pub num_of_chains: usize,
@@ -64,6 +76,55 @@ pub struct Cli {
     pub tui: bool,
 }
 
+enum ChainState {
+    Cpu(MCState),
+    Gpu(Box<GpuMCState>),
+}
+
+impl ChainState {
+    fn new(backend: Backend, graph: Graph, config: Config) -> Self {
+        match backend {
+            Backend::Cpu => ChainState::Cpu(MCState::new(graph, config)),
+            Backend::Gpu => ChainState::Gpu(Box::new(GpuMCState::new(graph, config))),
+        }
+    }
+
+    fn warmup(&mut self) {
+        match self {
+            ChainState::Cpu(state) => state.warmup(),
+            ChainState::Gpu(state) => state.warmup(),
+        }
+    }
+
+    fn cooling_evolve_with<F>(
+        &mut self,
+        schedule: cooling_schedule::CoolingSchedule,
+        observer: F,
+    ) -> f64
+    where
+        F: FnMut(&markov_chain::StepStats, &State) -> bool,
+    {
+        match self {
+            ChainState::Cpu(state) => state.cooling_evolve_with(schedule, observer),
+            ChainState::Gpu(state) => state.cooling_evolve_with(schedule, observer),
+        }
+    }
+
+    fn cooling_evolve(&mut self, schedule: cooling_schedule::CoolingSchedule) -> f64 {
+        match self {
+            ChainState::Cpu(state) => state.cooling_evolve(schedule),
+            ChainState::Gpu(state) => state.cooling_evolve(schedule),
+        }
+    }
+
+    fn global_state(&self) -> &State {
+        match self {
+            ChainState::Cpu(state) => &state.global_state,
+            ChainState::Gpu(state) => &state.global_state,
+        }
+    }
+}
+
 fn make_schedule(
     size: usize,
     add_factor: NonZeroUsize,
@@ -82,9 +143,10 @@ fn run_chain(
     config: Config,
     add_factor: NonZeroUsize,
     mul_factor: NonZeroUsize,
+    backend: Backend,
 ) -> f64 {
     let size = graph.size;
-    let mut state = MCState::new(graph, config);
+    let mut state = ChainState::new(backend, graph, config);
     state.warmup();
     info!("Warmup finished");
     let schedule = make_schedule(size, add_factor, mul_factor);
@@ -93,7 +155,7 @@ fn run_chain(
     for i in 0..size {
         for j in 0..size {
             // print state.global_state.weight.get(i, j)
-            print!("{:.2} ", 1.0 / state.global_state.weight.get(i, j));
+            print!("{:.2} ", 1.0 / state.global_state().weight.get(i, j));
         }
         println!();
     }
@@ -106,6 +168,7 @@ fn run_chain_tui(
     add_factor: NonZeroUsize,
     mul_factor: NonZeroUsize,
     exact: Option<f64>,
+    backend: Backend,
 ) -> Option<f64> {
     let size = graph.size;
     let (tx, rx) = std::sync::mpsc::channel();
@@ -120,7 +183,7 @@ fn run_chain_tui(
     };
     std::thread::spawn(move || {
         let _ = tx.send(tui::TuiEvent::Init { n: size, adjacency });
-        let mut state = MCState::new(graph, config);
+        let mut state = ChainState::new(backend, graph, config);
         let _ = tx.send(tui::TuiEvent::WarmupStarted);
         state.warmup();
         let schedule = make_schedule(size, add_factor, mul_factor);
@@ -164,6 +227,7 @@ fn main() {
             .unwrap_or(1)
     });
     info!("Using {} threads", thd_cnt);
+    info!("Using {:?} Markov-chain backend", cli.backend);
     rayon::ThreadPoolBuilder::new()
         .num_threads(thd_cnt)
         .build_global()
@@ -199,6 +263,7 @@ fn main() {
             cli.additive_slow_down,
             cli.multiplicative_slow_down,
             exact,
+            cli.backend,
         );
         // the subscriber is not installed in TUI mode; print plainly
         match estimator {
@@ -220,6 +285,7 @@ fn main() {
         config,
         cli.additive_slow_down,
         cli.multiplicative_slow_down,
+        cli.backend,
     );
     info!("estimated permanent: {estimator:.6e}");
     if let Some(exact) = exact {
@@ -227,5 +293,26 @@ fn main() {
             "exact permanent (Ryser): {exact:.6e}, relative error: {:.2}%",
             (estimator - exact).abs() / exact * 100.0
         );
+    }
+}
+
+#[cfg(test)]
+mod cli_tests {
+    use super::*;
+
+    #[test]
+    fn backend_is_cli_selectable_and_defaults_to_cpu() {
+        let default = Cli::try_parse_from(["permanent", "--graph-path", "graph.json"]).unwrap();
+        assert_eq!(default.backend, Backend::Cpu);
+
+        let gpu = Cli::try_parse_from([
+            "permanent",
+            "--graph-path",
+            "graph.json",
+            "--backend",
+            "gpu",
+        ])
+        .unwrap();
+        assert_eq!(gpu.backend, Backend::Gpu);
     }
 }

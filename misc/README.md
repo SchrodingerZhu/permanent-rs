@@ -19,3 +19,10 @@ Findings (average bits of error over the sampled domain):
 | normalize `1/(x*(n/S))` | 0.353 | 0.260 (`(S/x)/n`) | applied as `S/(x*n)` in `src/markov_chain.rs` |
 | `exp(diff*k)` | 0.000 | 0.023 (worse) | keep `exp`; the suggested constant is a search artifact |
 | `1/W + 2*eps` | 0.0005 | unchanged | fine |
+
+The accelerator crossover investigation and its FP32 precision measurements
+are recorded in [gpu-parallelism.md](gpu-parallelism.md).
+
+The implementation now uses `L/W + 2*eps`, where `L` is a shared
+matching-weight lower bound. Multiplication by that step-constant does not
+change the audit's conclusion about the division.

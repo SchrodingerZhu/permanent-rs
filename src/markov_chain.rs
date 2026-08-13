@@ -5,9 +5,7 @@ use crate::graph;
 use crate::graph::Match;
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
-use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
-use std::iter::Sum;
-use std::sync::atomic::AtomicUsize;
+use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 use tracing::info;
 
 #[derive(Debug, Clone, Copy)]
@@ -48,52 +46,29 @@ pub struct StepStats {
     pub attempted_samples: usize,
 }
 
-struct AtomicMatrix {
+struct SampleCounts {
     size: usize,
-    data: Vec<AtomicUsize>,
+    data: Vec<usize>,
 }
 
-impl AtomicMatrix {
+impl SampleCounts {
     pub fn new(size: usize) -> Self {
-        AtomicMatrix {
+        SampleCounts {
             size,
-            data: (0..size * size).map(|_| AtomicUsize::new(0)).collect(),
+            data: vec![0; size * size],
         }
     }
-    pub fn inc(&self, u: usize, v: usize) {
-        self.data[u * self.size + v].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    pub fn inc(&mut self, u: usize, v: usize) {
+        self.data[u * self.size + v] += 1;
+    }
+    pub fn merge(mut self, other: Self) -> Self {
+        for (left, right) in self.data.iter_mut().zip(other.data) {
+            *left += right;
+        }
+        self
     }
     pub fn finish(self, state: &State) -> Matrix {
-        std::sync::atomic::fence(std::sync::atomic::Ordering::SeqCst);
-        let mut matrix = Matrix::new(self.size, 0.0);
-        let sum = matrix
-            .par_mut_rows()
-            .enumerate()
-            .map(|(i, row)| {
-                let mut sum = 0.0;
-                for (j, item) in row.iter_mut().enumerate() {
-                    let value = self.data[i * self.size + j]
-                        .load(std::sync::atomic::Ordering::Relaxed)
-                        .max(1) as f64;
-                    let value = value / state.weight_of_edge(i, j);
-                    *item = value;
-                    sum += value;
-                }
-                sum
-            })
-            .sum::<f64>();
-        // Cap the weights well below the scale where f64 addition starts
-        // dropping the other summands of W(M) (ulp(1e12) ~ 2e-4): the chain
-        // tracks W incrementally, and a cap near f64::MAX makes W collapse to
-        // 0 by cancellation the moment a capped edge leaves the matching,
-        // which turns the 1/W rejection probability into infinity. The cap
-        // only limits how strongly unlikely edges are boosted for mixing; any
-        // finite weight matrix keeps the estimator unbiased.
-        const WEIGHT_CAP: f64 = 1e12;
-        let n = self.size as f64;
-        // algebraically 1 / (x * (n / sum)), with one fewer rounding step
-        matrix.transform(|x| (sum / (x * n)).min(WEIGHT_CAP));
-        matrix
+        Matrix::from_sample_counts(state, &self.data)
     }
 }
 
@@ -119,11 +94,30 @@ impl Default for Config {
     }
 }
 
-struct AddPair(f64, f64);
-impl Sum for AddPair {
-    fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
-        iter.reduce(|x, y| AddPair(x.0 + y.0, x.1 + y.1))
-            .unwrap_or(AddPair(0.0, 0.0))
+struct EvolveSum {
+    counts: SampleCounts,
+    accepted: f64,
+    estimate: f64,
+    attempts: usize,
+}
+
+impl EvolveSum {
+    fn new(size: usize) -> Self {
+        EvolveSum {
+            counts: SampleCounts::new(size),
+            accepted: 0.0,
+            estimate: 0.0,
+            attempts: 0,
+        }
+    }
+
+    fn merge(self, other: Self) -> Self {
+        EvolveSum {
+            counts: self.counts.merge(other.counts),
+            accepted: self.accepted + other.accepted,
+            estimate: self.estimate + other.estimate,
+            attempts: self.attempts + other.attempts,
+        }
     }
 }
 
@@ -154,57 +148,70 @@ impl MCState {
         });
     }
     fn evolve(&mut self, next_beta: f64, penalty: f64) -> EvolveStats {
-        let matrix = AtomicMatrix::new(self.size);
         let diff = self.global_state.beta() - next_beta;
+        let weight_lower_bound = self.global_state.matching_weight_lower_bound();
         let global_sum = self
             .chains
             .par_iter_mut()
-            .map(|x| {
-                let mut rng = SmallRng::from_rng(&mut rand::rng());
-                // The weight matrix was replaced at the end of the previous
-                // evolve step, so the cached per-chain weight must be
-                // refreshed here: both the Metropolis acceptance and the 1/W
-                // rejection probability rely on x.weight being exactly
-                // W(matching) under the *current* matrix. Keeping the stale
-                // cache and patching it incrementally lets a per-chain offset
-                // accumulate, which biases the rejection sampler (W >= 1 no
-                // longer holds).
-                x.set_weight(self.global_state.weight_of_match(&x.matching));
-                for _ in 0..self.config.num_of_weight_estimations {
-                    x.transit_n_times(
-                        &self.global_state,
-                        self.config.weight_sample_intervals,
-                        &mut rng,
-                    );
-                    let sample = x.choose_weighted_edge(&self.global_state, &mut rng);
-                    matrix.inc(sample.0, sample.1);
-                }
-                let mut local_sample_count = 0.0;
-                let mut local_sum = 0.0;
-                for _ in 0..self.config.num_of_estimator_estimations {
-                    if let Some(sample) = x.rejection_sample(
-                        &self.global_state,
-                        self.config.estimator_sample_intervals,
-                        &mut rng,
-                    ) {
-                        let importance = (x.active_count as f64 * penalty).exp();
-                        local_sample_count += importance;
-                        local_sum += (diff * sample as f64).exp() * importance;
+            .fold(
+                || EvolveSum::new(self.size),
+                |mut local, x| {
+                    let mut rng = SmallRng::from_rng(&mut rand::rng());
+                    // The weight matrix was replaced at the end of the previous
+                    // evolve step, so the cached per-chain weight must be
+                    // refreshed here: both the Metropolis acceptance and the L/W
+                    // rejection probability rely on x.weight being exactly
+                    // W(matching) under the *current* matrix. Keeping the stale
+                    // cache and patching it incrementally lets a per-chain offset
+                    // accumulate, which biases the rejection sampler (W >= 1 no
+                    // longer holds).
+                    x.set_weight(self.global_state.weight_of_match(&x.matching));
+                    for _ in 0..self.config.num_of_weight_estimations {
+                        x.transit_n_times(
+                            &self.global_state,
+                            self.config.weight_sample_intervals,
+                            &mut rng,
+                        );
+                        let sample = x.choose_weighted_edge(&self.global_state, &mut rng);
+                        local.counts.inc(sample.0, sample.1);
                     }
-                }
-                AddPair(local_sample_count, local_sum)
-            })
-            .sum::<AddPair>();
-        self.global_state.weight = matrix.finish(&self.global_state);
-        let ratio = if global_sum.1 >= global_sum.0 {
+                    for _ in 0..self.config.num_of_estimator_estimations {
+                        let (sample, attempts) = x.rejection_sample(
+                            &self.global_state,
+                            weight_lower_bound,
+                            self.config.estimator_sample_intervals,
+                            &mut rng,
+                        );
+                        local.attempts += attempts;
+                        if let Some(sample) = sample {
+                            let importance = (x.active_count as f64 * penalty).exp();
+                            local.accepted += importance;
+                            local.estimate += (diff * sample as f64).exp() * importance;
+                        }
+                    }
+                    local
+                },
+            )
+            .reduce(
+                || EvolveSum::new(self.size),
+                |left, right| left.merge(right),
+            );
+        let EvolveSum {
+            counts,
+            accepted,
+            estimate,
+            attempts,
+        } = global_sum;
+        self.global_state.weight = counts.finish(&self.global_state);
+        let ratio = if estimate >= accepted {
             1.0
         } else {
-            global_sum.1 / global_sum.0
+            estimate / accepted
         };
         EvolveStats {
             ratio,
-            accepted_samples: global_sum.0,
-            attempted_samples: self.config.num_of_estimator_estimations * self.config.num_of_chains,
+            accepted_samples: accepted,
+            attempted_samples: attempts,
         }
     }
     /// Run the cooling schedule, invoking `observer` after every step with
@@ -251,7 +258,7 @@ impl MCState {
 
 #[cfg(test)]
 mod test {
-    use std::{num::NonZeroUsize, path::PathBuf};
+    use std::{num::NonZeroUsize, path::PathBuf, time::Instant};
 
     use crate::{cooling_schedule::CoolingConfig, graph::Graph};
 
@@ -281,6 +288,78 @@ mod test {
             num_of_weight_estimations: 256,
             num_of_estimator_estimations: 16,
         }
+    }
+
+    /// Manual, ignored phase probe used while evaluating accelerator designs.
+    /// Environment variables make it possible to isolate warmup, weight
+    /// estimation, and estimator sampling without changing production CLI
+    /// behavior. Run with `cargo test --release profile_phases -- --ignored
+    /// --nocapture`.
+    #[test]
+    #[ignore]
+    fn profile_phases() {
+        fn env_usize(name: &str, default: usize) -> usize {
+            std::env::var(name)
+                .ok()
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(default)
+        }
+
+        let graph_path =
+            std::env::var("PROFILE_GRAPH").unwrap_or_else(|_| "data/grid-8x8.json".to_owned());
+        let graph = Graph::load(graph_path).unwrap();
+        let config = super::Config {
+            num_of_chains: env_usize("PROFILE_CHAINS", 2048),
+            warmup_times: env_usize("PROFILE_WARMUP", 0),
+            weight_sample_intervals: env_usize("PROFILE_WEIGHT_INTERVAL", 16),
+            estimator_sample_intervals: env_usize("PROFILE_ESTIMATOR_INTERVAL", 128),
+            num_of_weight_estimations: env_usize("PROFILE_WEIGHT_SAMPLES", 0),
+            num_of_estimator_estimations: env_usize("PROFILE_ESTIMATOR_SAMPLES", 0),
+        };
+        let n = graph.size;
+        let profile_steps = env_usize("PROFILE_STEPS", 1);
+        let mut state = super::MCState::new(graph, config);
+
+        let started = Instant::now();
+        state.warmup();
+        let warmup_elapsed = started.elapsed();
+
+        let schedule = super::CoolingSchedule::from(CoolingConfig {
+            n: NonZeroUsize::new(n).unwrap(),
+            additive_ratio: NonZeroUsize::new(1).unwrap(),
+            multiplicative_ratio: NonZeroUsize::new(1).unwrap(),
+        });
+        let started = Instant::now();
+        let mut observed = None;
+        let mut observed_steps = 0usize;
+        let mut acceptance_sum = 0.0;
+        let mut acceptance_min = f64::INFINITY;
+        let mut acceptance_max = 0.0f64;
+        let mut acceptance_min_step = 0usize;
+        state.cooling_evolve_with(schedule, |step, _| {
+            observed = Some((step.accepted_samples, step.attempted_samples));
+            if step.attempted_samples > 0 {
+                let acceptance = step.accepted_samples / step.attempted_samples as f64;
+                acceptance_sum += acceptance;
+                if acceptance < acceptance_min {
+                    acceptance_min = acceptance;
+                    acceptance_min_step = step.step;
+                }
+                acceptance_max = acceptance_max.max(acceptance);
+            }
+            observed_steps += 1;
+            observed_steps < profile_steps
+        });
+        let evolve_elapsed = started.elapsed();
+        let acceptance_mean = if observed_steps == 0 || config.num_of_estimator_estimations == 0 {
+            0.0
+        } else {
+            acceptance_sum / observed_steps as f64
+        };
+
+        println!(
+            "n={n} config={config:?} steps={observed_steps} warmup={warmup_elapsed:?} evolve={evolve_elapsed:?} acceptance=min:{acceptance_min:.6}@{acceptance_min_step},mean:{acceptance_mean:.6},max:{acceptance_max:.6} accepted={observed:?}"
+        );
     }
 
     #[test]
