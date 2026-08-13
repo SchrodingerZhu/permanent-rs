@@ -18,6 +18,7 @@ pub mod exact;
 pub mod graph;
 
 pub mod markov_chain;
+pub mod tui;
 
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
@@ -58,6 +59,22 @@ pub struct Cli {
     /// small graphs only) and report it alongside the estimate.
     #[arg(long, default_value_t = false)]
     pub exact: bool,
+    /// Visualize the annealing process in a live terminal dashboard.
+    #[arg(long, default_value_t = false)]
+    pub tui: bool,
+}
+
+fn make_schedule(
+    size: usize,
+    add_factor: NonZeroUsize,
+    mul_factor: NonZeroUsize,
+) -> cooling_schedule::CoolingSchedule {
+    let cooling_cfg = CoolingConfig {
+        n: NonZeroUsize::new(size).unwrap(),
+        additive_ratio: add_factor,
+        multiplicative_ratio: mul_factor,
+    };
+    cooling_schedule::CoolingSchedule::from(cooling_cfg)
 }
 
 fn run_chain(
@@ -70,12 +87,7 @@ fn run_chain(
     let mut state = MCState::new(graph, config);
     state.warmup();
     info!("Warmup finished");
-    let cooling_cfg = CoolingConfig {
-        n: NonZeroUsize::new(size).unwrap(),
-        additive_ratio: add_factor,
-        multiplicative_ratio: mul_factor,
-    };
-    let schedule = crate::cooling_schedule::CoolingSchedule::from(cooling_cfg);
+    let schedule = make_schedule(size, add_factor, mul_factor);
     let estimator = state.cooling_evolve(schedule);
     info!("final weight matrix:");
     for i in 0..size {
@@ -88,16 +100,64 @@ fn run_chain(
     estimator
 }
 
+fn run_chain_tui(
+    graph: Graph,
+    config: Config,
+    add_factor: NonZeroUsize,
+    mul_factor: NonZeroUsize,
+    exact: Option<f64>,
+) -> Option<f64> {
+    let size = graph.size;
+    let (tx, rx) = std::sync::mpsc::channel();
+    let adjacency = {
+        let mut adjacency = vec![false; size * size];
+        for (u, edges) in graph.edges.iter().enumerate() {
+            for v in edges.iter().copied() {
+                adjacency[u * size + v] = true;
+            }
+        }
+        adjacency
+    };
+    std::thread::spawn(move || {
+        let _ = tx.send(tui::TuiEvent::Init { n: size, adjacency });
+        let mut state = MCState::new(graph, config);
+        let _ = tx.send(tui::TuiEvent::WarmupStarted);
+        state.warmup();
+        let schedule = make_schedule(size, add_factor, mul_factor);
+        let estimator = state.cooling_evolve_with(schedule, |step, global| {
+            let mut marginals = vec![0.0; size * size];
+            for (index, value) in marginals.iter_mut().enumerate() {
+                *value = 1.0 / global.weight_of_edge(index / size, index % size);
+            }
+            tx.send(tui::TuiEvent::Step(tui::StepUpdate {
+                step: step.step,
+                total_steps: step.total_steps,
+                beta: step.beta,
+                ratio: step.ratio,
+                estimator: step.estimator,
+                acceptance: step.accepted_samples / step.attempted_samples.max(1) as f64,
+                marginals,
+            }))
+            .is_ok()
+        });
+        let _ = tx.send(tui::TuiEvent::Done { estimator });
+    });
+    tui::run(rx, exact).expect("terminal error")
+}
+
 fn main() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::builder()
-                .with_default_directive(LevelFilter::INFO.into())
-                .with_env_var("PERMANENT_LOG_LEVEL")
-                .from_env_lossy(),
-        )
-        .init();
     let cli = Cli::parse();
+    if !cli.tui {
+        // the log stream would fight the dashboard for the terminal
+        tracing_subscriber::fmt()
+            .with_env_filter(
+                EnvFilter::builder()
+                    .with_default_directive(LevelFilter::INFO.into())
+                    .with_env_var("PERMANENT_LOG_LEVEL")
+                    .from_env_lossy(),
+            )
+            .init();
+    }
     let thd_cnt = cli.num_of_threads.unwrap_or_else(|| {
         std::thread::available_parallelism()
             .map(|x| x.get())
@@ -132,6 +192,29 @@ fn main() {
     );
     info!("{:#?}", config);
     let exact = cli.exact.then(|| exact::permanent(&graph));
+    if cli.tui {
+        let estimator = run_chain_tui(
+            graph,
+            config,
+            cli.additive_slow_down,
+            cli.multiplicative_slow_down,
+            exact,
+        );
+        // the subscriber is not installed in TUI mode; print plainly
+        match estimator {
+            Some(estimator) => {
+                println!("estimated permanent: {estimator:.6e}");
+                if let Some(exact) = exact {
+                    println!(
+                        "exact permanent (Ryser): {exact:.6e}, relative error: {:.2}%",
+                        (estimator - exact).abs() / exact * 100.0
+                    );
+                }
+            }
+            None => println!("annealing interrupted before completion"),
+        }
+        return;
+    }
     let estimator = run_chain(
         graph,
         config,

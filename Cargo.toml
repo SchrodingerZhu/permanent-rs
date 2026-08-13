@@ -16,6 +16,7 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 stacker = "0.1.25"
 mimalloc = "0.1.52"
+ratatui = "0.30.2"
 
 [profile.release]
 lto = "thin"

@@ -26,6 +26,28 @@ pub struct Config {
     pub num_of_estimator_estimations: usize,
 }
 
+/// Result of one `evolve` step.
+struct EvolveStats {
+    /// estimate of Z(beta') / Z(beta)
+    ratio: f64,
+    /// importance-weighted count of matchings that survived rejection
+    /// sampling (with zero penalty this is a plain count)
+    accepted_samples: f64,
+    /// number of rejection-sampling attempts across all chains
+    attempted_samples: usize,
+}
+
+/// Per-step statistics reported to `cooling_evolve_with` observers.
+pub struct StepStats {
+    pub step: usize,
+    pub total_steps: usize,
+    pub beta: f64,
+    pub ratio: f64,
+    pub estimator: f64,
+    pub accepted_samples: f64,
+    pub attempted_samples: usize,
+}
+
 struct AtomicMatrix {
     size: usize,
     data: Vec<AtomicUsize>,
@@ -131,7 +153,7 @@ impl MCState {
             x.transit_n_times(&self.global_state, self.config.warmup_times, &mut rng);
         });
     }
-    fn evolve(&mut self, next_beta: f64, penalty: f64) -> f64 {
+    fn evolve(&mut self, next_beta: f64, penalty: f64) -> EvolveStats {
         let matrix = AtomicMatrix::new(self.size);
         let diff = self.global_state.beta() - next_beta;
         let global_sum = self
@@ -174,28 +196,56 @@ impl MCState {
             })
             .sum::<AddPair>();
         self.global_state.weight = matrix.finish(&self.global_state);
-        if global_sum.1 >= global_sum.0 {
+        let ratio = if global_sum.1 >= global_sum.0 {
             1.0
         } else {
             global_sum.1 / global_sum.0
+        };
+        EvolveStats {
+            ratio,
+            accepted_samples: global_sum.0,
+            attempted_samples: self.config.num_of_estimator_estimations * self.config.num_of_chains,
         }
     }
-    pub fn cooling_evolve(&mut self, sequence: CoolingSchedule) -> f64 {
+    /// Run the cooling schedule, invoking `observer` after every step with
+    /// the step statistics and the current global state. The observer returns
+    /// whether to continue; returning false stops the annealing early (used
+    /// by the TUI when the user quits).
+    pub fn cooling_evolve_with<F>(&mut self, sequence: CoolingSchedule, mut observer: F) -> f64
+    where
+        F: FnMut(&StepStats, &State) -> bool,
+    {
+        let total_steps = sequence.total_steps();
         // accumulate in f64: usize overflows for n >= 21
         let factorial = (1..=self.size).map(|x| x as f64).product::<f64>();
         let mut estimator = factorial;
-        for i in sequence.skip(1) {
-            let ratio = self.evolve(i, 0.0);
-            estimator *= ratio;
+        for (index, i) in sequence.skip(1).enumerate() {
+            let stats = self.evolve(i, 0.0);
+            estimator *= stats.ratio;
             self.global_state.set_beta(i);
-            info!(
-                "beta = {:.5}, ratio: {:.5}, estimator: {:.5e}",
-                self.global_state.beta(),
-                ratio,
-                estimator
-            );
+            let step = StepStats {
+                step: index + 1,
+                total_steps,
+                beta: i,
+                ratio: stats.ratio,
+                estimator,
+                accepted_samples: stats.accepted_samples,
+                attempted_samples: stats.attempted_samples,
+            };
+            if !observer(&step, &self.global_state) {
+                break;
+            }
         }
         estimator
+    }
+    pub fn cooling_evolve(&mut self, sequence: CoolingSchedule) -> f64 {
+        self.cooling_evolve_with(sequence, |step, _| {
+            info!(
+                "beta = {:.5}, ratio: {:.5}, estimator: {:.5e}",
+                step.beta, step.ratio, step.estimator
+            );
+            true
+        })
     }
 }
 

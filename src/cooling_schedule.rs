@@ -10,6 +10,14 @@ impl CoolingConfig {
     fn log(&self) -> usize {
         self.n.ilog2() as usize + if self.n.is_power_of_two() { 0 } else { 1 }
     }
+    /// Number of beta values the schedule yields after the initial beta = 0
+    /// (i.e. the number of cooling steps `cooling_evolve` performs).
+    pub fn total_steps(&self) -> usize {
+        let log = self.log();
+        let additive = self.additive_ratio.get() * self.n.get() * log;
+        let multiplicative = log * log * self.n.get() * self.multiplicative_ratio.get();
+        additive + multiplicative
+    }
 }
 
 enum CoolingState {
@@ -29,6 +37,12 @@ enum CoolingState {
 pub struct CoolingSchedule {
     config: CoolingConfig,
     state: CoolingState,
+}
+
+impl CoolingSchedule {
+    pub fn total_steps(&self) -> usize {
+        self.config.total_steps()
+    }
 }
 
 impl From<CoolingConfig> for CoolingSchedule {
