@@ -1,152 +1,195 @@
 use crate::{cooling_state::State, graph::Match};
 use rand::RngExt;
 
-/// A matching augmented with the incrementally-tracked quantities the chain
-/// needs: `weight = W(M) = sum of w(e) for e in M` and the number of edges of
-/// M that exist in the underlying graph.
+/// Sentinel partner value marking an unmatched (hole) vertex.
+const HOLE: u32 = u32::MAX;
+
+/// State of one Jerrum–Sinclair–Vigoda walker: a perfect matching of the
+/// complete bipartite graph K_{n,n}, or a near-perfect matching leaving
+/// exactly one row hole and one column hole uncovered.
 ///
-/// The chain proposes a uniformly random transposition of two matched edges
-/// and accepts with probability `(W'/W) * e^{beta * (a' - a)}`, giving the
-/// stationary distribution `pi(M) ∝ W(M) e^{beta a(M)}`. The `L/W(M)`
-/// rejection sampling in `rejection_sample`, for a shared lower bound `L`,
-/// turns samples from `pi` into
-/// samples from the Gibbs distribution `e^{beta a(M)}` required by the
-/// telescoping-product estimator.
-pub struct AugmentedMatch {
-    pub matching: Match,
-    /// primary accumulator of W(M)
-    weight: f64,
-    /// Neumaier compensation term: `weight + weight_c` is the correctly
-    /// rounded running sum. Weights span [1/n, 1e12], so a plainly-tracked W
-    /// loses the small summands entirely whenever the matching transiently
-    /// holds a capped-weight edge (ulp(1e12) ~ 2e-4); the compensated update
-    /// keeps the drift at one rounding regardless of how often that happens.
-    weight_c: f64,
-    pub active_count: usize,
+/// The chain proposes a uniformly random vertex pair (u, v) and applies the
+/// JSV move set — remove (u,v) from a perfect matching, add (u,v) across the
+/// two holes, or slide an edge onto a hole — with a Metropolis filter for the
+/// stationary distribution
+///
+///   pi(M) ∝ e^{-beta * inactive(M)} * w(M),
+///
+/// where inactive(M) counts edges of M absent from the underlying graph,
+/// w(M) = w(x, y) for the hole pair (x, y) of a near-perfect matching, and
+/// w(M) = 1 for a perfect matching. With w near its ideal value (the ratio of
+/// perfect to per-hole-class near-perfect activity) every hole class and the
+/// perfect class carry equal stationary mass, which is the invariant the
+/// BSVV/JSV rapid-mixing proof rests on.
+pub struct JsvChain {
+    /// column matched to each row, or `HOLE`
+    row_match: Box<[u32]>,
+    /// row matched to each column, or `HOLE`
+    col_match: Box<[u32]>,
+    /// (row hole, column hole); `None` when the matching is perfect
+    hole: Option<(u32, u32)>,
+    /// number of matched edges present in the underlying graph
+    active_count: u32,
 }
 
-impl AugmentedMatch {
-    pub fn new(matching: Match, weight: f64, active_count: usize) -> Self {
-        AugmentedMatch {
-            matching,
-            weight,
-            weight_c: 0.0,
+impl JsvChain {
+    /// Start from a perfect matching (any permutation of columns).
+    pub fn from_permutation(matching: &Match, state: &State) -> Self {
+        let n = matching.size();
+        let mut row_match = vec![HOLE; n].into_boxed_slice();
+        let mut col_match = vec![HOLE; n].into_boxed_slice();
+        let mut active_count = 0;
+        for &(u, v) in matching.edges.iter() {
+            row_match[u] = v as u32;
+            col_match[v] = u as u32;
+            active_count += state.activity_of_edge(u, v) as u32;
+        }
+        JsvChain {
+            row_match,
+            col_match,
+            hole: None,
             active_count,
         }
     }
 
-    /// The tracked total weight `W(M)` of the current matching.
-    pub fn weight(&self) -> f64 {
-        self.weight + self.weight_c
+    /// The hole pair of a near-perfect state, or `None` for a perfect state.
+    pub fn hole(&self) -> Option<(usize, usize)> {
+        self.hole.map(|(u, v)| (u as usize, v as usize))
     }
 
-    /// Reset the tracked weight to a freshly computed value.
-    pub fn set_weight(&mut self, weight: f64) {
-        self.weight = weight;
-        self.weight_c = 0.0;
+    /// Number of matched edges that do not exist in the underlying graph.
+    pub fn inactive_count(&self) -> u32 {
+        let size = self.row_match.len() as u32 - self.hole.is_some() as u32;
+        size - self.active_count
     }
 
-    /// Neumaier compensated add: exact up to a single final rounding.
-    fn weight_add(&mut self, v: f64) {
-        let t = self.weight + v;
-        self.weight_c += if self.weight.abs() >= v.abs() {
-            (self.weight - t) + v
-        } else {
-            (v - t) + self.weight
-        };
-        self.weight = t;
+    /// Perfect and using only real graph edges, i.e. a perfect matching of
+    /// the underlying graph itself. `e^{-beta * inactive} = 1` for exactly
+    /// these states at every beta, which is what makes
+    /// `Z * Pr[fully active perfect]` equal the permanent exactly.
+    pub fn is_fully_active_perfect(&self) -> bool {
+        self.hole.is_none() && self.active_count as usize == self.row_match.len()
     }
 
-    /// Sample an edge of the matching with probability proportional to its
-    /// weight, reusing the tracked total `W(M)` instead of re-summing.
-    pub fn choose_weighted_edge(&self, state: &State, rng: &mut impl RngExt) -> (usize, usize) {
-        let mut target = rng.random::<f64>() * self.weight();
-        for &(u, v) in self.matching.edges.iter() {
-            target -= state.weight_of_edge(u, v);
-            if target <= 0.0 {
-                return (u, v);
-            }
-        }
-        // float rounding can leave a sliver of `target`; fall back to the
-        // last edge
-        *self.matching.edges.last().expect("empty matching")
-    }
-
-    /// Two distinct random edge positions from a single u64 draw, using
-    /// multiply-shift range reduction (bias ~n/2^32, irrelevant here: the
-    /// proposal distribution over *positions* is state-independent, so any
-    /// fixed distribution with full support keeps the chain reversible — it
-    /// only needs to not be adversarially skewed, not perfectly uniform).
-    fn choose_edge_pair(&self, rng: &mut impl RngExt) -> (usize, usize) {
-        let n = self.matching.edges.len() as u64;
-        let r = rng.random::<u64>();
-        let i = ((r >> 32) * n) >> 32;
-        let j = ((r & 0xffff_ffff) * (n - 1)) >> 32;
-        let (i, j) = (i as usize, j as usize);
-        (i, if j >= i { j + 1 } else { j })
+    /// A uniform index in [0, bound) from a u32 draw via multiply-shift
+    /// range reduction (bias ~bound/2^32; the proposal distribution over
+    /// move slots is what carries the Hastings correction, so any fixed
+    /// near-uniform distribution keeps the chain honest).
+    fn choose_index(bound: u32, rng: &mut impl RngExt) -> u32 {
+        (((rng.random::<u32>() as u64) * bound as u64) >> 32) as u32
     }
 
     pub fn transit_n_times(&mut self, state: &State, n: usize, rng: &mut impl RngExt) {
         for _ in 0..n {
-            let pair = self.choose_edge_pair(rng);
-            self.transit(pair, state, rng);
+            self.transit(state, rng);
         }
     }
 
-    /// Accept the current matching with probability `L/W(M)`, where `L` is a
-    /// shared lower bound on every matching's weight. This turns the chain's
-    /// stationary distribution `W(M) e^{beta a(M)}` into the Gibbs
-    /// distribution `e^{beta a(M)}`. Using the largest cheap lower bound
-    /// available avoids needless rejection while preserving that distribution;
-    /// the epsilon absorbs float rounding at the boundary.
-    pub fn rejection_sample(
-        &mut self,
-        state: &State,
-        weight_lower_bound: f64,
-        n: usize,
-        rng: &mut impl RngExt,
-    ) -> (Option<usize>, usize) {
-        let max_attempts = 2 * state.weight.dimension() * state.weight.dimension();
-        for attempt in 1..=max_attempts {
-            self.transit_n_times(state, n, rng);
-            if rng.random::<f64>() < weight_lower_bound / self.weight() + 2.0 * f64::EPSILON {
-                return (Some(state.weight.dimension() - self.active_count), attempt);
+    fn accept(probability: f64, rng: &mut impl RngExt) -> bool {
+        probability >= 1.0 || rng.random::<f64>() < probability
+    }
+
+    /// One proposal + Metropolis–Hastings filter. Returns whether the move
+    /// was accepted.
+    ///
+    /// Instead of a uniform vertex pair — of which only n out of n^2 touch a
+    /// perfect state at all — the proposal draws uniformly from the *valid*
+    /// moves of the current state: a perfect matching offers its n removals,
+    /// a near-perfect one offers the add across its holes plus 2(n-1)
+    /// slides. The asymmetric menu sizes (n versus 2n-1) enter the
+    /// acceptance probability as the Hastings factor q(M'→M)/q(M→M'), so the
+    /// stationary distribution is untouched while every proposal does work.
+    pub fn transit(&mut self, state: &State, rng: &mut impl RngExt) -> bool {
+        let n = self.row_match.len() as u32;
+        match self.hole {
+            None => {
+                // remove one of the n matched edges; reverse move is the add
+                // out of a 2n-1 menu, so the Hastings factor is n/(2n-1)
+                let u = Self::choose_index(n, rng);
+                let v = self.row_match[u as usize];
+                let activity = state.activity_of_edge(u as usize, v as usize) as isize;
+                // pi ratio: 1/lambda_e(u,v) * w(u,v) = e^{beta(1-A)} w(u,v)
+                let probability = state.weight_of_edge(u as usize, v as usize)
+                    * state.exp_beta_delta(1 - activity)
+                    * (n as f64 / (2 * n - 1) as f64);
+                if Self::accept(probability, rng) {
+                    self.row_match[u as usize] = HOLE;
+                    self.col_match[v as usize] = HOLE;
+                    self.hole = Some((u, v));
+                    self.active_count -= activity as u32;
+                    true
+                } else {
+                    false
+                }
             }
-        }
-        (None, max_attempts)
-    }
-
-    pub fn transit(
-        &mut self,
-        position: (usize, usize),
-        state: &State,
-        rng: &mut impl RngExt,
-    ) -> bool {
-        let (u1, v1) = self.matching.edges[position.0];
-        let (u2, v2) = self.matching.edges[position.1];
-        let (a, b) = (state.weight_of_edge(u1, v1), state.weight_of_edge(u2, v2));
-        let (c, d) = (state.weight_of_edge(u1, v2), state.weight_of_edge(u2, v1));
-        let weight = self.weight();
-        let next_weight = weight - a - b + c + d;
-        let next_active_count =
-            self.active_count - state.activity_of_edge(u1, v1) - state.activity_of_edge(u2, v2)
-                + state.activity_of_edge(u1, v2)
-                + state.activity_of_edge(u2, v1);
-        let weight_ratio = next_weight / weight;
-        let active_ratio =
-            state.exp_beta_delta(next_active_count as isize - self.active_count as isize);
-        let probability = weight_ratio * active_ratio;
-        if probability >= 1.0 || rng.random::<f64>() < probability {
-            self.matching.edges[position.0] = (u1, v2);
-            self.matching.edges[position.1] = (u2, v1);
-            self.weight_add(-a);
-            self.weight_add(-b);
-            self.weight_add(c);
-            self.weight_add(d);
-            self.active_count = next_active_count;
-            true
-        } else {
-            false
+            Some((hole_u, hole_v)) => {
+                // menu: slot 0 = add (hole_u, hole_v); slots 1..n = slide the
+                // row hole to column c (skipping hole_v); slots n..2n-1 =
+                // slide the column hole to row r (skipping hole_u)
+                let slot = Self::choose_index(2 * n - 1, rng);
+                if slot == 0 {
+                    // add: reverse is a removal out of an n-menu, Hastings
+                    // factor (2n-1)/n
+                    let activity =
+                        state.activity_of_edge(hole_u as usize, hole_v as usize) as isize;
+                    let probability = state.exp_beta_delta(activity - 1)
+                        / state.weight_of_edge(hole_u as usize, hole_v as usize)
+                        * ((2 * n - 1) as f64 / n as f64);
+                    if Self::accept(probability, rng) {
+                        self.row_match[hole_u as usize] = hole_v;
+                        self.col_match[hole_v as usize] = hole_u;
+                        self.hole = None;
+                        self.active_count += activity as u32;
+                        true
+                    } else {
+                        false
+                    }
+                } else if slot < n {
+                    // slide onto the row hole: pick column v != hole_v,
+                    // matched to row z; replace (z, v) with (hole_u, v),
+                    // holes become (z, hole_v). Reverse is another slide out
+                    // of a 2n-1 menu: Hastings factor 1.
+                    let v = if slot > hole_v { slot } else { slot - 1 };
+                    let z = self.col_match[v as usize];
+                    let gained = state.activity_of_edge(hole_u as usize, v as usize) as isize;
+                    let lost = state.activity_of_edge(z as usize, v as usize) as isize;
+                    let probability = state.exp_beta_delta(gained - lost)
+                        * state.weight_of_edge(z as usize, hole_v as usize)
+                        / state.weight_of_edge(hole_u as usize, hole_v as usize);
+                    if Self::accept(probability, rng) {
+                        self.row_match[hole_u as usize] = v;
+                        self.col_match[v as usize] = hole_u;
+                        self.row_match[z as usize] = HOLE;
+                        self.hole = Some((z, hole_v));
+                        self.active_count = (self.active_count as isize + gained - lost) as u32;
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    // slide onto the column hole: pick row u != hole_u,
+                    // matched to column z; replace (u, z) with (u, hole_v),
+                    // holes become (hole_u, z). Hastings factor 1.
+                    let pick = slot - n;
+                    let u = if pick >= hole_u { pick + 1 } else { pick };
+                    let z = self.row_match[u as usize];
+                    let gained = state.activity_of_edge(u as usize, hole_v as usize) as isize;
+                    let lost = state.activity_of_edge(u as usize, z as usize) as isize;
+                    let probability = state.exp_beta_delta(gained - lost)
+                        * state.weight_of_edge(hole_u as usize, z as usize)
+                        / state.weight_of_edge(hole_u as usize, hole_v as usize);
+                    if Self::accept(probability, rng) {
+                        self.row_match[u as usize] = hole_v;
+                        self.col_match[hole_v as usize] = u;
+                        self.col_match[z as usize] = HOLE;
+                        self.hole = Some((hole_u, z));
+                        self.active_count = (self.active_count as isize + gained - lost) as u32;
+                        true
+                    } else {
+                        false
+                    }
+                }
+            }
         }
     }
 }
@@ -157,18 +200,107 @@ mod test {
     use crate::graph::Graph;
     use rand::SeedableRng;
     use rand::rngs::SmallRng;
+    use std::collections::HashMap;
 
-    /// The compensated running W(M) must agree with a fresh recomputation to
-    /// near machine precision even when the weight matrix mixes magnitudes as
-    /// far apart as 1/n and the 1e12 cap, i.e. exactly the regime where a
-    /// plainly-tracked sum loses the small weights to absorption whenever a
-    /// capped edge transits in and out of the matching.
+    /// Exhaustively enumerate every perfect and near-perfect matching of
+    /// K_{n,n} with its unnormalized stationary weight, then check that the
+    /// walker's empirical occupancy matches. This validates all four move
+    /// cases (remove, add, both slides) and their Metropolis ratios at once:
+    /// any error in a ratio or an update shifts the whole histogram.
     #[test]
-    fn compensated_weight_tracks_exactly() {
-        // n chosen so that (smallest weight 1.1/n) / (largest running sum
-        // ~ n * 1e12) exceeds 2^53: the plain-sum absorption regime. The 1.1
-        // factor keeps the weights non-dyadic so every add actually rounds.
-        let n = 512usize;
+    fn empirical_distribution_matches_stationary_distribution() {
+        let n = 3usize;
+        // asymmetric adjacency: edges of the underlying graph
+        let graph = Graph {
+            size: n,
+            edges: vec![
+                vec![0, 1].into_boxed_slice(),
+                vec![1, 2].into_boxed_slice(),
+                vec![2].into_boxed_slice(),
+            ]
+            .into_boxed_slice(),
+        };
+        let mut state = State::from(&graph);
+        state.set_beta(0.7);
+        // deliberately non-uniform hole weights
+        for u in 0..n {
+            for v in 0..n {
+                state.weight.set(u, v, 1.0 + (u * 3 + v) as f64 * 0.5);
+            }
+        }
+
+        // enumerate exact stationary weights, keyed by a canonical state id
+        let key = |row_match: &[Option<usize>]| -> Vec<isize> {
+            row_match
+                .iter()
+                .map(|entry| entry.map(|v| v as isize).unwrap_or(-1))
+                .collect()
+        };
+        let mut exact: HashMap<Vec<isize>, f64> = HashMap::new();
+        let perms: [[usize; 3]; 6] = [
+            [0, 1, 2],
+            [0, 2, 1],
+            [1, 0, 2],
+            [1, 2, 0],
+            [2, 0, 1],
+            [2, 1, 0],
+        ];
+        let activity = |u: usize, v: usize| state.activity_of_edge(u, v);
+        for perm in perms {
+            // perfect matching
+            let inactive = (0..n).map(|u| 1 - activity(u, perm[u])).sum::<usize>();
+            let weight = (-state.beta() * inactive as f64).exp();
+            exact.insert(key(&perm.map(Some)), weight);
+            // near-perfect: drop each edge in turn (every near-perfect
+            // matching of K_{3,3} arises from a perfect one this way)
+            for drop in 0..n {
+                let mut row_match = perm.map(Some);
+                row_match[drop] = None;
+                let inactive = (0..n)
+                    .filter(|&u| u != drop)
+                    .map(|u| 1 - activity(u, perm[u]))
+                    .sum::<usize>();
+                let weight = (-state.beta() * inactive as f64).exp()
+                    * state.weight_of_edge(drop, perm[drop]);
+                exact.insert(key(&row_match), weight);
+            }
+        }
+        let total: f64 = exact.values().sum();
+
+        // run the walker and histogram its states
+        let matching = Match {
+            edges: (0..n).map(|u| (u, u)).collect(),
+        };
+        let mut chain = JsvChain::from_permutation(&matching, &state);
+        let mut rng = SmallRng::seed_from_u64(42);
+        let steps = 4_000_000usize;
+        let mut histogram: HashMap<Vec<isize>, usize> = HashMap::new();
+        for _ in 0..steps {
+            chain.transit(&state, &mut rng);
+            let row_match: Vec<Option<usize>> = chain
+                .row_match
+                .iter()
+                .map(|&v| (v != HOLE).then_some(v as usize))
+                .collect();
+            *histogram.entry(key(&row_match)).or_default() += 1;
+        }
+
+        assert_eq!(histogram.len(), exact.len(), "walker missed states");
+        for (state_key, weight) in &exact {
+            let expected = weight / total;
+            let observed = histogram[state_key] as f64 / steps as f64;
+            assert!(
+                (observed - expected).abs() < 0.15 * expected + 2e-3,
+                "state {state_key:?}: expected {expected:.5}, observed {observed:.5}"
+            );
+        }
+    }
+
+    /// The tracked active count and hole bookkeeping must stay consistent
+    /// with a from-scratch recomputation across a long random trajectory.
+    #[test]
+    fn incremental_bookkeeping_stays_consistent() {
+        let n = 8usize;
         let graph = Graph {
             size: n,
             edges: (0..n)
@@ -176,79 +308,36 @@ mod test {
                 .collect::<Vec<_>>()
                 .into(),
         };
-        let mut state = crate::cooling_state::State::from(&graph);
-        // beta = ln(cap)/2: entering a capped non-edge (acceptance ratio
-        // ~ cap * e^{-2 beta} = 1) and leaving it again (~ 1/cap * e^{2 beta}
-        // = 1) are both routinely accepted, so the tracked W oscillates
-        // between ~1 and ~1e12 — the mid-cooling regime where plain
-        // summation strands absorption errors in W each round trip.
-        state.set_beta(1e12f64.ln() / 2.0);
-        // graph edges keep small weights, every non-edge sits at the cap
-        for u in 0..n {
-            for v in 0..n {
-                let w = if v == u || v == (u + 1) % n {
-                    1.1 / n as f64
-                } else {
-                    1e12
-                };
-                state.weight.set(u, v, w);
-            }
-        }
-        let mut rng = SmallRng::seed_from_u64(7);
-        let matching = crate::graph::Match {
-            // A deterministic, well-scrambled permutation. Since 97 is odd,
-            // it is coprime to this power-of-two n.
-            edges: (0..n).map(|u| (u, (u * 97 + 13) % n)).collect(),
+        let mut state = State::from(&graph);
+        state.set_beta(0.3);
+        let matching = Match {
+            edges: (0..n).map(|u| (u, (u * 3 + 1) % n)).collect(),
         };
-        let weight = state.weight_of_match(&matching);
-        let active_count = state.active_count_of_match(&matching);
-        let mut chain = AugmentedMatch::new(matching, weight, active_count);
-        // shadow-track W the naive way (plain f64 sum) for comparison
-        let mut plain = chain.weight();
-        let mut float_weight = chain.weight() as f32;
-        let mut float_compensation = 0.0f32;
-        let mut worst: f64 = 0.0;
-        let mut worst_plain: f64 = 0.0;
-        let mut worst_float = 0.0f64;
-        for _ in 0..1_000_000 {
-            let pair = {
-                let n = chain.matching.edges.len() as u64;
-                let r = rng.random::<u64>();
-                let i = (((r >> 32) * n) >> 32) as usize;
-                let j = (((r & 0xffff_ffff) * (n - 1)) >> 32) as usize;
-                (i, if j >= i { j + 1 } else { j })
-            };
-            let (u1, v1) = chain.matching.edges[pair.0];
-            let (u2, v2) = chain.matching.edges[pair.1];
-            let (a, b) = (state.weight_of_edge(u1, v1), state.weight_of_edge(u2, v2));
-            let (c, d) = (state.weight_of_edge(u1, v2), state.weight_of_edge(u2, v1));
-            let delta = c + d - a - b;
-            if chain.transit(pair, &state, &mut rng) {
-                plain += delta;
-                for value in [-a, -b, c, d] {
-                    let value = value as f32;
-                    let next = float_weight + value;
-                    float_compensation += if float_weight.abs() >= value.abs() {
-                        (float_weight - next) + value
-                    } else {
-                        (value - next) + float_weight
-                    };
-                    float_weight = next;
+        let mut chain = JsvChain::from_permutation(&matching, &state);
+        let mut rng = SmallRng::seed_from_u64(7);
+        for _ in 0..100_000 {
+            chain.transit(&state, &mut rng);
+            let mut active = 0u32;
+            let mut row_holes = vec![];
+            for (u, &v) in chain.row_match.iter().enumerate() {
+                if v == HOLE {
+                    row_holes.push(u as u32);
+                } else {
+                    assert_eq!(chain.col_match[v as usize], u as u32);
+                    active += state.activity_of_edge(u, v as usize) as u32;
                 }
             }
-            let fresh = state.weight_of_match(&chain.matching);
-            worst = worst.max(((chain.weight() - fresh) / fresh).abs());
-            worst_plain = worst_plain.max(((plain - fresh) / fresh).abs());
-            worst_float = worst_float
-                .max((((float_weight + float_compensation) as f64 - fresh) / fresh).abs());
+            let col_holes: Vec<u32> = (0..n as u32)
+                .filter(|&v| chain.col_match[v as usize] == HOLE)
+                .collect();
+            assert_eq!(active, chain.active_count);
+            match chain.hole {
+                None => assert!(row_holes.is_empty() && col_holes.is_empty()),
+                Some((u, v)) => {
+                    assert_eq!(row_holes, vec![u]);
+                    assert_eq!(col_holes, vec![v]);
+                }
+            }
         }
-        println!(
-            "worst relative drift over 1e6 transits: f64 compensated {worst:.3e}, f64 plain {worst_plain:.3e}, f32 compensated {worst_float:.3e}"
-        );
-        assert!(worst < 1e-12, "tracked W drifted: {worst:.3e}");
-        assert!(
-            worst_float < 1e-5,
-            "compensated f32 shadow drifted: {worst_float:.3e}"
-        );
     }
 }

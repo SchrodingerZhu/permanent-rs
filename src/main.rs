@@ -46,16 +46,19 @@ pub struct Cli {
     /// Potential mixing time of initial runs.
     #[arg(short, long, default_value_t = 16384)]
     pub warmup_times: usize,
-    /// Potential relaxation time of the chain (for weight estimation).
+    /// Proposals between per-step samples. The JSV walker needs stirring
+    /// that grows with the graph; values around n are a good starting point
+    /// for large instances (the mixing-time guesswork lives here).
     #[arg(short = 'W', long, default_value_t = 16)]
     pub weight_sample_intervals: usize,
-    /// Potential relaxation time of the chain (for estimator estimation).
+    /// Proposals between samples in the final perfect-fraction round.
     #[arg(short, long, default_value_t = 128)]
     pub estimator_sample_intervals: usize,
-    /// Number of samples to from each chain for weight estimation.
+    /// Per-chain samples per cooling step; the first half bootstraps the
+    /// hole-weight table, the second half feeds the ratio estimator.
     #[arg(short = 'q', long, default_value_t = 2048)]
     pub num_of_weight_estimations: usize,
-    /// Number of samples to from each chain for estimator estimation.
+    /// Minimum per-chain samples in the final perfect-fraction round.
     #[arg(short = 'p', long, default_value_t = 64)]
     pub num_of_estimator_estimations: usize,
     /// Number of threads to use (use all available threads if not specified).
@@ -151,10 +154,9 @@ fn run_chain(
     info!("Warmup finished");
     let schedule = make_schedule(size, add_factor, mul_factor);
     let estimator = state.cooling_evolve(schedule);
-    info!("final weight matrix:");
+    info!("final hole-class abundances (1/w):");
     for i in 0..size {
         for j in 0..size {
-            // print state.global_state.weight.get(i, j)
             print!("{:.2} ", 1.0 / state.global_state().weight.get(i, j));
         }
         println!();
@@ -256,23 +258,25 @@ fn main() {
     );
     info!("{:#?}", config);
     let exact = cli.exact.then(|| exact::permanent(&graph));
+    let exact_f64 = exact.as_ref().map(exact::to_f64);
     if cli.tui {
         let estimator = run_chain_tui(
             graph,
             config,
             cli.additive_slow_down,
             cli.multiplicative_slow_down,
-            exact,
+            exact_f64,
             cli.backend,
         );
         // the subscriber is not installed in TUI mode; print plainly
         match estimator {
             Some(estimator) => {
                 println!("estimated permanent: {estimator:.6e}");
-                if let Some(exact) = exact {
+                if let Some(exact) = exact.as_ref() {
+                    let exact_f64 = exact::to_f64(exact);
                     println!(
-                        "exact permanent (Ryser): {exact:.6e}, relative error: {:.2}%",
-                        (estimator - exact).abs() / exact * 100.0
+                        "exact permanent (Ryser): {exact}, relative error: {:.2}%",
+                        (estimator - exact_f64).abs() / exact_f64 * 100.0
                     );
                 }
             }
@@ -288,10 +292,11 @@ fn main() {
         cli.backend,
     );
     info!("estimated permanent: {estimator:.6e}");
-    if let Some(exact) = exact {
+    if let Some(exact) = exact.as_ref() {
+        let exact_f64 = exact::to_f64(exact);
         info!(
-            "exact permanent (Ryser): {exact:.6e}, relative error: {:.2}%",
-            (estimator - exact).abs() / exact * 100.0
+            "exact permanent (Ryser): {exact}, relative error: {:.2}%",
+            (estimator - exact_f64).abs() / exact_f64 * 100.0
         );
     }
 }

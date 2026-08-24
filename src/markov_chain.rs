@@ -1,4 +1,4 @@
-use crate::chain::AugmentedMatch;
+use crate::chain::JsvChain;
 use crate::cooling_schedule::CoolingSchedule;
 use crate::cooling_state::{Matrix, State};
 use crate::graph;
@@ -6,7 +6,7 @@ use crate::graph::Match;
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
-use tracing::info;
+use tracing::{info, warn};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Config {
@@ -14,25 +14,25 @@ pub struct Config {
     pub num_of_chains: usize,
     /// potential mixing time of initial runs
     pub warmup_times: usize,
-    /// potential relaxation time of the chain
+    /// potential relaxation time of the chain between per-step samples
     pub weight_sample_intervals: usize,
-    /// potential relaxation time of the chain
+    /// potential relaxation time of the chain in the final sampling round
     pub estimator_sample_intervals: usize,
-    /// number of samples to from each chain for weight estimation
+    /// per-chain samples per cooling step; the first half bootstraps the
+    /// hole-weight table, the second half feeds the ratio estimator
     pub num_of_weight_estimations: usize,
-    /// number of samples to from each chain for estimator estimation
+    /// minimum per-chain samples in the final perfect-fraction round
     pub num_of_estimator_estimations: usize,
 }
 
 /// Result of one `evolve` step.
 struct EvolveStats {
-    /// estimate of Z(beta') / Z(beta)
+    /// estimate of Z(beta', w') / Z(beta, w)
     ratio: f64,
-    /// importance-weighted count of matchings that survived rejection
-    /// sampling (with zero penalty this is a plain count)
-    accepted_samples: f64,
-    /// number of rejection-sampling attempts across all chains
-    attempted_samples: usize,
+    /// ratio-phase samples that were perfect matchings of the real graph
+    perfect_active_samples: usize,
+    /// total ratio-phase samples
+    total_samples: usize,
 }
 
 /// Per-step statistics reported to `cooling_evolve_with` observers.
@@ -42,13 +42,19 @@ pub struct StepStats {
     pub beta: f64,
     pub ratio: f64,
     pub estimator: f64,
+    /// count of ratio-phase samples that were perfect matchings of the real
+    /// graph (the observable the final estimator is built from)
     pub accepted_samples: f64,
+    /// total ratio-phase samples
     pub attempted_samples: usize,
 }
 
+/// Per-class occupancy histogram over the n^2 hole classes plus the perfect
+/// class, merged across chains.
 struct SampleCounts {
     size: usize,
     data: Vec<usize>,
+    perfect: usize,
 }
 
 impl SampleCounts {
@@ -56,19 +62,45 @@ impl SampleCounts {
         SampleCounts {
             size,
             data: vec![0; size * size],
+            perfect: 0,
         }
     }
-    pub fn inc(&mut self, u: usize, v: usize) {
-        self.data[u * self.size + v] += 1;
+    pub fn record(&mut self, hole: Option<(usize, usize)>) {
+        match hole {
+            Some((u, v)) => self.data[u * self.size + v] += 1,
+            None => self.perfect += 1,
+        }
     }
     pub fn merge(mut self, other: Self) -> Self {
         for (left, right) in self.data.iter_mut().zip(other.data) {
             *left += right;
         }
+        self.perfect += other.perfect;
         self
     }
-    pub fn finish(self, state: &State) -> Matrix {
-        Matrix::from_sample_counts(state, &self.data)
+}
+
+/// Ratio-phase accumulator.
+struct RatioSum {
+    sum: f64,
+    perfect_active: usize,
+    samples: usize,
+}
+
+impl RatioSum {
+    fn new() -> Self {
+        RatioSum {
+            sum: 0.0,
+            perfect_active: 0,
+            samples: 0,
+        }
+    }
+    fn merge(self, other: Self) -> Self {
+        RatioSum {
+            sum: self.sum + other.sum,
+            perfect_active: self.perfect_active + other.perfect_active,
+            samples: self.samples + other.samples,
+        }
     }
 }
 
@@ -78,7 +110,7 @@ pub struct MCState {
     size: usize,
     config: Config,
     pub global_state: State,
-    chains: Vec<AugmentedMatch>,
+    chains: Vec<JsvChain>,
 }
 
 impl Default for Config {
@@ -94,44 +126,12 @@ impl Default for Config {
     }
 }
 
-struct EvolveSum {
-    counts: SampleCounts,
-    accepted: f64,
-    estimate: f64,
-    attempts: usize,
-}
-
-impl EvolveSum {
-    fn new(size: usize) -> Self {
-        EvolveSum {
-            counts: SampleCounts::new(size),
-            accepted: 0.0,
-            estimate: 0.0,
-            attempts: 0,
-        }
-    }
-
-    fn merge(self, other: Self) -> Self {
-        EvolveSum {
-            counts: self.counts.merge(other.counts),
-            accepted: self.accepted + other.accepted,
-            estimate: self.estimate + other.estimate,
-            attempts: self.attempts + other.attempts,
-        }
-    }
-}
-
 impl MCState {
     pub fn new(graph: graph::Graph, config: Config) -> Self {
         let global_state = State::from(&graph);
         let size = graph.size;
         let chains = (0..config.num_of_chains)
-            .map(|_| {
-                let matching = Match::random(graph.size);
-                let weight = global_state.weight_of_match(&matching);
-                let active_count = global_state.active_count_of_match(&matching);
-                AugmentedMatch::new(matching, weight, active_count)
-            })
+            .map(|_| JsvChain::from_permutation(&Match::random(size), &global_state))
             .collect();
         MCState {
             graph,
@@ -141,79 +141,191 @@ impl MCState {
             size,
         }
     }
+
     pub fn warmup(&mut self) {
         self.chains.par_iter_mut().for_each(|x| {
             let mut rng = SmallRng::from_rng(&mut rand::rng());
             x.transit_n_times(&self.global_state, self.config.warmup_times, &mut rng);
         });
     }
-    fn evolve(&mut self, next_beta: f64, penalty: f64) -> EvolveStats {
-        let diff = self.global_state.beta() - next_beta;
-        let weight_lower_bound = self.global_state.matching_weight_lower_bound();
-        let global_sum = self
-            .chains
+
+    /// One occupancy-sampling pass over all chains at the current (beta, w).
+    fn occupancy_pass(&mut self, samples_per_chain: usize) -> SampleCounts {
+        let size = self.size;
+        self.chains
             .par_iter_mut()
             .fold(
-                || EvolveSum::new(self.size),
+                || SampleCounts::new(size),
                 |mut local, x| {
                     let mut rng = SmallRng::from_rng(&mut rand::rng());
-                    // The weight matrix was replaced at the end of the previous
-                    // evolve step, so the cached per-chain weight must be
-                    // refreshed here: both the Metropolis acceptance and the L/W
-                    // rejection probability rely on x.weight being exactly
-                    // W(matching) under the *current* matrix. Keeping the stale
-                    // cache and patching it incrementally lets a per-chain offset
-                    // accumulate, which biases the rejection sampler (W >= 1 no
-                    // longer holds).
-                    x.set_weight(self.global_state.weight_of_match(&x.matching));
-                    for _ in 0..self.config.num_of_weight_estimations {
+                    for _ in 0..samples_per_chain {
                         x.transit_n_times(
                             &self.global_state,
                             self.config.weight_sample_intervals,
                             &mut rng,
                         );
-                        let sample = x.choose_weighted_edge(&self.global_state, &mut rng);
-                        local.counts.inc(sample.0, sample.1);
+                        local.record(x.hole());
                     }
-                    for _ in 0..self.config.num_of_estimator_estimations {
-                        let (sample, attempts) = x.rejection_sample(
+                    local
+                },
+            )
+            .reduce(|| SampleCounts::new(size), |left, right| left.merge(right))
+    }
+
+    /// One cooling step at the current (beta, w):
+    ///
+    /// 1. With the first half of the sample budget, histogram class
+    ///    occupancies and bootstrap the next hole-weight table w' for the
+    ///    current beta (BSVV weight update).
+    /// 2. With the second, independent half, estimate the per-sample mean
+    ///    of `e^{(beta - beta') inactive(M)} * w'(M)/w(M)`, which equals
+    ///    Z(beta', w') / Z(beta, w) in expectation. Using a batch collected
+    ///    after w' is fixed keeps the ratio estimator from being correlated
+    ///    with the table it references, and giving it half the full budget
+    ///    keeps the telescoping product's per-step ln-bias (~ Var/2N by
+    ///    Jensen) from accumulating.
+    /// 3. Install w'; the caller installs beta'.
+    fn evolve(&mut self, next_beta: f64) -> EvolveStats {
+        let size = self.size;
+        let first_half = self.config.num_of_weight_estimations / 2;
+        let second_half = self.config.num_of_weight_estimations - first_half;
+        // BSVV's weight update (and through it the whole mixing argument)
+        // assumes the sampled occupancies reflect the stationary
+        // distribution, under which the perfect class holds ~1/(n^2+1) of
+        // the mass when the weights are factor-2 correct. If the measured
+        // perfect share falls far outside that band, the chains are lagging
+        // the schedule; committing an update computed from lagged samples
+        // can start a feedback spiral (every hole class slashed in lockstep,
+        // ratio estimates collapsing with them). Stirring more and
+        // resampling — the "slow with a warning" failure mode — is the
+        // faithful response.
+        let classes = size * size + 1;
+        let expected_perfect = (self.config.num_of_chains * first_half) as f64 / classes as f64;
+        let mut counts = self.occupancy_pass(first_half);
+        const MAX_EQUILIBRATION_RETRIES: usize = 3;
+        for retry in 0..MAX_EQUILIBRATION_RETRIES {
+            let perfect = counts.perfect as f64;
+            if perfect >= expected_perfect / 2.0 && perfect <= expected_perfect * 2.0 {
+                break;
+            }
+            warn!(
+                "perfect-class occupancy {} outside [{:.1}, {:.1}] at beta {:.4}; \
+                 re-equilibrating (retry {}/{MAX_EQUILIBRATION_RETRIES})",
+                counts.perfect,
+                expected_perfect / 2.0,
+                expected_perfect * 2.0,
+                self.global_state.beta(),
+                retry + 1,
+            );
+            counts = self.occupancy_pass(first_half);
+        }
+        let (next_weight, diagnostics) = Matrix::hole_weights_from_counts(
+            &self.global_state.weight,
+            &counts.data,
+            counts.perfect,
+        );
+        if diagnostics.clamped_classes * 4 > size * size {
+            warn!(
+                "hole-weight update clamped {} of {} classes (occupancy {}..{}); \
+                 the factor-2 weight invariant is likely violated — increase \
+                 weight samples or slow the schedule",
+                diagnostics.clamped_classes,
+                size * size,
+                diagnostics.min_count,
+                diagnostics.max_count,
+            );
+        }
+
+        let diff = self.global_state.beta() - next_beta;
+        let ratio_sum = self
+            .chains
+            .par_iter_mut()
+            .fold(
+                RatioSum::new,
+                |mut local, x| {
+                    let mut rng = SmallRng::from_rng(&mut rand::rng());
+                    for _ in 0..second_half {
+                        x.transit_n_times(
                             &self.global_state,
-                            weight_lower_bound,
-                            self.config.estimator_sample_intervals,
+                            self.config.weight_sample_intervals,
                             &mut rng,
                         );
-                        local.attempts += attempts;
-                        if let Some(sample) = sample {
-                            let importance = (x.active_count as f64 * penalty).exp();
-                            local.accepted += importance;
-                            local.estimate += (diff * sample as f64).exp() * importance;
+                        let mut term = (diff * x.inactive_count() as f64).exp();
+                        if let Some((u, v)) = x.hole() {
+                            term *= next_weight.get(u, v) / self.global_state.weight.get(u, v);
+                        }
+                        local.sum += term;
+                        local.samples += 1;
+                        if x.is_fully_active_perfect() {
+                            local.perfect_active += 1;
                         }
                     }
                     local
                 },
             )
-            .reduce(
-                || EvolveSum::new(self.size),
-                |left, right| left.merge(right),
-            );
-        let EvolveSum {
-            counts,
-            accepted,
-            estimate,
-            attempts,
-        } = global_sum;
-        self.global_state.weight = counts.finish(&self.global_state);
-        let ratio = if estimate >= accepted {
-            1.0
-        } else {
-            estimate / accepted
-        };
+            .reduce(RatioSum::new, |left, right| left.merge(right));
+
+        self.global_state.weight = next_weight;
         EvolveStats {
-            ratio,
-            accepted_samples: accepted,
-            attempted_samples: attempts,
+            ratio: ratio_sum.sum / ratio_sum.samples.max(1) as f64,
+            perfect_active_samples: ratio_sum.perfect_active,
+            total_samples: ratio_sum.samples,
         }
     }
+
+    /// Fraction of stationary samples that are perfect matchings of the real
+    /// graph. Since such matchings have activity 1 at every beta,
+    /// per(G) = Z * Pr_pi[M perfect and fully active] exactly; this measures
+    /// that probability. The sample count is scaled to the n^2 + 1 classes so
+    /// the target class (occupancy ~ 1/(n^2+1) under good weights) is hit
+    /// often enough for a low-variance estimate.
+    fn estimate_perfect_fraction(&mut self) -> f64 {
+        let per_chain = self
+            .config
+            .num_of_estimator_estimations
+            .max((64 * (self.size * self.size + 1)).div_ceil(self.config.num_of_chains));
+        let (hits, samples) = self
+            .chains
+            .par_iter_mut()
+            .fold(
+                || (0usize, 0usize),
+                |(mut hits, mut samples), x| {
+                    let mut rng = SmallRng::from_rng(&mut rand::rng());
+                    for _ in 0..per_chain {
+                        x.transit_n_times(
+                            &self.global_state,
+                            self.config.estimator_sample_intervals,
+                            &mut rng,
+                        );
+                        samples += 1;
+                        if x.is_fully_active_perfect() {
+                            hits += 1;
+                        }
+                    }
+                    (hits, samples)
+                },
+            )
+            .reduce(|| (0, 0), |a, b| (a.0 + b.0, a.1 + b.1));
+        info!(
+            "final round: {hits} of {samples} samples were perfect matchings of the graph"
+        );
+        if hits == 0 {
+            warn!(
+                "no perfect matching of the graph was ever sampled; the \
+                 estimate is 0 and the chain has almost surely not mixed"
+            );
+        }
+        hits as f64 / samples.max(1) as f64
+    }
+
+    /// ln Z at beta = 0 with the exact initial table w = n: the perfect
+    /// class contributes n! and each of the n^2 hole classes contributes
+    /// (n-1)! * n = n!, hence Z_0 = (n^2 + 1) * n!.
+    fn ln_z0(&self) -> f64 {
+        ((self.size * self.size + 1) as f64).ln()
+            + (1..=self.size).map(|k| (k as f64).ln()).sum::<f64>()
+    }
+
     /// Run the cooling schedule, invoking `observer` after every step with
     /// the step statistics and the current global state. The observer returns
     /// whether to continue; returning false stops the annealing early (used
@@ -223,28 +335,48 @@ impl MCState {
         F: FnMut(&StepStats, &State) -> bool,
     {
         let total_steps = sequence.total_steps();
-        // accumulate in f64: usize overflows for n >= 21
-        let factorial = (1..=self.size).map(|x| x as f64).product::<f64>();
-        let mut estimator = factorial;
-        for (index, i) in sequence.skip(1).enumerate() {
-            let stats = self.evolve(i, 0.0);
-            estimator *= stats.ratio;
-            self.global_state.set_beta(i);
+        let mut ln_z = self.ln_z0();
+        for (index, beta) in sequence.skip(1).enumerate() {
+            let stats = self.evolve(beta);
+            if stats.ratio < 0.3 {
+                // A single-step ratio this small means the sampled ensemble
+                // says Z lost most of its mass in one schedule tick — with a
+                // sound schedule that is a symptom of chains lagging the
+                // schedule, and it poisons the telescoping product.
+                warn!(
+                    "step {} (beta {:.4} -> {:.4}): ratio collapsed to {:.3e} \
+                     ({} of {} samples fully-active perfect)",
+                    index + 1,
+                    self.global_state.beta(),
+                    beta,
+                    stats.ratio,
+                    stats.perfect_active_samples,
+                    stats.total_samples,
+                );
+            }
+            ln_z += stats.ratio.max(f64::MIN_POSITIVE).ln();
+            self.global_state.set_beta(beta);
+            // Z * Pr[perfect and fully active] estimates per(G) at *every*
+            // beta; it is 0 early (the event is never sampled) and converges
+            // as the Gibbs mass concentrates on the real graph's matchings.
+            let estimator = ln_z.exp() * stats.perfect_active_samples as f64
+                / stats.total_samples.max(1) as f64;
             let step = StepStats {
                 step: index + 1,
                 total_steps,
-                beta: i,
+                beta,
                 ratio: stats.ratio,
                 estimator,
-                accepted_samples: stats.accepted_samples,
-                attempted_samples: stats.attempted_samples,
+                accepted_samples: stats.perfect_active_samples as f64,
+                attempted_samples: stats.total_samples,
             };
             if !observer(&step, &self.global_state) {
-                break;
+                return estimator;
             }
         }
-        estimator
+        ln_z.exp() * self.estimate_perfect_fraction()
     }
+
     pub fn cooling_evolve(&mut self, sequence: CoolingSchedule) -> f64 {
         self.cooling_evolve_with(sequence, |step, _| {
             info!(
@@ -266,7 +398,7 @@ mod test {
         let path: PathBuf = env!("CARGO_MANIFEST_DIR").into();
         let path = path.join("data").join(name);
         let graph = Graph::load(path).unwrap();
-        let exact = crate::exact::permanent(&graph);
+        let exact = crate::exact::to_f64(&crate::exact::permanent(&graph));
         let mut state = super::MCState::new(graph, config);
         state.warmup();
         let cooling_cfg = CoolingConfig {
@@ -330,35 +462,21 @@ mod test {
             multiplicative_ratio: NonZeroUsize::new(1).unwrap(),
         });
         let started = Instant::now();
-        let mut observed = None;
         let mut observed_steps = 0usize;
-        let mut acceptance_sum = 0.0;
-        let mut acceptance_min = f64::INFINITY;
-        let mut acceptance_max = 0.0f64;
-        let mut acceptance_min_step = 0usize;
+        let mut perfect_fraction_sum = 0.0;
         state.cooling_evolve_with(schedule, |step, _| {
-            observed = Some((step.accepted_samples, step.attempted_samples));
             if step.attempted_samples > 0 {
-                let acceptance = step.accepted_samples / step.attempted_samples as f64;
-                acceptance_sum += acceptance;
-                if acceptance < acceptance_min {
-                    acceptance_min = acceptance;
-                    acceptance_min_step = step.step;
-                }
-                acceptance_max = acceptance_max.max(acceptance);
+                perfect_fraction_sum += step.accepted_samples / step.attempted_samples as f64;
             }
             observed_steps += 1;
             observed_steps < profile_steps
         });
         let evolve_elapsed = started.elapsed();
-        let acceptance_mean = if observed_steps == 0 || config.num_of_estimator_estimations == 0 {
-            0.0
-        } else {
-            acceptance_sum / observed_steps as f64
-        };
 
         println!(
-            "n={n} config={config:?} steps={observed_steps} warmup={warmup_elapsed:?} evolve={evolve_elapsed:?} acceptance=min:{acceptance_min:.6}@{acceptance_min_step},mean:{acceptance_mean:.6},max:{acceptance_max:.6} accepted={observed:?}"
+            "n={n} config={config:?} steps={observed_steps} warmup={warmup_elapsed:?} \
+             evolve={evolve_elapsed:?} mean_perfect_fraction={:.6}",
+            perfect_fraction_sum / observed_steps.max(1) as f64
         );
     }
 
@@ -375,6 +493,32 @@ mod test {
     #[test]
     fn box_example() {
         let (estimator, exact) = estimate("box.json", light_config());
+        println!("estimator: {estimator}, exact: {exact}");
+        assert!(
+            (estimator / exact).ln().abs() < 0.5f64.ln().abs(),
+            "estimator {estimator} too far from exact {exact}"
+        );
+    }
+
+    /// A single 16-cycle has exactly two perfect matchings, which differ on
+    /// every edge. This is the family where a swap-only walker on full
+    /// pairings freezes: moving between the two matchings requires opening a
+    /// hole and sliding it around the cycle, which only the JSV move set can
+    /// do. The old transposition chain had no reliable path here; the full
+    /// scheme must handle it. n = 16 with only two matchings needs more
+    /// stirring than the tiny n = 4 and n = 8 examples, hence the heavier
+    /// config.
+    #[test]
+    fn cycle_example() {
+        let config = super::Config {
+            num_of_chains: 512,
+            warmup_times: 4096,
+            weight_sample_intervals: 16,
+            estimator_sample_intervals: 64,
+            num_of_weight_estimations: 512,
+            num_of_estimator_estimations: 32,
+        };
+        let (estimator, exact) = estimate("cycle.json", config);
         println!("estimator: {estimator}, exact: {exact}");
         assert!(
             (estimator / exact).ln().abs() < 0.5f64.ln().abs(),

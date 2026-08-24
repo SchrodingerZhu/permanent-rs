@@ -1,7 +1,8 @@
 //! Live dashboard for the annealing run, in the spirit of burn.dev's
 //! training visualization: overall progress with ETA, live charts of the
-//! estimator and the per-step ratios, and a heatmap of the edge marginals
-//! (the "steady state" matrix) converging onto the permanent's support.
+//! estimator and the per-step ratios, and a heatmap of hole-class abundance
+//! (1/w, proportional to how rich each hole class is in near-perfect
+//! matchings) converging onto the graph's structure.
 
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
@@ -35,9 +36,10 @@ pub struct StepUpdate {
     pub beta: f64,
     pub ratio: f64,
     pub estimator: f64,
-    /// fraction of rejection-sampling attempts that produced a sample
+    /// fraction of this step's samples that were perfect matchings of the
+    /// real graph
     pub acceptance: f64,
-    /// row-major n x n edge marginals (1 / w)
+    /// row-major n x n hole-class abundances (1 / w)
     pub marginals: Vec<f64>,
 }
 
@@ -119,7 +121,7 @@ fn format_duration(d: Duration) -> String {
     format!("{:02}:{:02}:{:02}", s / 3600, (s / 60) % 60, s % 60)
 }
 
-/// Half-block heatmap of the edge marginals: each terminal cell renders two
+/// Half-block heatmap of the hole-class abundances: each terminal cell renders two
 /// matrix rows via foreground (upper) and background (lower) colors. Graph
 /// edges shade black -> green, non-edges black -> red, so a converged run
 /// shows the permanent's support in green with the red mass faded out.
@@ -212,7 +214,7 @@ fn render(frame: &mut Frame, app: &App) {
 
     render_stats(frame, app, stats_area);
 
-    let heatmap_block = Block::bordered().title(" edge marginals 1/w ");
+    let heatmap_block = Block::bordered().title(" hole abundance 1/w ");
     let inner = heatmap_block.inner(heatmap_area);
     frame.render_widget(heatmap_block, heatmap_area);
     if let Some(latest) = &app.latest {
@@ -270,8 +272,11 @@ fn render_stats(frame: &mut Frame, app: &App, area: Rect) {
                 Span::styled(format!("{err:.2}%"), style),
             ]));
         }
+        // fraction of stationary samples that are perfect matchings of the
+        // real graph; under well-tracked hole weights it converges to
+        // ~1/(n^2+1) as beta grows
         lines.push(Line::from(format!(
-            "accept     {:.1}%",
+            "perfect    {:.2}%",
             l.acceptance * 100.0
         )));
         if let Some(start) = app.cooling_started {
