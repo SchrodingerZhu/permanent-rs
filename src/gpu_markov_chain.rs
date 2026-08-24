@@ -40,14 +40,92 @@ struct ChainRegs {
     hole_u: u32,
     hole_v: u32,
     active: u32,
-    rng: u32,
+    rng: Philox,
+}
+
+const PHILOX_M0: u32 = 0xD251_1F53;
+const PHILOX_M1: u32 = 0xCD9E_8D57;
+const PHILOX_W0: u32 = 0x9E37_79B9;
+const PHILOX_W1: u32 = 0xBB67_AE85;
+const PHILOX_ROUNDS: u32 = 10;
+
+/// Philox4x32-10 (Salmon et al., "Parallel Random Numbers: As Easy as
+/// 1, 2, 3", SC'11), the counter-based RNG used by CUDA's cuRAND and by
+/// most GPU tensor libraries. The 128-bit counter is laid out as
+/// [block_lo, block_hi, stream, 0] with the chain index as the stream
+/// word, so every chain owns 2^64 disjoint blocks of four outputs by
+/// construction, and only the 64-bit block counter has to round-trip
+/// through device memory between kernel launches.
+#[derive(CubeType, Clone, Copy)]
+struct Philox {
+    block_lo: u32,
+    block_hi: u32,
+    stream: u32,
+    lane_0: u32,
+    lane_1: u32,
+    lane_2: u32,
+    lane_3: u32,
+    remaining: u32,
+}
+
+/// High 32 bits of the 32x32 widening product, via 16-bit limbs: WGSL has
+/// no u64 and `mulhi` is not exposed, and no intermediate here can wrap.
+#[cube]
+fn mul_wide_hi(a: u32, b: u32) -> u32 {
+    let a_lo = a & 0xFFFF;
+    let a_hi = a >> 16;
+    let b_lo = b & 0xFFFF;
+    let b_hi = b >> 16;
+    let mid_0 = a_hi * b_lo + ((a_lo * b_lo) >> 16);
+    let mid_1 = a_lo * b_hi + (mid_0 & 0xFFFF);
+    a_hi * b_hi + (mid_0 >> 16) + (mid_1 >> 16)
 }
 
 #[cube]
-fn xorshift32(mut value: u32) -> u32 {
-    value = value ^ (value << 13);
-    value = value ^ (value >> 17);
-    value ^ (value << 5)
+impl Philox {
+    /// Encrypt the current counter block into four fresh outputs and
+    /// advance the block counter.
+    fn refill(&mut self) {
+        let mut c0 = self.block_lo;
+        let mut c1 = self.block_hi;
+        let mut c2 = self.stream;
+        let mut c3 = 0u32;
+        let mut k0 = 0u32;
+        let mut k1 = 0u32;
+        for _ in 0..PHILOX_ROUNDS {
+            let hi0 = mul_wide_hi(PHILOX_M0, c0);
+            let lo0 = PHILOX_M0 * c0;
+            let hi1 = mul_wide_hi(PHILOX_M1, c2);
+            let lo1 = PHILOX_M1 * c2;
+            c0 = hi1 ^ c1 ^ k0;
+            c1 = lo1;
+            c2 = hi0 ^ c3 ^ k1;
+            c3 = lo0;
+            k0 += PHILOX_W0;
+            k1 += PHILOX_W1;
+        }
+        self.lane_0 = c0;
+        self.lane_1 = c1;
+        self.lane_2 = c2;
+        self.lane_3 = c3;
+        self.remaining = 4;
+        self.block_lo += 1;
+        if self.block_lo == 0 {
+            self.block_hi += 1;
+        }
+    }
+
+    fn next_u32(&mut self) -> u32 {
+        if self.remaining == 0 {
+            self.refill();
+        }
+        let out = self.lane_0;
+        self.lane_0 = self.lane_1;
+        self.lane_1 = self.lane_2;
+        self.lane_2 = self.lane_3;
+        self.remaining -= 1;
+        out
+    }
 }
 
 #[cube]
@@ -81,16 +159,14 @@ impl ChainRegs {
         let nn = n as usize;
     if self.hole_u == NO_HOLE {
         // remove one of the n matched edges; Hastings factor n/(2n-1)
-        self.rng = xorshift32(self.rng);
-        let u = self.rng % n;
+        let u = self.rng.next_u32() % n;
         let v = row_match[base + u as usize];
         let index = u as usize * nn + v as usize;
         let activity = adjacency[index];
         let probability = weights[index]
             * exp_beta[(3 - activity) as usize]
             * (f32::cast_from(n) / f32::cast_from(2 * n - 1));
-        self.rng = xorshift32(self.rng);
-        if probability >= 1.0 || uniform_f32(self.rng) < probability {
+        if probability >= 1.0 || uniform_f32(self.rng.next_u32()) < probability {
             row_match[base + u as usize] = NO_HOLE;
             col_match[base + v as usize] = NO_HOLE;
             self.hole_u = u;
@@ -98,16 +174,14 @@ impl ChainRegs {
             self.active -= activity;
         }
     } else {
-        self.rng = xorshift32(self.rng);
-        let slot = self.rng % (2 * n - 1);
+        let slot = self.rng.next_u32() % (2 * n - 1);
         if slot == 0 {
             // add across the holes; Hastings factor (2n-1)/n
             let index = self.hole_u as usize * nn + self.hole_v as usize;
             let activity = adjacency[index];
             let probability = exp_beta[(activity + 1) as usize] / weights[index]
                 * (f32::cast_from(2 * n - 1) / f32::cast_from(n));
-            self.rng = xorshift32(self.rng);
-            if probability >= 1.0 || uniform_f32(self.rng) < probability {
+            if probability >= 1.0 || uniform_f32(self.rng.next_u32()) < probability {
                 row_match[base + self.hole_u as usize] = self.hole_v;
                 col_match[base + self.hole_v as usize] = self.hole_u;
                 self.active += activity;
@@ -126,8 +200,7 @@ impl ChainRegs {
             let probability = exp_beta[(gained + 2 - lost) as usize]
                 * weights[z as usize * nn + self.hole_v as usize]
                 / weights[self.hole_u as usize * nn + self.hole_v as usize];
-            self.rng = xorshift32(self.rng);
-            if probability >= 1.0 || uniform_f32(self.rng) < probability {
+            if probability >= 1.0 || uniform_f32(self.rng.next_u32()) < probability {
                 row_match[base + self.hole_u as usize] = v;
                 col_match[base + v as usize] = self.hole_u;
                 row_match[base + z as usize] = NO_HOLE;
@@ -146,8 +219,7 @@ impl ChainRegs {
             let probability = exp_beta[(gained + 2 - lost) as usize]
                 * weights[self.hole_u as usize * nn + z as usize]
                 / weights[self.hole_u as usize * nn + self.hole_v as usize];
-            self.rng = xorshift32(self.rng);
-            if probability >= 1.0 || uniform_f32(self.rng) < probability {
+            if probability >= 1.0 || uniform_f32(self.rng.next_u32()) < probability {
                 row_match[base + u as usize] = self.hole_v;
                 col_match[base + self.hole_v as usize] = u;
                 col_match[base + z as usize] = NO_HOLE;
@@ -185,7 +257,16 @@ fn warmup_kernel(
         hole_u: holes_u[chain],
         hole_v: holes_v[chain],
         active: active_counts[chain],
-        rng: rng_states[chain],
+        rng: Philox {
+            block_lo: rng_states[2 * chain],
+            block_hi: rng_states[2 * chain + 1],
+            stream: chain as u32,
+            lane_0: 0,
+            lane_1: 0,
+            lane_2: 0,
+            lane_3: 0,
+            remaining: 0,
+        },
     };
     for _ in 0..iterations {
         regs.transit(row_match, col_match, weights, adjacency, exp_beta, base, n);
@@ -193,7 +274,10 @@ fn warmup_kernel(
     holes_u[chain] = regs.hole_u;
     holes_v[chain] = regs.hole_v;
     active_counts[chain] = regs.active;
-    rng_states[chain] = regs.rng;
+    // Only the block counter persists; up to three buffered outputs are
+    // discarded at each launch boundary, which skips (never reuses) them.
+    rng_states[2 * chain] = regs.rng.block_lo;
+    rng_states[2 * chain + 1] = regs.rng.block_hi;
 }
 
 /// Occupancy pass: `samples` per chain, `interval` proposals apart, into a
@@ -224,7 +308,16 @@ fn occupancy_kernel(
         hole_u: holes_u[chain],
         hole_v: holes_v[chain],
         active: active_counts[chain],
-        rng: rng_states[chain],
+        rng: Philox {
+            block_lo: rng_states[2 * chain],
+            block_hi: rng_states[2 * chain + 1],
+            stream: chain as u32,
+            lane_0: 0,
+            lane_1: 0,
+            lane_2: 0,
+            lane_3: 0,
+            remaining: 0,
+        },
     };
     for _ in 0..samples {
         for _ in 0..interval {
@@ -240,7 +333,10 @@ fn occupancy_kernel(
     holes_u[chain] = regs.hole_u;
     holes_v[chain] = regs.hole_v;
     active_counts[chain] = regs.active;
-    rng_states[chain] = regs.rng;
+    // Only the block counter persists; up to three buffered outputs are
+    // discarded at each launch boundary, which skips (never reuses) them.
+    rng_states[2 * chain] = regs.rng.block_lo;
+    rng_states[2 * chain + 1] = regs.rng.block_hi;
 }
 
 /// Ratio pass: accumulate per chain the telescoping terms
@@ -276,7 +372,16 @@ fn ratio_kernel(
         hole_u: holes_u[chain],
         hole_v: holes_v[chain],
         active: active_counts[chain],
-        rng: rng_states[chain],
+        rng: Philox {
+            block_lo: rng_states[2 * chain],
+            block_hi: rng_states[2 * chain + 1],
+            stream: chain as u32,
+            lane_0: 0,
+            lane_1: 0,
+            lane_2: 0,
+            lane_3: 0,
+            remaining: 0,
+        },
     };
     let mut acc = CompensatedF32 {
         sum: 0.0,
@@ -302,7 +407,10 @@ fn ratio_kernel(
     holes_u[chain] = regs.hole_u;
     holes_v[chain] = regs.hole_v;
     active_counts[chain] = regs.active;
-    rng_states[chain] = regs.rng;
+    // Only the block counter persists; up to three buffered outputs are
+    // discarded at each launch boundary, which skips (never reuses) them.
+    rng_states[2 * chain] = regs.rng.block_lo;
+    rng_states[2 * chain + 1] = regs.rng.block_hi;
     sums[chain] = acc.sum;
     corrections[chain] = acc.correction;
     perfect_active[chain] = hits;
@@ -374,9 +482,10 @@ impl GpuMCState {
             active_counts.push(global_state.active_count_of_match(&matching) as u32);
         }
         let holes = vec![NO_HOLE; config.num_of_chains];
-        let rng_states = (0..config.num_of_chains)
-            .map(|chain| (chain as u32 + 1).wrapping_mul(0x9e37_79b9))
-            .collect::<Vec<_>>();
+        // Philox block counters, [lo, hi] per chain. Streams are separated
+        // by the chain index inside the counter block, so every chain can
+        // start its own counter at zero.
+        let rng_states = vec![0u32; config.num_of_chains * 2];
 
         let started = Instant::now();
         let client = WgpuRuntime::client(&WgpuDevice::DefaultDevice);
@@ -449,7 +558,7 @@ impl GpuMCState {
                 ArrayArg::from_raw_parts(self.holes_u.clone(), self.config.num_of_chains),
                 ArrayArg::from_raw_parts(self.holes_v.clone(), self.config.num_of_chains),
                 ArrayArg::from_raw_parts(self.active_counts.clone(), self.config.num_of_chains),
-                ArrayArg::from_raw_parts(self.rng_states.clone(), self.config.num_of_chains),
+                ArrayArg::from_raw_parts(self.rng_states.clone(), self.config.num_of_chains * 2),
                 ArrayArg::from_raw_parts(histogram.clone(), self.size * self.size + 1),
                 self.size as u32,
                 samples,
@@ -502,7 +611,7 @@ impl GpuMCState {
                 ArrayArg::from_raw_parts(self.holes_u.clone(), self.config.num_of_chains),
                 ArrayArg::from_raw_parts(self.holes_v.clone(), self.config.num_of_chains),
                 ArrayArg::from_raw_parts(self.active_counts.clone(), self.config.num_of_chains),
-                ArrayArg::from_raw_parts(self.rng_states.clone(), self.config.num_of_chains),
+                ArrayArg::from_raw_parts(self.rng_states.clone(), self.config.num_of_chains * 2),
                 ArrayArg::from_raw_parts(sums.clone(), self.config.num_of_chains),
                 ArrayArg::from_raw_parts(corrections.clone(), self.config.num_of_chains),
                 ArrayArg::from_raw_parts(perfect_active.clone(), self.config.num_of_chains),
@@ -551,7 +660,7 @@ impl GpuMCState {
                 ArrayArg::from_raw_parts(self.holes_u.clone(), self.config.num_of_chains),
                 ArrayArg::from_raw_parts(self.holes_v.clone(), self.config.num_of_chains),
                 ArrayArg::from_raw_parts(self.active_counts.clone(), self.config.num_of_chains),
-                ArrayArg::from_raw_parts(self.rng_states.clone(), self.config.num_of_chains),
+                ArrayArg::from_raw_parts(self.rng_states.clone(), self.config.num_of_chains * 2),
                 self.size as u32,
                 self.config.warmup_times,
             );
