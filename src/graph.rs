@@ -121,4 +121,13 @@ mod test {
             println!("{} -> {}", u, v);
         }
     }
+
+    #[test]
+    fn grid_8x16_example() {
+        let path: PathBuf = env!("CARGO_MANIFEST_DIR").into();
+        let graph = super::Graph::load(path.join("data").join("grid-8x16.json")).unwrap();
+        assert_eq!(graph.size, 64);
+        assert_eq!(graph.edges.len(), 64);
+        assert_eq!(graph.find_match().size(), 64);
+    }
 }

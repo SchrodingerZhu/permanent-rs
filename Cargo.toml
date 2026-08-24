@@ -22,6 +22,11 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 stacker = "0.1.25"
 mimalloc = "0.1.52"
 ratatui = "0.30.2"
+malachite = {
+    version = "0.10.0",
+    default-features = false,
+    features = ["naturals_and_integers"],
+}
 
 [profile.release]
 lto = "thin"
