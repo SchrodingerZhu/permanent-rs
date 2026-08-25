@@ -1,13 +1,13 @@
 use std::num::NonZeroUsize;
 
-use clap::{Parser, ValueEnum};
+use clap::Parser;
 use tracing::{error, info, level_filters::LevelFilter};
 use tracing_subscriber::EnvFilter;
 
 use crate::{
     cooling_schedule::CoolingConfig,
     cooling_state::State,
-    gpu_markov_chain::GpuMCState,
+    gpu_markov_chain::{CubeclRng, CurandRng, GpuMCState},
     graph::Graph,
     markov_chain::{Config, MCState},
 };
@@ -15,6 +15,8 @@ use crate::{
 pub mod chain;
 pub mod cooling_schedule;
 pub mod cooling_state;
+#[cfg(feature = "native-cuda")]
+pub mod cuda_backend;
 pub mod dinic;
 pub mod exact;
 pub mod gpu_markov_chain;
@@ -26,10 +28,78 @@ pub mod tui;
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+/// Execution backend, naming both the device and the generator it draws from.
+/// The two are chosen together because which generators exist depends on the
+/// device: cuRAND's are reachable only from hand-written CUDA, and the CubeCL
+/// kernels carry their own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Backend {
+    /// Multi-threaded CPU chains.
     Cpu,
-    Gpu,
+    /// CubeCL kernels, 32-bit xorshift. Fast, but fails Crush; a speed baseline.
+    CubeclXorshift,
+    /// CubeCL kernels, Philox4x32-10. The portable default.
+    CubeclPhilox,
+    /// Native CUDA kernels, cuRAND `curandStatePhilox4_32_10_t`.
+    CudaPhilox,
+    /// Native CUDA kernels, cuRAND `curandStateXORWOW_t`.
+    CudaXorwow,
+    /// Native CUDA kernels, cuRAND `curandStateMRG32k3a_t`.
+    CudaMrg32k3a,
+}
+
+impl Backend {
+    const VALUES: [(&'static str, Backend); 6] = [
+        ("cpu", Backend::Cpu),
+        ("cubecl_xorshift", Backend::CubeclXorshift),
+        ("cubecl_philox", Backend::CubeclPhilox),
+        ("cuda_philox", Backend::CudaPhilox),
+        ("cuda_xorwow", Backend::CudaXorwow),
+        ("cuda_mrg32k3a", Backend::CudaMrg32k3a),
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        Self::VALUES
+            .iter()
+            .find(|(_, backend)| *backend == self)
+            .map(|(name, _)| *name)
+            .unwrap_or("cpu")
+    }
+
+    /// Whether this backend needs the `native-cuda` feature and a driver.
+    pub fn is_native_cuda(self) -> bool {
+        matches!(
+            self,
+            Backend::CudaPhilox | Backend::CudaXorwow | Backend::CudaMrg32k3a
+        )
+    }
+}
+
+impl std::str::FromStr for Backend {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        // Accept hyphens too, so `cuda-philox` works as well as `cuda_philox`.
+        let normalized = value.trim().to_ascii_lowercase().replace('-', "_");
+        Self::VALUES
+            .iter()
+            .find(|(name, _)| *name == normalized)
+            .map(|(_, backend)| *backend)
+            .ok_or_else(|| {
+                let names = Self::VALUES
+                    .iter()
+                    .map(|(name, _)| *name)
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("unknown backend `{value}`; expected one of: {names}")
+            })
+    }
+}
+
+impl std::fmt::Display for Backend {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
 }
 
 #[derive(Parser, Debug)]
@@ -37,9 +107,18 @@ pub struct Cli {
     /// Path to the graph file.
     #[arg(short, long)]
     pub graph_path: std::path::PathBuf,
-    /// Markov-chain execution backend.
-    #[arg(long, value_enum, default_value_t = Backend::Cpu)]
+    /// Markov-chain execution backend and generator: cpu, cubecl_xorshift,
+    /// cubecl_philox, cuda_philox, cuda_xorwow, cuda_mrg32k3a. The cuda_*
+    /// backends need a build with `--features native-cuda` and an NVIDIA driver.
+    #[arg(long, default_value_t = Backend::Cpu)]
     pub backend: Backend,
+    /// Seed for the device generators. Runs with the same seed and the same
+    /// configuration reproduce each other.
+    #[arg(long, default_value_t = 0x5eed_1e55_c0ff_ee01)]
+    pub seed: u64,
+    /// CUDA device ordinal for the cuda_* backends.
+    #[arg(long, default_value_t = 0)]
+    pub cuda_device: usize,
     /// Number of chains.
     #[arg(short, long, default_value_t = 2048)]
     pub num_of_chains: usize,
@@ -84,12 +163,71 @@ enum ChainState {
     Gpu(Box<GpuMCState>),
 }
 
+/// Device knobs that only apply to the GPU backends.
+#[derive(Debug, Clone, Copy)]
+pub struct GpuOptions {
+    pub seed: u64,
+    pub cuda_device: usize,
+}
+
 impl ChainState {
-    fn new(backend: Backend, graph: Graph, config: Config) -> Self {
+    fn new(
+        backend: Backend,
+        graph: Graph,
+        config: Config,
+        options: GpuOptions,
+    ) -> anyhow::Result<Self> {
         match backend {
-            Backend::Cpu => ChainState::Cpu(MCState::new(graph, config)),
-            Backend::Gpu => ChainState::Gpu(Box::new(GpuMCState::new(graph, config))),
+            Backend::Cpu => Ok(ChainState::Cpu(MCState::new(graph, config))),
+            Backend::CubeclXorshift => Ok(ChainState::Gpu(Box::new(GpuMCState::cubecl(
+                graph,
+                config,
+                CubeclRng::Xorshift32,
+                options.seed,
+            )))),
+            Backend::CubeclPhilox => Ok(ChainState::Gpu(Box::new(GpuMCState::cubecl(
+                graph,
+                config,
+                CubeclRng::Philox,
+                options.seed,
+            )))),
+            Backend::CudaPhilox => Self::new_native_cuda(graph, config, CurandRng::Philox, options),
+            Backend::CudaXorwow => Self::new_native_cuda(graph, config, CurandRng::Xorwow, options),
+            Backend::CudaMrg32k3a => {
+                Self::new_native_cuda(graph, config, CurandRng::Mrg32k3a, options)
+            }
         }
+    }
+
+    #[cfg(feature = "native-cuda")]
+    fn new_native_cuda(
+        graph: Graph,
+        config: Config,
+        rng: CurandRng,
+        options: GpuOptions,
+    ) -> anyhow::Result<Self> {
+        use crate::cuda_backend::NativeCudaDevice;
+        use crate::gpu_markov_chain::{InitialChains, JsvDevice};
+        let state = GpuMCState::try_with_device(graph, config, |init: &InitialChains| {
+            let device = NativeCudaDevice::new(init, rng, options.seed, options.cuda_device)?;
+            Ok(Box::new(device) as Box<dyn JsvDevice>)
+        })?;
+        Ok(ChainState::Gpu(Box::new(state)))
+    }
+
+    #[cfg(not(feature = "native-cuda"))]
+    fn new_native_cuda(
+        _graph: Graph,
+        _config: Config,
+        _rng: CurandRng,
+        _options: GpuOptions,
+    ) -> anyhow::Result<Self> {
+        anyhow::bail!(
+            "this binary was built without the native CUDA backend. Rebuild with \
+             `cargo build --release --features native-cuda` (which needs nvcc; \
+             `nix develop .#cuda` provides one), or use `--backend cubecl_philox` \
+             for the portable CubeCL path."
+        )
     }
 
     fn warmup(&mut self) {
@@ -142,14 +280,11 @@ fn make_schedule(
 }
 
 fn run_chain(
-    graph: Graph,
-    config: Config,
+    mut state: ChainState,
+    size: usize,
     add_factor: NonZeroUsize,
     mul_factor: NonZeroUsize,
-    backend: Backend,
 ) -> f64 {
-    let size = graph.size;
-    let mut state = ChainState::new(backend, graph, config);
     state.warmup();
     info!("Warmup finished");
     let schedule = make_schedule(size, add_factor, mul_factor);
@@ -165,27 +300,16 @@ fn run_chain(
 }
 
 fn run_chain_tui(
-    graph: Graph,
-    config: Config,
+    mut state: ChainState,
+    size: usize,
+    adjacency: Vec<bool>,
     add_factor: NonZeroUsize,
     mul_factor: NonZeroUsize,
     exact: Option<f64>,
-    backend: Backend,
 ) -> Option<f64> {
-    let size = graph.size;
     let (tx, rx) = std::sync::mpsc::channel();
-    let adjacency = {
-        let mut adjacency = vec![false; size * size];
-        for (u, edges) in graph.edges.iter().enumerate() {
-            for v in edges.iter().copied() {
-                adjacency[u * size + v] = true;
-            }
-        }
-        adjacency
-    };
     std::thread::spawn(move || {
         let _ = tx.send(tui::TuiEvent::Init { n: size, adjacency });
-        let mut state = ChainState::new(backend, graph, config);
         let _ = tx.send(tui::TuiEvent::WarmupStarted);
         state.warmup();
         let schedule = make_schedule(size, add_factor, mul_factor);
@@ -229,7 +353,7 @@ fn main() {
             .unwrap_or(1)
     });
     info!("Using {} threads", thd_cnt);
-    info!("Using {:?} Markov-chain backend", cli.backend);
+    info!("Using {} Markov-chain backend", cli.backend);
     rayon::ThreadPoolBuilder::new()
         .num_threads(thd_cnt)
         .build_global()
@@ -259,14 +383,41 @@ fn main() {
     info!("{:#?}", config);
     let exact = cli.exact.then(|| exact::permanent(&graph));
     let exact_f64 = exact.as_ref().map(exact::to_f64);
+    let size = graph.size;
+    let adjacency = {
+        let mut adjacency = vec![false; size * size];
+        for (u, edges) in graph.edges.iter().enumerate() {
+            for v in edges.iter().copied() {
+                adjacency[u * size + v] = true;
+            }
+        }
+        adjacency
+    };
+    // Built before the dashboard takes the terminal, so a backend that cannot
+    // start reports plainly instead of from behind the TUI.
+    let options = GpuOptions {
+        seed: cli.seed,
+        cuda_device: cli.cuda_device,
+    };
+    let state = match ChainState::new(cli.backend, graph, config, options) {
+        Ok(state) => state,
+        Err(problem) => {
+            if cli.tui {
+                eprintln!("error: {problem:#}");
+            } else {
+                error!("{problem:#}");
+            }
+            std::process::exit(1);
+        }
+    };
     if cli.tui {
         let estimator = run_chain_tui(
-            graph,
-            config,
+            state,
+            size,
+            adjacency,
             cli.additive_slow_down,
             cli.multiplicative_slow_down,
             exact_f64,
-            cli.backend,
         );
         // the subscriber is not installed in TUI mode; print plainly
         match estimator {
@@ -285,11 +436,10 @@ fn main() {
         return;
     }
     let estimator = run_chain(
-        graph,
-        config,
+        state,
+        size,
         cli.additive_slow_down,
         cli.multiplicative_slow_down,
-        cli.backend,
     );
     info!("estimated permanent: {estimator:.6e}");
     if let Some(exact) = exact.as_ref() {
@@ -304,20 +454,51 @@ fn main() {
 #[cfg(test)]
 mod cli_tests {
     use super::*;
+    use std::str::FromStr;
+
+    fn parse_backend(value: &str) -> Backend {
+        Cli::try_parse_from(["permanent", "--graph-path", "g.json", "--backend", value])
+            .unwrap()
+            .backend
+    }
 
     #[test]
-    fn backend_is_cli_selectable_and_defaults_to_cpu() {
-        let default = Cli::try_parse_from(["permanent", "--graph-path", "graph.json"]).unwrap();
+    fn backend_defaults_to_cpu() {
+        let default = Cli::try_parse_from(["permanent", "--graph-path", "g.json"]).unwrap();
         assert_eq!(default.backend, Backend::Cpu);
+    }
 
-        let gpu = Cli::try_parse_from([
-            "permanent",
-            "--graph-path",
-            "graph.json",
-            "--backend",
-            "gpu",
-        ])
-        .unwrap();
-        assert_eq!(gpu.backend, Backend::Gpu);
+    #[test]
+    fn every_backend_round_trips_through_its_name() {
+        for (name, expected) in Backend::VALUES {
+            assert_eq!(parse_backend(name), expected, "parsing {name}");
+            assert_eq!(expected.as_str(), name, "displaying {name}");
+        }
+    }
+
+    #[test]
+    fn backend_names_accept_hyphens_and_case() {
+        assert_eq!(parse_backend("cuda-mrg32k3a"), Backend::CudaMrg32k3a);
+        assert_eq!(parse_backend("CUBECL_PHILOX"), Backend::CubeclPhilox);
+    }
+
+    #[test]
+    fn unknown_backend_lists_the_valid_names() {
+        let error = Backend::from_str("gpu").unwrap_err();
+        assert!(error.contains("unknown backend `gpu`"), "{error}");
+        for (name, _) in Backend::VALUES {
+            assert!(error.contains(name), "{error} should mention {name}");
+        }
+    }
+
+    #[test]
+    fn cuda_backends_are_flagged_as_native() {
+        for (name, backend) in Backend::VALUES {
+            assert_eq!(
+                backend.is_native_cuda(),
+                name.starts_with("cuda_"),
+                "{name}"
+            );
+        }
     }
 }

@@ -5,6 +5,14 @@ edition = "2024"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+default = []
+# Route the CubeCL kernels through NVRTC/CUDA instead of WGSL/Vulkan.
+cuda = ["cubecl/cuda"]
+# Hand-written CUDA kernels driven through cuRAND. Needs nvcc at build time
+# and an NVIDIA driver at run time; see build.rs.
+native-cuda = ["dep:cudarc"]
+
 [dependencies]
 anyhow = "1.0.104"
 clap = { version = "4.6.6", features = ["derive"] }
@@ -14,6 +22,18 @@ cubecl = {
     features = ["std", "vulkan"],
 }
 rand = { version = "0.10.2" }
+# Matches the feature set cubecl-cuda selects, so the two share one build of
+# cudarc. `fallback-dynamic-loading` dlopens libcuda.so at run time instead of
+# linking it, which is what lets a native-cuda build still start (and fail with
+# a real message) on a machine with no NVIDIA driver.
+cudarc = { version = "0.19.9", optional = true, default-features = false, features = [
+    "std",
+    "driver",
+    "nvrtc",
+    "fallback-dynamic-loading",
+    "cuda-version-from-build-system",
+    "fallback-latest",
+] }
 rayon = "1.12.0"
 serde = { version = "1.0.229", features = ["derive"] }
 simd-json = "0.17.3"
