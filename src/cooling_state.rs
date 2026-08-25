@@ -182,7 +182,6 @@ impl State {
 
 #[cfg(test)]
 mod test {
-    use std::time::Instant;
 
     #[test]
     fn bitmatrix_test() {

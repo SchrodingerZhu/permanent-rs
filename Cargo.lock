@@ -2247,6 +2247,7 @@ dependencies = [
  "anyhow",
  "clap",
  "cubecl",
+ "cudarc",
  "malachite",
  "mimalloc",
  "rand 0.10.2",

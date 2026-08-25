@@ -1,8 +1,12 @@
+use std::marker::PhantomData;
 use std::time::Instant;
 
 use cubecl::prelude::*;
 use cubecl::server::Handle;
-use cubecl::wgpu::{WgpuDevice, WgpuRuntime};
+#[cfg(feature = "cuda")]
+use cubecl::cuda::{CudaDevice, CudaRuntime as GpuRuntime};
+#[cfg(not(feature = "cuda"))]
+use cubecl::wgpu::{WgpuDevice, WgpuRuntime as GpuRuntime};
 use tracing::{info, warn};
 
 use crate::cooling_schedule::CoolingSchedule;
@@ -11,6 +15,15 @@ use crate::graph::{Graph, Match};
 use crate::markov_chain::{Config, StepStats};
 
 const CUBE_UNITS: u32 = 32;
+
+#[cfg(feature = "cuda")]
+fn default_device() -> CudaDevice {
+    CudaDevice::default()
+}
+#[cfg(not(feature = "cuda"))]
+fn default_device() -> WgpuDevice {
+    WgpuDevice::DefaultDevice
+}
 /// sentinel for the per-chain hole registers: the matching is perfect
 const NO_HOLE: u32 = u32::MAX;
 
@@ -36,18 +49,170 @@ impl CompensatedF32 {
 /// Per-chain registers of the JSV walker that live outside the matching
 /// arrays; carried through the transit helper by value.
 #[derive(CubeType, Clone, Copy)]
-struct ChainRegs {
+struct ChainRegs<R: ChainRng> {
     hole_u: u32,
     hole_v: u32,
     active: u32,
-    rng: u32,
+    rng: R,
+}
+
+/// The random source a chain draws from, so the kernels below can be written
+/// once and instantiated per generator. `states` holds two u32 per chain; a
+/// generator that needs less simply ignores the second slot.
+// `Send + Sync + 'static` are what the generated launch wrappers require of a
+// kernel's generic parameters.
+#[cube]
+trait ChainRng: CubeType + Send + Sync + 'static {
+    fn load(states: &Array<u32>, chain: usize) -> Self;
+    fn store(&self, states: &mut Array<u32>, chain: usize);
+    fn next_u32(&mut self) -> u32;
+}
+
+/// The 32-bit xorshift this backend used before Philox: cheap, but it fails
+/// TestU01 Crush and its period is only 2^32-1, so chains seeded nearby walk
+/// correlated stretches of one cycle. Kept as a speed baseline, not a default.
+#[derive(CubeType, Clone, Copy)]
+struct Xorshift32 {
+    state: u32,
 }
 
 #[cube]
-fn xorshift32(mut value: u32) -> u32 {
-    value = value ^ (value << 13);
-    value = value ^ (value >> 17);
-    value ^ (value << 5)
+impl ChainRng for Xorshift32 {
+    fn load(states: &Array<u32>, chain: usize) -> Xorshift32 {
+        Xorshift32 {
+            state: states[2 * chain],
+        }
+    }
+
+    fn store(&self, states: &mut Array<u32>, chain: usize) {
+        states[2 * chain] = self.state;
+    }
+
+    fn next_u32(&mut self) -> u32 {
+        let mut value = self.state;
+        value = value ^ (value << 13);
+        value = value ^ (value >> 17);
+        value = value ^ (value << 5);
+        self.state = value;
+        value
+    }
+}
+
+const PHILOX_M0: u32 = 0xD251_1F53;
+const PHILOX_M1: u32 = 0xCD9E_8D57;
+const PHILOX_W0: u32 = 0x9E37_79B9;
+const PHILOX_W1: u32 = 0xBB67_AE85;
+const PHILOX_ROUNDS: u32 = 10;
+
+/// Philox4x32-10 (Salmon et al., "Parallel Random Numbers: As Easy as
+/// 1, 2, 3", SC'11), the counter-based RNG used by CUDA's cuRAND and by
+/// most GPU tensor libraries. The 128-bit counter is laid out as
+/// [block_lo, block_hi, stream, 0] with the chain index as the stream
+/// word, so every chain owns 2^64 disjoint blocks of four outputs by
+/// construction, and only the 64-bit block counter has to round-trip
+/// through device memory between kernel launches.
+#[derive(CubeType, Clone, Copy)]
+struct Philox {
+    block_lo: u32,
+    block_hi: u32,
+    stream: u32,
+    lane_0: u32,
+    lane_1: u32,
+    lane_2: u32,
+    lane_3: u32,
+    remaining: u32,
+}
+
+/// High 32 bits of the 32x32 widening product. CUDA/NVRTC has a native
+/// 64-bit type, so the limb decomposition below is only needed for WGSL.
+#[cube]
+fn mul_wide_hi(a: u32, b: u32) -> u32 {
+    u32::cast_from((u64::cast_from(a) * u64::cast_from(b)) >> 32)
+}
+
+/// High 32 bits of the 32x32 widening product, via 16-bit limbs: WGSL has
+/// no u64 and `mulhi` is not exposed, and no intermediate here can wrap.
+#[cube]
+#[allow(dead_code)]
+fn mul_wide_hi_limbs(a: u32, b: u32) -> u32 {
+    let a_lo = a & 0xFFFF;
+    let a_hi = a >> 16;
+    let b_lo = b & 0xFFFF;
+    let b_hi = b >> 16;
+    let mid_0 = a_hi * b_lo + ((a_lo * b_lo) >> 16);
+    let mid_1 = a_lo * b_hi + (mid_0 & 0xFFFF);
+    a_hi * b_hi + (mid_0 >> 16) + (mid_1 >> 16)
+}
+
+#[cube]
+impl Philox {
+    /// Encrypt the current counter block into four fresh outputs and
+    /// advance the block counter.
+    fn refill(&mut self) {
+        let mut c0 = self.block_lo;
+        let mut c1 = self.block_hi;
+        let mut c2 = self.stream;
+        let mut c3 = 0u32;
+        let mut k0 = 0u32;
+        let mut k1 = 0u32;
+        for _ in 0..PHILOX_ROUNDS {
+            let hi0 = mul_wide_hi(PHILOX_M0, c0);
+            let lo0 = PHILOX_M0 * c0;
+            let hi1 = mul_wide_hi(PHILOX_M1, c2);
+            let lo1 = PHILOX_M1 * c2;
+            c0 = hi1 ^ c1 ^ k0;
+            c1 = lo1;
+            c2 = hi0 ^ c3 ^ k1;
+            c3 = lo0;
+            k0 += PHILOX_W0;
+            k1 += PHILOX_W1;
+        }
+        self.lane_0 = c0;
+        self.lane_1 = c1;
+        self.lane_2 = c2;
+        self.lane_3 = c3;
+        self.remaining = 4;
+        self.block_lo += 1;
+        if self.block_lo == 0 {
+            self.block_hi += 1;
+        }
+    }
+
+}
+
+#[cube]
+impl ChainRng for Philox {
+    fn load(states: &Array<u32>, chain: usize) -> Philox {
+        Philox {
+            block_lo: states[2 * chain],
+            block_hi: states[2 * chain + 1],
+            stream: chain as u32,
+            lane_0: 0,
+            lane_1: 0,
+            lane_2: 0,
+            lane_3: 0,
+            remaining: 0,
+        }
+    }
+
+    /// Only the block counter persists; up to three buffered outputs are
+    /// discarded at a launch boundary, which skips (never reuses) them.
+    fn store(&self, states: &mut Array<u32>, chain: usize) {
+        states[2 * chain] = self.block_lo;
+        states[2 * chain + 1] = self.block_hi;
+    }
+
+    fn next_u32(&mut self) -> u32 {
+        if self.remaining == 0 {
+            self.refill();
+        }
+        let out = self.lane_0;
+        self.lane_0 = self.lane_1;
+        self.lane_1 = self.lane_2;
+        self.lane_2 = self.lane_3;
+        self.remaining -= 1;
+        out
+    }
 }
 
 #[cube]
@@ -66,7 +231,7 @@ fn uniform_f32(value: u32) -> f32 {
 /// has bias ~n/2^32; the proposal distribution over menu slots is
 /// state-size-dependent only, which keeps reversibility intact.
 #[cube]
-impl ChainRegs {
+impl<R: ChainRng> ChainRegs<R> {
     #[allow(clippy::too_many_arguments)]
     fn transit(
         &mut self,
@@ -81,16 +246,14 @@ impl ChainRegs {
         let nn = n as usize;
     if self.hole_u == NO_HOLE {
         // remove one of the n matched edges; Hastings factor n/(2n-1)
-        self.rng = xorshift32(self.rng);
-        let u = self.rng % n;
+        let u = self.rng.next_u32() % n;
         let v = row_match[base + u as usize];
         let index = u as usize * nn + v as usize;
         let activity = adjacency[index];
         let probability = weights[index]
             * exp_beta[(3 - activity) as usize]
             * (f32::cast_from(n) / f32::cast_from(2 * n - 1));
-        self.rng = xorshift32(self.rng);
-        if probability >= 1.0 || uniform_f32(self.rng) < probability {
+        if probability >= 1.0 || uniform_f32(self.rng.next_u32()) < probability {
             row_match[base + u as usize] = NO_HOLE;
             col_match[base + v as usize] = NO_HOLE;
             self.hole_u = u;
@@ -98,16 +261,14 @@ impl ChainRegs {
             self.active -= activity;
         }
     } else {
-        self.rng = xorshift32(self.rng);
-        let slot = self.rng % (2 * n - 1);
+        let slot = self.rng.next_u32() % (2 * n - 1);
         if slot == 0 {
             // add across the holes; Hastings factor (2n-1)/n
             let index = self.hole_u as usize * nn + self.hole_v as usize;
             let activity = adjacency[index];
             let probability = exp_beta[(activity + 1) as usize] / weights[index]
                 * (f32::cast_from(2 * n - 1) / f32::cast_from(n));
-            self.rng = xorshift32(self.rng);
-            if probability >= 1.0 || uniform_f32(self.rng) < probability {
+            if probability >= 1.0 || uniform_f32(self.rng.next_u32()) < probability {
                 row_match[base + self.hole_u as usize] = self.hole_v;
                 col_match[base + self.hole_v as usize] = self.hole_u;
                 self.active += activity;
@@ -126,8 +287,7 @@ impl ChainRegs {
             let probability = exp_beta[(gained + 2 - lost) as usize]
                 * weights[z as usize * nn + self.hole_v as usize]
                 / weights[self.hole_u as usize * nn + self.hole_v as usize];
-            self.rng = xorshift32(self.rng);
-            if probability >= 1.0 || uniform_f32(self.rng) < probability {
+            if probability >= 1.0 || uniform_f32(self.rng.next_u32()) < probability {
                 row_match[base + self.hole_u as usize] = v;
                 col_match[base + v as usize] = self.hole_u;
                 row_match[base + z as usize] = NO_HOLE;
@@ -146,8 +306,7 @@ impl ChainRegs {
             let probability = exp_beta[(gained + 2 - lost) as usize]
                 * weights[self.hole_u as usize * nn + z as usize]
                 / weights[self.hole_u as usize * nn + self.hole_v as usize];
-            self.rng = xorshift32(self.rng);
-            if probability >= 1.0 || uniform_f32(self.rng) < probability {
+            if probability >= 1.0 || uniform_f32(self.rng.next_u32()) < probability {
                 row_match[base + u as usize] = self.hole_v;
                 col_match[base + self.hole_v as usize] = u;
                 col_match[base + z as usize] = NO_HOLE;
@@ -163,7 +322,7 @@ impl ChainRegs {
 /// and therefore serial; independent chains supply GPU parallelism.
 #[cube(launch_unchecked)]
 #[allow(clippy::too_many_arguments)]
-fn warmup_kernel(
+fn warmup_kernel<R: ChainRng>(
     row_match: &mut Array<u32>,
     col_match: &mut Array<u32>,
     weights: &Array<f32>,
@@ -181,11 +340,11 @@ fn warmup_kernel(
         terminate!();
     }
     let base = chain * n as usize;
-    let mut regs = ChainRegs {
+    let mut regs = ChainRegs::<R> {
         hole_u: holes_u[chain],
         hole_v: holes_v[chain],
         active: active_counts[chain],
-        rng: rng_states[chain],
+        rng: R::load(rng_states, chain),
     };
     for _ in 0..iterations {
         regs.transit(row_match, col_match, weights, adjacency, exp_beta, base, n);
@@ -193,14 +352,14 @@ fn warmup_kernel(
     holes_u[chain] = regs.hole_u;
     holes_v[chain] = regs.hole_v;
     active_counts[chain] = regs.active;
-    rng_states[chain] = regs.rng;
+    regs.rng.store(rng_states, chain);
 }
 
 /// Occupancy pass: `samples` per chain, `interval` proposals apart, into a
 /// histogram over the n^2 hole classes plus the perfect class (last slot).
 #[cube(launch_unchecked)]
 #[allow(clippy::too_many_arguments)]
-fn occupancy_kernel(
+fn occupancy_kernel<R: ChainRng>(
     row_match: &mut Array<u32>,
     col_match: &mut Array<u32>,
     weights: &Array<f32>,
@@ -220,11 +379,11 @@ fn occupancy_kernel(
         terminate!();
     }
     let base = chain * n as usize;
-    let mut regs = ChainRegs {
+    let mut regs = ChainRegs::<R> {
         hole_u: holes_u[chain],
         hole_v: holes_v[chain],
         active: active_counts[chain],
-        rng: rng_states[chain],
+        rng: R::load(rng_states, chain),
     };
     for _ in 0..samples {
         for _ in 0..interval {
@@ -240,7 +399,7 @@ fn occupancy_kernel(
     holes_u[chain] = regs.hole_u;
     holes_v[chain] = regs.hole_v;
     active_counts[chain] = regs.active;
-    rng_states[chain] = regs.rng;
+    regs.rng.store(rng_states, chain);
 }
 
 /// Ratio pass: accumulate per chain the telescoping terms
@@ -248,7 +407,7 @@ fn occupancy_kernel(
 /// `ratio_terms[inactive]` table) and count fully-active perfect samples.
 #[cube(launch_unchecked)]
 #[allow(clippy::too_many_arguments)]
-fn ratio_kernel(
+fn ratio_kernel<R: ChainRng>(
     row_match: &mut Array<u32>,
     col_match: &mut Array<u32>,
     weights: &Array<f32>,
@@ -272,11 +431,11 @@ fn ratio_kernel(
         terminate!();
     }
     let base = chain * n as usize;
-    let mut regs = ChainRegs {
+    let mut regs = ChainRegs::<R> {
         hole_u: holes_u[chain],
         hole_v: holes_v[chain],
         active: active_counts[chain],
-        rng: rng_states[chain],
+        rng: R::load(rng_states, chain),
     };
     let mut acc = CompensatedF32 {
         sum: 0.0,
@@ -302,11 +461,12 @@ fn ratio_kernel(
     holes_u[chain] = regs.hole_u;
     holes_v[chain] = regs.hole_v;
     active_counts[chain] = regs.active;
-    rng_states[chain] = regs.rng;
+    regs.rng.store(rng_states, chain);
     sums[chain] = acc.sum;
     corrections[chain] = acc.correction;
     perfect_active[chain] = hits;
 }
+
 
 struct GpuEvolveStats {
     ratio: f64,
@@ -314,18 +474,158 @@ struct GpuEvolveStats {
     total_samples: usize,
 }
 
-/// GPU implementation of the same BSVV annealing estimator as `MCState`.
+/// cuRAND device generators, available only through the native CUDA backend.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CurandRng {
+    /// `curandStatePhilox4_32_10_t`, cuRAND's tuned Philox4x32-10.
+    Philox,
+    /// `curandStateXORWOW_t`, cuRAND's default generator.
+    Xorwow,
+    /// `curandStateMRG32k3a_t`.
+    Mrg32k3a,
+}
+
+impl CurandRng {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CurandRng::Philox => "philox",
+            CurandRng::Xorwow => "xorwow",
+            CurandRng::Mrg32k3a => "mrg32k3a",
+        }
+    }
+}
+
+/// Host-side starting state for the chains; every backend uploads it verbatim.
+pub struct InitialChains {
+    pub size: usize,
+    pub num_chains: usize,
+    pub adjacency: Vec<u32>,
+    pub row_match: Vec<u32>,
+    pub col_match: Vec<u32>,
+    pub holes: Vec<u32>,
+    pub active_counts: Vec<u32>,
+}
+
+impl InitialChains {
+    fn build(graph: &Graph, config: &Config, global_state: &State) -> Self {
+        let size = graph.size;
+        let mut adjacency = vec![0u32; size * size];
+        for (row, edges) in graph.edges.iter().enumerate() {
+            for &column in edges.iter() {
+                adjacency[row * size + column] = 1;
+            }
+        }
+        let mut row_match = Vec::with_capacity(config.num_of_chains * size);
+        let mut col_match = vec![0u32; config.num_of_chains * size];
+        let mut active_counts = Vec::with_capacity(config.num_of_chains);
+        for chain in 0..config.num_of_chains {
+            let matching = Match::random(size);
+            for &(row, column) in matching.edges.iter() {
+                col_match[chain * size + column] = row as u32;
+            }
+            row_match.extend(matching.edges.iter().map(|&(_, column)| column as u32));
+            active_counts.push(global_state.active_count_of_match(&matching) as u32);
+        }
+        InitialChains {
+            size,
+            num_chains: config.num_of_chains,
+            adjacency,
+            row_match,
+            col_match,
+            holes: vec![NO_HOLE; config.num_of_chains],
+            active_counts,
+        }
+    }
+}
+
+/// The device half of the BSVV annealing loop.
 ///
-/// Matchings, hole registers, RNGs, and active counts stay resident on the
-/// device. The host retains the hole-weight matrix (in f64) so the weight
-/// bootstrap, the occupancy-invariant guard, and the observer/TUI plumbing
-/// are shared with the CPU path; the device works from an f32 copy uploaded
-/// each step, which the [1e-30, 1e30] weight cap keeps representable.
-pub struct GpuMCState {
+/// Only these three passes touch the GPU; the weight bootstrap, the ratio
+/// estimator and the cooling schedule are backend-independent and live in
+/// [`GpuMCState`]. A backend owns its resident chain state between calls.
+pub trait JsvDevice: Send {
+    /// Backend name, for logging.
+    fn name(&self) -> String;
+
+    /// Upload the per-step weight and `exp(beta * delta)` tables. They stay
+    /// current until the next call.
+    fn begin_step(&mut self, weights: &[f32], exp_beta: &[f32]);
+
+    /// Advance every chain by `iterations` proposals. Synchronous on return.
+    fn warmup_pass(&mut self, iterations: usize);
+
+    /// Draw `samples` per chain, `interval` proposals apart. Returns the
+    /// merged histogram over the `n^2` hole classes with the perfect class
+    /// in the last slot.
+    fn occupancy_pass(&mut self, samples: usize, interval: usize) -> Vec<u32>;
+
+    /// Accumulate the telescoping ratio terms. Returns
+    /// (term sum, fully-active-perfect hits, total samples).
+    fn ratio_pass(
+        &mut self,
+        next_weights: &[f32],
+        ratio_terms: &[f32],
+        samples: usize,
+        interval: usize,
+    ) -> (f64, usize, usize);
+}
+
+/// Generators the CubeCL kernels carry. cuRAND's generators are not here:
+/// `#[cube]` bodies are transpiled, so an external device library is out of
+/// reach - that is what the native CUDA backend exists for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CubeclRng {
+    Xorshift32,
+    Philox,
+}
+
+impl CubeclRng {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CubeclRng::Xorshift32 => "xorshift32",
+            CubeclRng::Philox => "philox",
+        }
+    }
+}
+
+/// Finger-mixer used to spread a seed across chains for the generators that
+/// need a full-entropy starting state.
+fn splitmix32(mut value: u32) -> u32 {
+    value = value.wrapping_add(0x9E37_79B9);
+    let mut z = value;
+    z = (z ^ (z >> 16)).wrapping_mul(0x21F0_AAAD);
+    z = (z ^ (z >> 15)).wrapping_mul(0x735A_2D97);
+    z ^ (z >> 15)
+}
+
+/// Two u32 of starting state per chain.
+fn initial_rng_states(rng: CubeclRng, num_chains: usize, seed: u64) -> Vec<u32> {
+    let mut states = vec![0u32; num_chains * 2];
+    for chain in 0..num_chains {
+        match rng {
+            // Philox separates chains by the stream word inside the counter
+            // block, so every chain can share one seed-derived counter origin.
+            CubeclRng::Philox => {
+                states[2 * chain] = seed as u32;
+                states[2 * chain + 1] = (seed >> 32) as u32;
+            }
+            // xorshift32 has no stream concept, so chains must be spread over
+            // the single cycle by hashing. Zero is the absorbing state.
+            CubeclRng::Xorshift32 => {
+                let mixed = splitmix32((seed as u32) ^ splitmix32(chain as u32));
+                states[2 * chain] = if mixed == 0 { 0x9E37_79B9 } else { mixed };
+            }
+        }
+    }
+    states
+}
+
+/// CubeCL backend: one `#[cube]` kernel source retargeted to SPIR-V/Vulkan by
+/// default, or to CUDA/NVRTC under the `cuda` feature.
+struct CubeclDevice<R: ChainRng> {
     size: usize,
-    config: Config,
-    pub global_state: State,
-    client: ComputeClient<WgpuRuntime>,
+    num_chains: usize,
+    client: ComputeClient<GpuRuntime>,
     row_match: Handle,
     col_match: Handle,
     holes_u: Handle,
@@ -333,10 +633,214 @@ pub struct GpuMCState {
     adjacency: Handle,
     active_counts: Handle,
     rng_states: Handle,
+    weights: Option<Handle>,
+    exp_beta: Option<Handle>,
+    rng_kind: CubeclRng,
+    _rng: PhantomData<R>,
+}
+
+impl<R: ChainRng> CubeclDevice<R> {
+    fn new(init: &InitialChains, rng_kind: CubeclRng, seed: u64) -> Self {
+        let started = Instant::now();
+        let client = GpuRuntime::client(&default_device());
+        info!(
+            "GPU runtime {} initialized in {:?}: {:#?}",
+            GpuRuntime::name(&client),
+            started.elapsed(),
+            client.properties().hardware
+        );
+        let rng_states = initial_rng_states(rng_kind, init.num_chains, seed);
+        CubeclDevice {
+            size: init.size,
+            num_chains: init.num_chains,
+            row_match: client.create_from_slice(u32::as_bytes(&init.row_match)),
+            col_match: client.create_from_slice(u32::as_bytes(&init.col_match)),
+            holes_u: client.create_from_slice(u32::as_bytes(&init.holes)),
+            holes_v: client.create_from_slice(u32::as_bytes(&init.holes)),
+            adjacency: client.create_from_slice(u32::as_bytes(&init.adjacency)),
+            active_counts: client.create_from_slice(u32::as_bytes(&init.active_counts)),
+            rng_states: client.create_from_slice(u32::as_bytes(&rng_states)),
+            client,
+            weights: None,
+            exp_beta: None,
+            rng_kind,
+            _rng: PhantomData,
+        }
+    }
+
+    fn cube_count(&self) -> CubeCount {
+        CubeCount::Static((self.num_chains as u32).div_ceil(CUBE_UNITS), 1, 1)
+    }
+
+    fn step_tables(&self) -> (&Handle, &Handle) {
+        (
+            self.weights
+                .as_ref()
+                .expect("begin_step must precede a device pass"),
+            self.exp_beta
+                .as_ref()
+                .expect("begin_step must precede a device pass"),
+        )
+    }
+}
+
+impl<R: ChainRng> JsvDevice for CubeclDevice<R> {
+    fn name(&self) -> String {
+        format!(
+            "cubecl/{}/{}",
+            GpuRuntime::name(&self.client),
+            self.rng_kind.as_str()
+        )
+    }
+
+    fn begin_step(&mut self, weights: &[f32], exp_beta: &[f32]) {
+        self.weights = Some(self.client.create_from_slice(f32::as_bytes(weights)));
+        self.exp_beta = Some(self.client.create_from_slice(f32::as_bytes(exp_beta)));
+    }
+
+    fn warmup_pass(&mut self, iterations: usize) {
+        let (weights, exp_beta) = self.step_tables();
+        unsafe {
+            warmup_kernel::launch_unchecked::<R, GpuRuntime>(
+                &self.client,
+                self.cube_count(),
+                CubeDim::new_1d(CUBE_UNITS),
+                ArrayArg::from_raw_parts(self.row_match.clone(), self.num_chains * self.size),
+                ArrayArg::from_raw_parts(self.col_match.clone(), self.num_chains * self.size),
+                ArrayArg::from_raw_parts(weights.clone(), self.size * self.size),
+                ArrayArg::from_raw_parts(self.adjacency.clone(), self.size * self.size),
+                ArrayArg::from_raw_parts(exp_beta.clone(), 5),
+                ArrayArg::from_raw_parts(self.holes_u.clone(), self.num_chains),
+                ArrayArg::from_raw_parts(self.holes_v.clone(), self.num_chains),
+                ArrayArg::from_raw_parts(self.active_counts.clone(), self.num_chains),
+                ArrayArg::from_raw_parts(self.rng_states.clone(), self.num_chains * 2),
+                self.size as u32,
+                iterations,
+            );
+        }
+        // Make the pass synchronous, matching the CPU API and its progress log.
+        self.client.read_one_unchecked(self.holes_u.clone());
+    }
+
+    fn occupancy_pass(&mut self, samples: usize, interval: usize) -> Vec<u32> {
+        let (weights, exp_beta) = self.step_tables();
+        let histogram = self
+            .client
+            .create_from_slice(u32::as_bytes(&vec![0u32; self.size * self.size + 1]));
+        unsafe {
+            occupancy_kernel::launch_unchecked::<R, GpuRuntime>(
+                &self.client,
+                self.cube_count(),
+                CubeDim::new_1d(CUBE_UNITS),
+                ArrayArg::from_raw_parts(self.row_match.clone(), self.num_chains * self.size),
+                ArrayArg::from_raw_parts(self.col_match.clone(), self.num_chains * self.size),
+                ArrayArg::from_raw_parts(weights.clone(), self.size * self.size),
+                ArrayArg::from_raw_parts(self.adjacency.clone(), self.size * self.size),
+                ArrayArg::from_raw_parts(exp_beta.clone(), 5),
+                ArrayArg::from_raw_parts(self.holes_u.clone(), self.num_chains),
+                ArrayArg::from_raw_parts(self.holes_v.clone(), self.num_chains),
+                ArrayArg::from_raw_parts(self.active_counts.clone(), self.num_chains),
+                ArrayArg::from_raw_parts(self.rng_states.clone(), self.num_chains * 2),
+                ArrayArg::from_raw_parts(histogram.clone(), self.size * self.size + 1),
+                self.size as u32,
+                samples,
+                interval,
+            );
+        }
+        let bytes = self.client.read_one_unchecked(histogram);
+        u32::from_bytes(&bytes).to_vec()
+    }
+
+    fn ratio_pass(
+        &mut self,
+        next_weights: &[f32],
+        ratio_terms: &[f32],
+        samples: usize,
+        interval: usize,
+    ) -> (f64, usize, usize) {
+        let (weights, exp_beta) = self.step_tables();
+        let next_weights = self
+            .client
+            .create_from_slice(f32::as_bytes(next_weights));
+        let ratio_terms = self.client.create_from_slice(f32::as_bytes(ratio_terms));
+        let sums = self
+            .client
+            .create_from_slice(f32::as_bytes(&vec![0.0f32; self.num_chains]));
+        let corrections = self
+            .client
+            .create_from_slice(f32::as_bytes(&vec![0.0f32; self.num_chains]));
+        let perfect_active = self
+            .client
+            .create_from_slice(u32::as_bytes(&vec![0u32; self.num_chains]));
+        unsafe {
+            ratio_kernel::launch_unchecked::<R, GpuRuntime>(
+                &self.client,
+                self.cube_count(),
+                CubeDim::new_1d(CUBE_UNITS),
+                ArrayArg::from_raw_parts(self.row_match.clone(), self.num_chains * self.size),
+                ArrayArg::from_raw_parts(self.col_match.clone(), self.num_chains * self.size),
+                ArrayArg::from_raw_parts(weights.clone(), self.size * self.size),
+                ArrayArg::from_raw_parts(next_weights, self.size * self.size),
+                ArrayArg::from_raw_parts(self.adjacency.clone(), self.size * self.size),
+                ArrayArg::from_raw_parts(exp_beta.clone(), 5),
+                ArrayArg::from_raw_parts(ratio_terms, self.size + 1),
+                ArrayArg::from_raw_parts(self.holes_u.clone(), self.num_chains),
+                ArrayArg::from_raw_parts(self.holes_v.clone(), self.num_chains),
+                ArrayArg::from_raw_parts(self.active_counts.clone(), self.num_chains),
+                ArrayArg::from_raw_parts(self.rng_states.clone(), self.num_chains * 2),
+                ArrayArg::from_raw_parts(sums.clone(), self.num_chains),
+                ArrayArg::from_raw_parts(corrections.clone(), self.num_chains),
+                ArrayArg::from_raw_parts(perfect_active.clone(), self.num_chains),
+                self.size as u32,
+                samples,
+                interval,
+            );
+        }
+        let outputs = self.client.read(vec![sums, corrections, perfect_active]);
+        let sums = f32::from_bytes(&outputs[0]);
+        let corrections = f32::from_bytes(&outputs[1]);
+        let hits = u32::from_bytes(&outputs[2]);
+        let total = sums
+            .iter()
+            .zip(corrections)
+            .map(|(&sum, &correction)| sum as f64 + correction as f64)
+            .sum::<f64>();
+        let hits = hits.iter().map(|&value| value as usize).sum::<usize>();
+        (total, hits, self.num_chains * samples)
+    }
+}
+
+/// Build a CubeCL device for `rng`, hiding the monomorphised generator type.
+pub fn cubecl_device(init: &InitialChains, rng: CubeclRng, seed: u64) -> Box<dyn JsvDevice> {
+    match rng {
+        CubeclRng::Xorshift32 => Box::new(CubeclDevice::<Xorshift32>::new(init, rng, seed)),
+        CubeclRng::Philox => Box::new(CubeclDevice::<Philox>::new(init, rng, seed)),
+    }
+}
+
+/// GPU implementation of the same BSVV annealing estimator as `MCState`.
+///
+/// Matchings, hole registers, RNGs, and active counts stay resident on the
+/// device behind [`JsvDevice`]. The host retains the hole-weight matrix (in
+/// f64) so the weight bootstrap, the occupancy-invariant guard, and the
+/// observer/TUI plumbing are shared with the CPU path; the device works from
+/// an f32 copy uploaded each step, which the [1e-30, 1e30] weight cap keeps
+/// representable.
+pub struct GpuMCState {
+    size: usize,
+    config: Config,
+    pub global_state: State,
+    device: Box<dyn JsvDevice>,
 }
 
 impl GpuMCState {
-    pub fn new(graph: Graph, config: Config) -> Self {
+    /// Build the shared host state and hand the initial chains to `device`.
+    /// Fallible so a backend that cannot start (no driver, no visible GPU)
+    /// reports it here rather than from inside the annealing loop.
+    pub fn try_with_device<F>(graph: Graph, config: Config, device: F) -> anyhow::Result<Self>
+    where
+        F: FnOnce(&InitialChains) -> anyhow::Result<Box<dyn JsvDevice>>,
+    {
         let size = graph.size;
         assert!(size >= 2, "GPU Markov chains require n >= 2");
         assert!(config.num_of_chains > 0, "at least one chain is required");
@@ -355,59 +859,27 @@ impl GpuMCState {
         );
 
         let global_state = State::from(&graph);
-        let mut adjacency_values = vec![0u32; size * size];
-        for (row, edges) in graph.edges.iter().enumerate() {
-            for &column in edges.iter() {
-                adjacency_values[row * size + column] = 1;
-            }
-        }
-
-        let mut row_match = Vec::with_capacity(config.num_of_chains * size);
-        let mut col_match = vec![0u32; config.num_of_chains * size];
-        let mut active_counts = Vec::with_capacity(config.num_of_chains);
-        for chain in 0..config.num_of_chains {
-            let matching = Match::random(size);
-            for &(row, column) in matching.edges.iter() {
-                col_match[chain * size + column] = row as u32;
-            }
-            row_match.extend(matching.edges.iter().map(|&(_, column)| column as u32));
-            active_counts.push(global_state.active_count_of_match(&matching) as u32);
-        }
-        let holes = vec![NO_HOLE; config.num_of_chains];
-        let rng_states = (0..config.num_of_chains)
-            .map(|chain| (chain as u32 + 1).wrapping_mul(0x9e37_79b9))
-            .collect::<Vec<_>>();
-
-        let started = Instant::now();
-        let client = WgpuRuntime::client(&WgpuDevice::DefaultDevice);
-        info!(
-            "GPU runtime {} initialized in {:?}: {:#?}",
-            WgpuRuntime::name(&client),
-            started.elapsed(),
-            client.properties().hardware
-        );
-
-        GpuMCState {
+        let init = InitialChains::build(&graph, &config, &global_state);
+        let device = device(&init)?;
+        info!("GPU backend: {}", device.name());
+        Ok(GpuMCState {
             size,
             config,
-            row_match: client.create_from_slice(u32::as_bytes(&row_match)),
-            col_match: client.create_from_slice(u32::as_bytes(&col_match)),
-            holes_u: client.create_from_slice(u32::as_bytes(&holes)),
-            holes_v: client.create_from_slice(u32::as_bytes(&holes)),
-            adjacency: client.create_from_slice(u32::as_bytes(&adjacency_values)),
-            active_counts: client.create_from_slice(u32::as_bytes(&active_counts)),
-            rng_states: client.create_from_slice(u32::as_bytes(&rng_states)),
-            client,
             global_state,
-        }
+            device,
+        })
     }
 
-    fn cube_count(&self) -> CubeCount {
-        CubeCount::Static(
-            (self.config.num_of_chains as u32).div_ceil(CUBE_UNITS),
-            1,
-            1,
-        )
+    /// The CubeCL backend, kept as the default so existing callers and tests
+    /// are unaffected.
+    pub fn new(graph: Graph, config: Config) -> Self {
+        Self::cubecl(graph, config, CubeclRng::Philox, 0)
+    }
+
+    /// The CubeCL backend with an explicit generator and seed.
+    pub fn cubecl(graph: Graph, config: Config, rng: CubeclRng, seed: u64) -> Self {
+        Self::try_with_device(graph, config, |init| Ok(cubecl_device(init, rng, seed)))
+            .expect("the CubeCL backend cannot fail to construct")
     }
 
     fn weight_values(&self) -> Vec<f32> {
@@ -424,140 +896,14 @@ impl GpuMCState {
         (-2..=2).map(|delta| (beta * delta as f32).exp()).collect()
     }
 
-    /// One occupancy pass on the device; returns the merged histogram with
-    /// the perfect-class count in the last slot.
-    fn occupancy_pass(&self, weights: &Handle, exp_beta: &Handle, samples: usize) -> Vec<u32> {
-        let histogram = self
-            .client
-            .create_from_slice(u32::as_bytes(&vec![0u32; self.size * self.size + 1]));
-        unsafe {
-            occupancy_kernel::launch_unchecked(
-                &self.client,
-                self.cube_count(),
-                CubeDim::new_1d(CUBE_UNITS),
-                ArrayArg::from_raw_parts(
-                    self.row_match.clone(),
-                    self.config.num_of_chains * self.size,
-                ),
-                ArrayArg::from_raw_parts(
-                    self.col_match.clone(),
-                    self.config.num_of_chains * self.size,
-                ),
-                ArrayArg::from_raw_parts(weights.clone(), self.size * self.size),
-                ArrayArg::from_raw_parts(self.adjacency.clone(), self.size * self.size),
-                ArrayArg::from_raw_parts(exp_beta.clone(), 5),
-                ArrayArg::from_raw_parts(self.holes_u.clone(), self.config.num_of_chains),
-                ArrayArg::from_raw_parts(self.holes_v.clone(), self.config.num_of_chains),
-                ArrayArg::from_raw_parts(self.active_counts.clone(), self.config.num_of_chains),
-                ArrayArg::from_raw_parts(self.rng_states.clone(), self.config.num_of_chains),
-                ArrayArg::from_raw_parts(histogram.clone(), self.size * self.size + 1),
-                self.size as u32,
-                samples,
-                self.config.weight_sample_intervals,
-            );
-        }
-        let bytes = self.client.read_one_unchecked(histogram);
-        u32::from_bytes(&bytes).to_vec()
-    }
-
-    /// One ratio pass on the device; returns (term sum, fully-active-perfect
-    /// hits, total samples).
-    fn ratio_pass(
-        &self,
-        weights: &Handle,
-        next_weights: &Handle,
-        exp_beta: &Handle,
-        ratio_terms: &[f32],
-        samples: usize,
-        interval: usize,
-    ) -> (f64, usize, usize) {
-        let ratio_terms = self.client.create_from_slice(f32::as_bytes(ratio_terms));
-        let sums = self
-            .client
-            .create_from_slice(f32::as_bytes(&vec![0.0f32; self.config.num_of_chains]));
-        let corrections = self
-            .client
-            .create_from_slice(f32::as_bytes(&vec![0.0f32; self.config.num_of_chains]));
-        let perfect_active = self
-            .client
-            .create_from_slice(u32::as_bytes(&vec![0u32; self.config.num_of_chains]));
-        unsafe {
-            ratio_kernel::launch_unchecked(
-                &self.client,
-                self.cube_count(),
-                CubeDim::new_1d(CUBE_UNITS),
-                ArrayArg::from_raw_parts(
-                    self.row_match.clone(),
-                    self.config.num_of_chains * self.size,
-                ),
-                ArrayArg::from_raw_parts(
-                    self.col_match.clone(),
-                    self.config.num_of_chains * self.size,
-                ),
-                ArrayArg::from_raw_parts(weights.clone(), self.size * self.size),
-                ArrayArg::from_raw_parts(next_weights.clone(), self.size * self.size),
-                ArrayArg::from_raw_parts(self.adjacency.clone(), self.size * self.size),
-                ArrayArg::from_raw_parts(exp_beta.clone(), 5),
-                ArrayArg::from_raw_parts(ratio_terms, self.size + 1),
-                ArrayArg::from_raw_parts(self.holes_u.clone(), self.config.num_of_chains),
-                ArrayArg::from_raw_parts(self.holes_v.clone(), self.config.num_of_chains),
-                ArrayArg::from_raw_parts(self.active_counts.clone(), self.config.num_of_chains),
-                ArrayArg::from_raw_parts(self.rng_states.clone(), self.config.num_of_chains),
-                ArrayArg::from_raw_parts(sums.clone(), self.config.num_of_chains),
-                ArrayArg::from_raw_parts(corrections.clone(), self.config.num_of_chains),
-                ArrayArg::from_raw_parts(perfect_active.clone(), self.config.num_of_chains),
-                self.size as u32,
-                samples,
-                interval,
-            );
-        }
-        let outputs = self.client.read(vec![sums, corrections, perfect_active]);
-        let sums = f32::from_bytes(&outputs[0]);
-        let corrections = f32::from_bytes(&outputs[1]);
-        let hits = u32::from_bytes(&outputs[2]);
-        let total = sums
-            .iter()
-            .zip(corrections)
-            .map(|(&sum, &correction)| sum as f64 + correction as f64)
-            .sum::<f64>();
-        let hits = hits.iter().map(|&value| value as usize).sum::<usize>();
-        (total, hits, self.config.num_of_chains * samples)
-    }
-
     pub fn warmup(&mut self) {
         if self.config.warmup_times == 0 {
             return;
         }
         let weights = self.weight_values();
         let exp_beta = self.exp_beta_values();
-        let weights = self.client.create_from_slice(f32::as_bytes(&weights));
-        let exp_beta = self.client.create_from_slice(f32::as_bytes(&exp_beta));
-        unsafe {
-            warmup_kernel::launch_unchecked(
-                &self.client,
-                self.cube_count(),
-                CubeDim::new_1d(CUBE_UNITS),
-                ArrayArg::from_raw_parts(
-                    self.row_match.clone(),
-                    self.config.num_of_chains * self.size,
-                ),
-                ArrayArg::from_raw_parts(
-                    self.col_match.clone(),
-                    self.config.num_of_chains * self.size,
-                ),
-                ArrayArg::from_raw_parts(weights, self.size * self.size),
-                ArrayArg::from_raw_parts(self.adjacency.clone(), self.size * self.size),
-                ArrayArg::from_raw_parts(exp_beta, 5),
-                ArrayArg::from_raw_parts(self.holes_u.clone(), self.config.num_of_chains),
-                ArrayArg::from_raw_parts(self.holes_v.clone(), self.config.num_of_chains),
-                ArrayArg::from_raw_parts(self.active_counts.clone(), self.config.num_of_chains),
-                ArrayArg::from_raw_parts(self.rng_states.clone(), self.config.num_of_chains),
-                self.size as u32,
-                self.config.warmup_times,
-            );
-        }
-        // Make `warmup` synchronous, matching the CPU API and its progress log.
-        self.client.read_one_unchecked(self.holes_u.clone());
+        self.device.begin_step(&weights, &exp_beta);
+        self.device.warmup_pass(self.config.warmup_times);
     }
 
     /// Same step structure and invariant guard as `MCState::evolve`; see the
@@ -565,15 +911,15 @@ impl GpuMCState {
     fn evolve(&mut self, next_beta: f64) -> GpuEvolveStats {
         let first_half = self.config.num_of_weight_estimations / 2;
         let second_half = self.config.num_of_weight_estimations - first_half;
-        let weights_f32 = self.weight_values();
-        let weights = self.client.create_from_slice(f32::as_bytes(&weights_f32));
+        let weights = self.weight_values();
         let exp_beta = self.exp_beta_values();
-        let exp_beta = self.client.create_from_slice(f32::as_bytes(&exp_beta));
+        self.device.begin_step(&weights, &exp_beta);
 
         let classes = self.size * self.size + 1;
-        let expected_perfect =
-            (self.config.num_of_chains * first_half) as f64 / classes as f64;
-        let mut histogram = self.occupancy_pass(&weights, &exp_beta, first_half);
+        let expected_perfect = (self.config.num_of_chains * first_half) as f64 / classes as f64;
+        let mut histogram = self
+            .device
+            .occupancy_pass(first_half, self.config.weight_sample_intervals);
         const MAX_EQUILIBRATION_RETRIES: usize = 3;
         for retry in 0..MAX_EQUILIBRATION_RETRIES {
             let perfect = histogram[self.size * self.size] as f64;
@@ -589,33 +935,27 @@ impl GpuMCState {
                 self.global_state.beta(),
                 retry + 1,
             );
-            histogram = self.occupancy_pass(&weights, &exp_beta, first_half);
+            histogram = self
+                .device
+                .occupancy_pass(first_half, self.config.weight_sample_intervals);
         }
         let counts = histogram[..self.size * self.size]
             .iter()
             .map(|&value| value as usize)
             .collect::<Vec<_>>();
         let perfect_count = histogram[self.size * self.size] as usize;
-        let (next_weight, _) = Matrix::hole_weights_from_counts(
-            &self.global_state.weight,
-            &counts,
-            perfect_count,
-        );
+        let (next_weight, _) =
+            Matrix::hole_weights_from_counts(&self.global_state.weight, &counts, perfect_count);
 
         let next_weights_f32 = (0..self.size * self.size)
             .map(|index| next_weight.get(index / self.size, index % self.size) as f32)
             .collect::<Vec<_>>();
-        let next_weights = self
-            .client
-            .create_from_slice(f32::as_bytes(&next_weights_f32));
         let diff = (self.global_state.beta() - next_beta) as f32;
         let ratio_terms = (0..=self.size)
             .map(|missing| (diff * missing as f32).exp())
             .collect::<Vec<_>>();
-        let (sum, hits, total) = self.ratio_pass(
-            &weights,
-            &next_weights,
-            &exp_beta,
+        let (sum, hits, total) = self.device.ratio_pass(
+            &next_weights_f32,
             &ratio_terms,
             second_half,
             self.config.weight_sample_intervals,
@@ -629,23 +969,20 @@ impl GpuMCState {
         }
     }
 
-    /// Fraction of stationary samples that are perfect matchings of the
-    /// real graph, measured with the identity weight table (all ratio terms
-    /// 1). See `MCState::estimate_perfect_fraction`.
+    /// Fraction of stationary samples that are perfect matchings of the real
+    /// graph, measured with the identity weight table (all ratio terms 1).
+    /// See `MCState::estimate_perfect_fraction`.
     fn estimate_perfect_fraction(&mut self) -> f64 {
         let per_chain = self
             .config
             .num_of_estimator_estimations
             .max((64 * (self.size * self.size + 1)).div_ceil(self.config.num_of_chains));
-        let weights_f32 = self.weight_values();
-        let weights = self.client.create_from_slice(f32::as_bytes(&weights_f32));
+        let weights = self.weight_values();
         let exp_beta = self.exp_beta_values();
-        let exp_beta = self.client.create_from_slice(f32::as_bytes(&exp_beta));
+        self.device.begin_step(&weights, &exp_beta);
         let ratio_terms = vec![1.0f32; self.size + 1];
-        let (_, hits, total) = self.ratio_pass(
+        let (_, hits, total) = self.device.ratio_pass(
             &weights,
-            &weights,
-            &exp_beta,
             &ratio_terms,
             per_chain,
             self.config.estimator_sample_intervals,
@@ -776,11 +1113,12 @@ mod tests {
         );
     }
 
-    /// Deterministic GPU RNG streams make this a useful manual regression
-    /// check against a small graph whose permanent is known exactly.
-    #[test]
-    #[ignore = "requires a Vulkan GPU"]
-    fn estimates_four_cycles() {
+    /// Runs the annealer on a small graph whose permanent is known exactly and
+    /// returns (estimate, exact).
+    fn four_cycles_estimate<F>(device: F) -> (f64, f64)
+    where
+        F: FnOnce(&InitialChains) -> anyhow::Result<Box<dyn JsvDevice>>,
+    {
         let graph = Graph::load("data/4-cycles.json").unwrap();
         let exact = crate::exact::to_f64(&crate::exact::permanent(&graph));
         let config = Config {
@@ -791,19 +1129,49 @@ mod tests {
             num_of_weight_estimations: 512,
             num_of_estimator_estimations: 64,
         };
-        let mut state = GpuMCState::new(graph, config);
+        let mut state = GpuMCState::try_with_device(graph, config, device).unwrap();
         state.warmup();
         let schedule = CoolingSchedule::from(CoolingConfig {
             n: NonZeroUsize::new(8).unwrap(),
             additive_ratio: NonZeroUsize::new(4).unwrap(),
             multiplicative_ratio: NonZeroUsize::new(4).unwrap(),
         });
-        let estimate = state.cooling_evolve(schedule);
+        (state.cooling_evolve(schedule), exact)
+    }
+
+    fn assert_close(label: &str, estimate: f64, exact: f64) {
         let relative_error = (estimate - exact).abs() / exact;
         assert!(
             relative_error < 0.30,
-            "GPU estimate {estimate} differs from exact {exact} by {:.2}%",
+            "{label}: estimate {estimate} differs from exact {exact} by {:.2}%",
             relative_error * 100.0
         );
+    }
+
+    /// Deterministic device RNG streams make this a useful manual regression
+    /// check for every generator the CubeCL kernels carry.
+    #[test]
+    #[ignore = "requires a Vulkan GPU"]
+    fn estimates_four_cycles_cubecl() {
+        for rng in [CubeclRng::Philox, CubeclRng::Xorshift32] {
+            let (estimate, exact) =
+                four_cycles_estimate(|init| Ok(cubecl_device(init, rng, 0x5eed)));
+            assert_close(rng.as_str(), estimate, exact);
+        }
+    }
+
+    /// The same check for the cuRAND generators reachable only from the
+    /// hand-written CUDA kernels.
+    #[cfg(feature = "native-cuda")]
+    #[test]
+    #[ignore = "requires an NVIDIA GPU and driver"]
+    fn estimates_four_cycles_curand() {
+        use crate::cuda_backend::NativeCudaDevice;
+        for rng in [CurandRng::Philox, CurandRng::Xorwow, CurandRng::Mrg32k3a] {
+            let (estimate, exact) = four_cycles_estimate(|init| {
+                Ok(Box::new(NativeCudaDevice::new(init, rng, 0x5eed, 0)?) as Box<dyn JsvDevice>)
+            });
+            assert_close(rng.as_str(), estimate, exact);
+        }
     }
 }
