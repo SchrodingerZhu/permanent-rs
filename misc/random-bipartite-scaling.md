@@ -14,9 +14,9 @@ All runs: CPU backend, 4 cores, release build.
 | n | avg deg | config | schedule | wall | health | result |
 |---|---|---|---|---|---|---|
 | 16 | 3.7 | 512 ch × 512 spl, W=16 | 1,280 steps (full) | 29 s | clean | 2.26e3 vs exact 2220 (**1.9% err**) |
-| 32 | 4.8 | 1024 ch × 512 spl, W=32 | 3,840 steps (full) | 299 s | clean | 3.00e7 |
+| 32 | 4.8 | 1024 ch × 512 spl, W=32 | 3,840 steps (full) | 299 s | clean | 3.00e7 / 3.55e7 (two runs) |
 | 64 | 5.6 | 1024 ch × 512 spl, W=64 | 10,752 steps (full) | 1,564 s | 4 borderline re-equilibrations | 7.65e19 |
-| 128 | 7.9 | 2048 ch × 512 spl, W=128 | TBD of 28,672 steps (capped) | TBD | TBD | trend only |
+| 128 | 7.9 | 2048 ch × 512 spl, W=128 | 3,584 of 28,672 steps (capped) | 2,699 s | 34 borderline re-equilibrations | trend only |
 
 Health indicators across all sizes: per-step ratio estimates stay near 1
 (n=64: mean 1.002, min 0.458 over 10,752 steps), the perfect-class occupancy
@@ -27,8 +27,17 @@ show: nothing about sparse random bipartite structure (degree ~5-8,
 irregular, planted matching) breaks the anneal.
 
 The n=16 instance doubles as an accuracy check (exact Ryser value 2220);
-n=32+ are past exact verification, so n=32 was validated by run-to-run
-repeatability instead (see log notes below).
+n=32+ are past exact verification (Ryser is 2^n · n), so n=32 was
+validated by run-to-run repeatability instead: two independent anneals
+gave 3.00e7 and 3.55e7, an 0.17 ln-space spread at this sample budget.
+
+The capped n=128 run completed the entire additive phase (3,584 steps to
+beta = 7.0). By the end the running `Z * Pr[perfect and fully active]`
+estimator had already left zero (≈5.4e57), i.e. fully-active perfect
+matchings of the real graph were being sampled — the anneal was tracking,
+not stalling. Its 34 re-equilibration events (of 3,584 steps) were all
+single-retry recoveries of a perfect-class occupancy grazing the band
+edge; the weight update never clamped and no ratio collapsed below 0.3.
 
 ## Why the ensemble makes the difference
 
@@ -103,7 +112,7 @@ per chain per step, `W=n` stirring:
 | 16 | 1,280 | 0.022 | 29 s |
 | 32 | 3,840 | 0.078 | 5.0 min |
 | 64 | 10,752 | 0.146 | 26 min |
-| 128 | 28,672 | TBD | TBD (projected) |
+| 128 | 28,672 | 0.75 (0.52 by last decile) | ~5-7 h (projected) |
 
 Per-step work scales as `chains × q × W` with `W ≈ n`, and the step count
 as Θ(n log^2 n) — every observed increment matches that arithmetic, with
