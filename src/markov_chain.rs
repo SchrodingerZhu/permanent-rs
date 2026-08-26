@@ -8,6 +8,96 @@ use rand::rngs::SmallRng;
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 use tracing::{info, warn};
 
+/// Sizing for the final perfect-fraction round.
+///
+/// The estimator's last factor is Pr[sample is a perfect matching of G],
+/// measured by counting hits, so its relative standard error is about
+/// `1/sqrt(hits)`. A fixed sample count therefore overspends on dense graphs
+/// and underspends badly on sparse ones: the 2x64 ladder sits near a 0.3% hit
+/// rate, where a default budget buys only a few hundred hits and ~4% error,
+/// while a dense graph reaches the same precision in a fraction of the work.
+/// Sizing by hits makes the precision the constant and the cost the variable.
+pub mod final_round {
+    /// Hits to accumulate before the fraction is trusted (~3% relative error).
+    pub const TARGET_HITS: usize = 1024;
+    /// Cap on rounds, so a graph whose perfect matchings are effectively
+    /// unreachable terminates instead of sampling forever.
+    pub const MAX_ROUNDS: usize = 6;
+
+    /// Samples per chain for the next top-up round, from the rate observed so
+    /// far, or `None` once the target is met.
+    ///
+    /// The count is fixed before each round runs, so this is two-stage sizing
+    /// rather than a sequential stopping rule; the residual bias is O(1/hits)
+    /// against O(1/sqrt(hits)) sampling noise. The result never drops below
+    /// the configured round, so this can only add work, never remove it.
+    pub fn next_per_chain(
+        hits: usize,
+        total: usize,
+        chains: usize,
+        configured: usize,
+    ) -> Option<usize> {
+        if hits >= TARGET_HITS {
+            return None;
+        }
+        let missing = (TARGET_HITS - hits) as f64;
+        let rate = hits as f64 / total.max(1) as f64;
+        let wanted = if rate > 0.0 {
+            (missing / rate / chains.max(1) as f64).ceil() as usize
+        } else {
+            // No hits yet: nothing to extrapolate from, so escalate blindly.
+            configured.saturating_mul(4)
+        };
+        let floor = configured.max(1);
+        Some(wanted.clamp(floor, floor.saturating_mul(32)))
+    }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn stops_once_the_hit_target_is_met() {
+        assert_eq!(next_per_chain(TARGET_HITS, 10_000, 64, 16), None);
+        assert_eq!(next_per_chain(TARGET_HITS + 1, 10_000, 64, 16), None);
+    }
+
+    #[test]
+    fn sizes_the_next_round_from_the_observed_rate() {
+        // 64 hits from 64k samples over 64 chains is a 0.1% rate, so the 960
+        // still missing need ~960/0.001 = 960k more samples, 15000 per chain.
+        // The configured round is large enough here that the cap does not bind.
+        assert_eq!(next_per_chain(64, 64_000, 64, 1000), Some(15_000));
+    }
+
+    #[test]
+    fn the_cap_binds_when_the_rate_is_very_low() {
+        // Same 0.1% rate against a small configured round: the request is
+        // 15000 per chain but 32x the configured 16 caps it at 512, so a
+        // sparse graph escalates over several rounds rather than in one leap.
+        assert_eq!(next_per_chain(64, 64_000, 64, 16), Some(512));
+    }
+
+    #[test]
+    fn escalates_blindly_when_nothing_has_hit_yet() {
+        assert_eq!(next_per_chain(0, 10_000, 64, 16), Some(64));
+    }
+
+    #[test]
+    fn never_draws_less_than_the_configured_round() {
+        // A high hit rate would ask for a tiny round; the floor keeps it at
+        // the configured size so this can only ever add work.
+        assert_eq!(next_per_chain(1000, 2000, 64, 16), Some(16));
+    }
+
+    #[test]
+    fn caps_the_escalation() {
+        // An extremely low rate would ask for an unbounded round.
+        assert_eq!(next_per_chain(1, 10_000_000, 1, 16), Some(16 * 32));
+    }
+}
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct Config {
     /// number of chains
@@ -279,11 +369,9 @@ impl MCState {
     /// that probability. The sample count is scaled to the n^2 + 1 classes so
     /// the target class (occupancy ~ 1/(n^2+1) under good weights) is hit
     /// often enough for a low-variance estimate.
-    fn estimate_perfect_fraction(&mut self) -> f64 {
-        let per_chain = self
-            .config
-            .num_of_estimator_estimations
-            .max((64 * (self.size * self.size + 1)).div_ceil(self.config.num_of_chains));
+    /// Draw one round of `per_chain` samples per chain, returning
+    /// (fully-active-perfect hits, samples).
+    fn perfect_fraction_round(&mut self, per_chain: usize) -> (usize, usize) {
         let (hits, samples) = self
             .chains
             .par_iter_mut()
@@ -306,13 +394,50 @@ impl MCState {
                 },
             )
             .reduce(|| (0, 0), |a, b| (a.0 + b.0, a.1 + b.1));
+        (hits, samples)
+    }
+
+    /// Fraction of stationary samples that are perfect matchings of the real
+    /// graph, sampled until the hit count justifies the precision rather than
+    /// for a fixed number of draws. See [`final_round`].
+    fn estimate_perfect_fraction(&mut self) -> f64 {
+        let configured = self
+            .config
+            .num_of_estimator_estimations
+            .max((64 * (self.size * self.size + 1)).div_ceil(self.config.num_of_chains));
+        let chains = self.config.num_of_chains;
+        let (mut hits, mut samples) = self.perfect_fraction_round(configured);
+        let mut rounds = 1;
+        while rounds < final_round::MAX_ROUNDS {
+            let Some(extra) = final_round::next_per_chain(hits, samples, chains, configured) else {
+                break;
+            };
+            info!(
+                "final round: {hits} of {samples} hits so far, short of \
+                 {}; drawing {extra} more per chain",
+                final_round::TARGET_HITS
+            );
+            let (more_hits, more_samples) = self.perfect_fraction_round(extra);
+            hits += more_hits;
+            samples += more_samples;
+            rounds += 1;
+        }
         info!(
-            "final round: {hits} of {samples} samples were perfect matchings of the graph"
+            "final round: {hits} of {samples} samples were perfect matchings \
+             of the graph ({rounds} round(s), ~{:.1}% relative error)",
+            100.0 / (hits.max(1) as f64).sqrt()
         );
         if hits == 0 {
             warn!(
                 "no perfect matching of the graph was ever sampled; the \
                  estimate is 0 and the chain has almost surely not mixed"
+            );
+        } else if hits < final_round::TARGET_HITS {
+            warn!(
+                "final round reached only {hits} hits after {rounds} rounds \
+                 (target {}); the perfect-fraction factor is the dominant \
+                 error term here",
+                final_round::TARGET_HITS
             );
         }
         hits as f64 / samples.max(1) as f64

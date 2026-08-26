@@ -12,7 +12,7 @@ use tracing::{info, warn};
 use crate::cooling_schedule::CoolingSchedule;
 use crate::cooling_state::{Matrix, State};
 use crate::graph::{Graph, Match};
-use crate::markov_chain::{Config, StepStats};
+use crate::markov_chain::{Config, StepStats, final_round};
 
 const CUBE_UNITS: u32 = 32;
 
@@ -971,27 +971,57 @@ impl GpuMCState {
 
     /// Fraction of stationary samples that are perfect matchings of the real
     /// graph, measured with the identity weight table (all ratio terms 1).
-    /// See `MCState::estimate_perfect_fraction`.
+    /// Sampled until the hit count justifies the precision rather than for a
+    /// fixed number of draws; see [`final_round`].
     fn estimate_perfect_fraction(&mut self) -> f64 {
-        let per_chain = self
+        let configured = self
             .config
             .num_of_estimator_estimations
             .max((64 * (self.size * self.size + 1)).div_ceil(self.config.num_of_chains));
+        let chains = self.config.num_of_chains;
         let weights = self.weight_values();
         let exp_beta = self.exp_beta_values();
         self.device.begin_step(&weights, &exp_beta);
         let ratio_terms = vec![1.0f32; self.size + 1];
-        let (_, hits, total) = self.device.ratio_pass(
-            &weights,
-            &ratio_terms,
-            per_chain,
-            self.config.estimator_sample_intervals,
+        let interval = self.config.estimator_sample_intervals;
+
+        let (_, mut hits, mut total) =
+            self.device
+                .ratio_pass(&weights, &ratio_terms, configured, interval);
+        let mut rounds = 1;
+        while rounds < final_round::MAX_ROUNDS {
+            let Some(extra) = final_round::next_per_chain(hits, total, chains, configured) else {
+                break;
+            };
+            info!(
+                "final round: {hits} of {total} hits so far, short of {}; \
+                 drawing {extra} more per chain",
+                final_round::TARGET_HITS
+            );
+            let (_, more_hits, more_total) =
+                self.device
+                    .ratio_pass(&weights, &ratio_terms, extra, interval);
+            hits += more_hits;
+            total += more_total;
+            rounds += 1;
+        }
+
+        info!(
+            "final round: {hits} of {total} samples were perfect matchings of \
+             the graph ({rounds} round(s), ~{:.1}% relative error)",
+            100.0 / (hits.max(1) as f64).sqrt()
         );
-        info!("final round: {hits} of {total} samples were perfect matchings of the graph");
         if hits == 0 {
             warn!(
                 "no perfect matching of the graph was ever sampled; the \
                  estimate is 0 and the chain has almost surely not mixed"
+            );
+        } else if hits < final_round::TARGET_HITS {
+            warn!(
+                "final round reached only {hits} hits after {rounds} rounds \
+                 (target {}); the perfect-fraction factor is the dominant \
+                 error term here",
+                final_round::TARGET_HITS
             );
         }
         hits as f64 / total.max(1) as f64
