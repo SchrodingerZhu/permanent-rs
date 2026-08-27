@@ -31,16 +31,27 @@ extern __shared__ unsigned int jsv_smem[];
 // pass at entry and exit. Inside shared memory the entries are chain-minor
 // (index i at offset i*JSV_BLOCK + lane) so a warp's lanes land in 32 distinct
 // banks - the chain-major arrangement would put every lane in one bank.
+//
+// Shared entries are u16, not u32: the values are indices < n, and the shared
+// budget caps a staged n well below 2^16, so nothing is lost - while the
+// halved footprint doubles how many warps fit an SM (the staged kernels'
+// occupancy is limited purely by shared memory). NO_HOLE truncates to 0xFFFF
+// on store; flush_match widens it back. Two adjacent lanes' u16s share one
+// 4-byte bank word, which the shared memory hardware serves without conflict.
+template <bool SHARED> struct MatchWord { typedef unsigned int type; };
+template <> struct MatchWord<true> { typedef unsigned short type; };
+
 template <bool SHARED>
 struct MatchRef {
-    unsigned int *row;
-    unsigned int *col;
+    typedef typename MatchWord<SHARED>::type word;
+    word *row;
+    word *col;
 
     static __device__ __forceinline__ unsigned int stride() { return SHARED ? JSV_BLOCK : 1u; }
     __device__ __forceinline__ unsigned int row_at(unsigned int i) const { return row[i * stride()]; }
     __device__ __forceinline__ unsigned int col_at(unsigned int i) const { return col[i * stride()]; }
-    __device__ __forceinline__ void set_row(unsigned int i, unsigned int v) { row[i * stride()] = v; }
-    __device__ __forceinline__ void set_col(unsigned int i, unsigned int v) { col[i * stride()] = v; }
+    __device__ __forceinline__ void set_row(unsigned int i, unsigned int v) { row[i * stride()] = (word)v; }
+    __device__ __forceinline__ void set_col(unsigned int i, unsigned int v) { col[i * stride()] = (word)v; }
 };
 
 // Bind a chain's arrays, copying into shared memory when SHARED.
@@ -48,17 +59,19 @@ template <bool SHARED>
 __device__ __forceinline__ MatchRef<SHARED> bind_match(unsigned int *__restrict__ row_match,
                                                        unsigned int *__restrict__ col_match,
                                                        unsigned int base, unsigned int n) {
+    typedef typename MatchRef<SHARED>::word word;
     MatchRef<SHARED> m;
     if (SHARED) {
-        m.row = &jsv_smem[threadIdx.x];
-        m.col = &jsv_smem[JSV_BLOCK * n + threadIdx.x];
+        word *smem = (word *)jsv_smem;
+        m.row = &smem[threadIdx.x];
+        m.col = &smem[JSV_BLOCK * n + threadIdx.x];
         for (unsigned int i = 0; i < n; ++i) {
             m.set_row(i, row_match[base + i]);
             m.set_col(i, col_match[base + i]);
         }
     } else {
-        m.row = &row_match[base];
-        m.col = &col_match[base];
+        m.row = (word *)&row_match[base];
+        m.col = (word *)&col_match[base];
     }
     return m;
 }
@@ -69,11 +82,55 @@ __device__ __forceinline__ void flush_match(const MatchRef<SHARED> &m,
                                             unsigned int *__restrict__ col_match,
                                             unsigned int base, unsigned int n) {
     if (SHARED) {
+        // The narrow store truncated NO_HOLE; widen the sentinel back out.
+        const unsigned int hole = (typename MatchRef<SHARED>::word)NO_HOLE;
         for (unsigned int i = 0; i < n; ++i) {
-            row_match[base + i] = m.row_at(i);
-            col_match[base + i] = m.col_at(i);
+            unsigned int r = m.row_at(i);
+            unsigned int c = m.col_at(i);
+            row_match[base + i] = (r == hole) ? NO_HOLE : r;
+            col_match[base + i] = (c == hole) ? NO_HOLE : c;
         }
     }
+}
+
+// Adjacency accessor. The staged kernels read a bit-packed copy in shared
+// memory - n*n/8 bytes, built cooperatively at launch entry - replacing one
+// of the two random global loads per proposal with a shared load and a bit
+// test. The global fallback reads the u32 table directly.
+template <bool SHARED>
+struct AdjRef {
+    const unsigned int *bits;
+    __device__ __forceinline__ unsigned int at(unsigned int index) const {
+        return SHARED ? ((bits[index >> 5] >> (index & 31u)) & 1u) : bits[index];
+    }
+};
+
+template <bool SHARED>
+__device__ __forceinline__ AdjRef<SHARED> bind_adjacency(
+    const unsigned int *__restrict__ adjacency, unsigned int n) {
+    AdjRef<SHARED> a;
+    if (SHARED) {
+        // The packed adjacency lives right after the two matching arrays,
+        // whose extent in u32 words depends on the staged entry width.
+        unsigned int match_words =
+            (2u * JSV_BLOCK * n * (unsigned int)sizeof(typename MatchWord<SHARED>::type) + 3u) / 4u;
+        unsigned int *words = &jsv_smem[match_words];
+        unsigned int total = n * n;
+        unsigned int nwords = (total + 31u) >> 5;
+        for (unsigned int w = threadIdx.x; w < nwords; w += JSV_BLOCK) {
+            unsigned int word = 0;
+            unsigned int base = w << 5;
+            unsigned int limit = min(32u, total - base);
+            for (unsigned int b = 0; b < limit; ++b)
+                word |= (adjacency[base + b] & 1u) << b;
+            words[w] = word;
+        }
+        __syncthreads();
+        a.bits = words;
+    } else {
+        a.bits = adjacency;
+    }
+    return a;
 }
 
 // Uniform in [0, 1). Deliberately not curand_uniform, which returns (0, 1]:
@@ -160,7 +217,7 @@ struct ChainRegs {
     template <bool SHARED>
     __device__ void transit(MatchRef<SHARED> &m,
                             const float *__restrict__ weights,
-                            const unsigned int *__restrict__ adjacency,
+                            const AdjRef<SHARED> &adj,
                             const float *__restrict__ exp_beta, unsigned int n) {
         unsigned int nn = n;
         if (hole_u == NO_HOLE) {
@@ -168,7 +225,7 @@ struct ChainRegs {
             unsigned int u = next_u32() % n;
             unsigned int v = m.row_at(u);
             unsigned int index = (unsigned int)u * nn + (unsigned int)v;
-            unsigned int activity = adjacency[index];
+            unsigned int activity = adj.at(index);
             float probability = weights[index] * exp_beta[3 - activity] *
                                 ((float)n / (float)(2 * n - 1));
             if (probability >= 1.0f || uniform_f32(next_u32()) < probability) {
@@ -183,7 +240,7 @@ struct ChainRegs {
             if (slot == 0) {
                 // add across the holes; Hastings factor (2n-1)/n
                 unsigned int index = (unsigned int)hole_u * nn + (unsigned int)hole_v;
-                unsigned int activity = adjacency[index];
+                unsigned int activity = adj.at(index);
                 float probability = exp_beta[activity + 1] / weights[index] *
                                     ((float)(2 * n - 1) / (float)n);
                 if (probability >= 1.0f || uniform_f32(next_u32()) < probability) {
@@ -193,38 +250,35 @@ struct ChainRegs {
                     hole_u = NO_HOLE;
                     hole_v = NO_HOLE;
                 }
-            } else if (slot < n) {
-                // slide onto the row hole: column v != hole_v, matched to row z
-                unsigned int pick = slot - 1;
-                unsigned int v = (pick >= hole_v) ? pick + 1 : pick;
-                unsigned int z = m.col_at(v);
-                unsigned int gained = adjacency[(unsigned int)hole_u * nn + (unsigned int)v];
-                unsigned int lost = adjacency[(unsigned int)z * nn + (unsigned int)v];
-                float probability = exp_beta[gained + 2 - lost] *
-                                    weights[(unsigned int)z * nn + (unsigned int)hole_v] /
-                                    weights[(unsigned int)hole_u * nn + (unsigned int)hole_v];
-                if (probability >= 1.0f || uniform_f32(next_u32()) < probability) {
-                    m.set_row(hole_u, v);
-                    m.set_col(v, hole_u);
-                    m.set_row(z, NO_HOLE);
-                    hole_u = z;
-                    active = active + gained - lost;
-                }
             } else {
-                // slide onto the column hole: row u != hole_u, matched to col z
-                unsigned int pick = slot - n;
-                unsigned int u = (pick >= hole_u) ? pick + 1 : pick;
-                unsigned int z = m.row_at(u);
-                unsigned int gained = adjacency[(unsigned int)u * nn + (unsigned int)hole_v];
-                unsigned int lost = adjacency[(unsigned int)u * nn + (unsigned int)z];
+                // Slide one of the holes. A column slide is a row slide with
+                // (row, col, hole_u, hole_v) swapped, so both take one code
+                // path: within a warp the ~50/50 orientation split costs a
+                // few predicated selects instead of serializing two branch
+                // bodies through the loads, the draw and the writes. The
+                // float expression is kept in the exact shape of the split
+                // arms so acceptance decisions stay bit-identical.
+                typedef typename MatchRef<SHARED>::word word;
+                const unsigned int st = MatchRef<SHARED>::stride();
+                bool row_slide = slot < n;
+                word *prim = row_slide ? m.row : m.col;
+                word *sec = row_slide ? m.col : m.row;
+                unsigned int hp = row_slide ? hole_u : hole_v;
+                unsigned int hq = row_slide ? hole_v : hole_u;
+                unsigned int pick = row_slide ? slot - 1 : slot - n;
+                // the picked column (row slide) / row (column slide), != hq
+                unsigned int s = (pick >= hq) ? pick + 1 : pick;
+                unsigned int z = sec[s * st];
+                unsigned int gained = adj.at(row_slide ? hp * nn + s : s * nn + hp);
+                unsigned int lost = adj.at(row_slide ? z * nn + s : s * nn + z);
                 float probability = exp_beta[gained + 2 - lost] *
-                                    weights[(unsigned int)hole_u * nn + (unsigned int)z] /
+                                    weights[row_slide ? z * nn + hq : hq * nn + z] /
                                     weights[(unsigned int)hole_u * nn + (unsigned int)hole_v];
                 if (probability >= 1.0f || uniform_f32(next_u32()) < probability) {
-                    m.set_row(u, hole_v);
-                    m.set_col(hole_v, u);
-                    m.set_col(z, NO_HOLE);
-                    hole_v = z;
+                    prim[hp * st] = (word)s;
+                    sec[s * st] = (word)hp;
+                    prim[z * st] = (word)NO_HOLE;
+                    if (row_slide) hole_u = z; else hole_v = z;
                     active = active + gained - lost;
                 }
             }
@@ -272,12 +326,15 @@ __device__ __forceinline__ void warmup_body(
     void *__restrict__ states, unsigned int n, unsigned int num_chains,
     unsigned long long iterations) {
     unsigned int chain = blockIdx.x * blockDim.x + threadIdx.x;
+    // Block-wide: builds the packed adjacency and syncs, so it must run
+    // before the range guard peels off out-of-range threads.
+    AdjRef<SHARED> adj = bind_adjacency<SHARED>(adjacency, n);
     if (chain >= num_chains) return;
     unsigned int base = chain * n;
     ChainRegs<S> regs = load_regs<S>(holes_u, holes_v, active_counts, states, chain);
     MatchRef<SHARED> m = bind_match<SHARED>(row_match, col_match, base, n);
     for (unsigned long long i = 0; i < iterations; ++i)
-        regs.transit(m, weights, adjacency, exp_beta, n);
+        regs.transit(m, weights, adj, exp_beta, n);
     flush_match<SHARED>(m, row_match, col_match, base, n);
     store_regs<S>(regs, holes_u, holes_v, active_counts, states, chain);
 }
@@ -291,13 +348,16 @@ __device__ __forceinline__ void occupancy_body(
     void *__restrict__ states, unsigned int *__restrict__ histogram, unsigned int n,
     unsigned int num_chains, unsigned long long samples, unsigned long long interval) {
     unsigned int chain = blockIdx.x * blockDim.x + threadIdx.x;
+    // Block-wide: builds the packed adjacency and syncs, so it must run
+    // before the range guard peels off out-of-range threads.
+    AdjRef<SHARED> adj = bind_adjacency<SHARED>(adjacency, n);
     if (chain >= num_chains) return;
     unsigned int base = chain * n;
     ChainRegs<S> regs = load_regs<S>(holes_u, holes_v, active_counts, states, chain);
     MatchRef<SHARED> m = bind_match<SHARED>(row_match, col_match, base, n);
     for (unsigned long long s = 0; s < samples; ++s) {
         for (unsigned long long i = 0; i < interval; ++i)
-            regs.transit(m, weights, adjacency, exp_beta, n);
+            regs.transit(m, weights, adj, exp_beta, n);
         unsigned int slot = (regs.hole_u == NO_HOLE) ? n * n : regs.hole_u * n + regs.hole_v;
         atomicAdd(&histogram[slot], 1u);
     }
@@ -316,6 +376,9 @@ __device__ __forceinline__ void ratio_body(
     unsigned int *__restrict__ perfect_active, unsigned int n, unsigned int num_chains,
     unsigned long long samples, unsigned long long interval) {
     unsigned int chain = blockIdx.x * blockDim.x + threadIdx.x;
+    // Block-wide: builds the packed adjacency and syncs, so it must run
+    // before the range guard peels off out-of-range threads.
+    AdjRef<SHARED> adj = bind_adjacency<SHARED>(adjacency, n);
     if (chain >= num_chains) return;
     unsigned int base = chain * n;
     ChainRegs<S> regs = load_regs<S>(holes_u, holes_v, active_counts, states, chain);
@@ -326,7 +389,7 @@ __device__ __forceinline__ void ratio_body(
     unsigned int hits = 0;
     for (unsigned long long s = 0; s < samples; ++s) {
         for (unsigned long long i = 0; i < interval; ++i)
-            regs.transit(m, weights, adjacency, exp_beta, n);
+            regs.transit(m, weights, adj, exp_beta, n);
         if (regs.hole_u == NO_HOLE) {
             unsigned int inactive = n - regs.active;
             acc.add(ratio_terms[inactive]);

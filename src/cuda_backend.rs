@@ -7,8 +7,9 @@
 //! choice rather than something compiled in.
 
 use anyhow::{Context, Result, anyhow};
-use cudarc::driver::{CudaContext, CudaFunction, CudaModule, CudaSlice, CudaStream, LaunchConfig,
-                     PushKernelArg};
+use cudarc::driver::{
+    CudaContext, CudaFunction, CudaModule, CudaSlice, CudaStream, LaunchConfig, PushKernelArg,
+};
 use std::sync::Arc;
 use tracing::info;
 
@@ -26,14 +27,19 @@ const JSV_PTX: &str = include_str!(env!("PERMANENT_JSV_PTX"));
 const BLOCK: u32 = 32;
 
 /// Shared memory the staged variants need: row and col matchings for every
-/// chain in a block. Graphs past this budget fall back to the `_global`
+/// chain in a block, stored as u16 (matching entries are indices < n, and the
+/// budget below keeps a staged n far under 2^16), plus one bit-packed copy of
+/// the adjacency matrix. Graphs past this budget fall back to the `_global`
 /// kernels, which read the matchings straight out of global memory.
 fn shared_bytes(size: usize) -> usize {
-    2 * size * BLOCK as usize * std::mem::size_of::<u32>()
+    let matchings = 2 * size * BLOCK as usize * std::mem::size_of::<u16>();
+    let adjacency_words = (size * size).div_ceil(32);
+    matchings + adjacency_words * std::mem::size_of::<u32>()
 }
 
 /// Advice appended to every failure to bring up the native CUDA backend.
-const FALLBACK_HINT: &str = "Use `--backend cubecl_philox` for the portable CubeCL/Vulkan path, or `--backend cpu`.";
+const FALLBACK_HINT: &str =
+    "Use `--backend cubecl_philox` for the portable CubeCL/Vulkan path, or `--backend cpu`.";
 
 /// Open a CUDA context, turning both failure modes into ordinary errors.
 ///
@@ -99,8 +105,6 @@ pub struct NativeCudaDevice {
     histogram: CudaSlice<u32>,
 }
 
-
-
 impl NativeCudaDevice {
     pub fn new(init: &InitialChains, rng: CurandRng, seed: u64, ordinal: usize) -> Result<Self> {
         // Kernel-name suffix in jsv.cu.
@@ -132,7 +136,9 @@ impl NativeCudaDevice {
         let mut builder = stream.launch_builder(&init_fn);
         builder.arg(&mut rng_states).arg(&seed).arg(&chains_u32);
         unsafe { builder.launch(cfg) }.context("cuRAND init kernel failed")?;
-        stream.synchronize().context("cuRAND init did not complete")?;
+        stream
+            .synchronize()
+            .context("cuRAND init did not complete")?;
 
         // Stage the matchings in shared memory when a block's worth fits; the
         // per-chain arrays are hit several times per proposal and thousands of
@@ -148,7 +154,11 @@ impl NativeCudaDevice {
              {} chains, matchings {} ({want} B/block, limit {limit} B)",
             rng.as_str(),
             init.num_chains,
-            if staged { "in shared memory" } else { "in global memory" },
+            if staged {
+                "in shared memory"
+            } else {
+                "in global memory"
+            },
         );
 
         Ok(NativeCudaDevice {
@@ -209,7 +219,6 @@ impl NativeCudaDevice {
             shared_mem_bytes: self.shared_bytes as u32,
         }
     }
-
 }
 
 impl JsvDevice for NativeCudaDevice {
