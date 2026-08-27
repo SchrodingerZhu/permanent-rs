@@ -112,10 +112,12 @@ pub struct Cli {
     /// backends need a build with `--features native-cuda` and an NVIDIA driver.
     #[arg(long, default_value_t = Backend::Cpu)]
     pub backend: Backend,
-    /// Seed for the device generators. Runs with the same seed and the same
-    /// configuration reproduce each other.
-    #[arg(long, default_value_t = 0x5eed_1e55_c0ff_ee01)]
-    pub seed: u64,
+    /// Seed for the generators (host initial matchings and device streams).
+    /// Drawn from system entropy when not given; the drawn value is logged so
+    /// any run can be reproduced by passing it back. Runs with the same seed
+    /// and the same configuration reproduce each other.
+    #[arg(long)]
+    pub seed: Option<u64>,
     /// CUDA device ordinal for the cuda_* backends.
     #[arg(long, default_value_t = 0)]
     pub cuda_device: usize,
@@ -208,10 +210,11 @@ impl ChainState {
     ) -> anyhow::Result<Self> {
         use crate::cuda_backend::NativeCudaDevice;
         use crate::gpu_markov_chain::{InitialChains, JsvDevice};
-        let state = GpuMCState::try_with_device(graph, config, |init: &InitialChains| {
-            let device = NativeCudaDevice::new(init, rng, options.seed, options.cuda_device)?;
-            Ok(Box::new(device) as Box<dyn JsvDevice>)
-        })?;
+        let state =
+            GpuMCState::try_with_device(graph, config, options.seed, |init: &InitialChains| {
+                let device = NativeCudaDevice::new(init, rng, options.seed, options.cuda_device)?;
+                Ok(Box::new(device) as Box<dyn JsvDevice>)
+            })?;
         Ok(ChainState::Gpu(Box::new(state)))
     }
 
@@ -395,8 +398,10 @@ fn main() {
     };
     // Built before the dashboard takes the terminal, so a backend that cannot
     // start reports plainly instead of from behind the TUI.
+    let seed = cli.seed.unwrap_or_else(rand::random);
+    info!("seed: {seed:#018x}");
     let options = GpuOptions {
-        seed: cli.seed,
+        seed,
         cuda_device: cli.cuda_device,
     };
     let state = match ChainState::new(cli.backend, graph, config, options) {

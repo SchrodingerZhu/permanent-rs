@@ -1,10 +1,10 @@
 use std::marker::PhantomData;
 use std::time::Instant;
 
-use cubecl::prelude::*;
-use cubecl::server::Handle;
 #[cfg(feature = "cuda")]
 use cubecl::cuda::{CudaDevice, CudaRuntime as GpuRuntime};
+use cubecl::prelude::*;
+use cubecl::server::Handle;
 #[cfg(not(feature = "cuda"))]
 use cubecl::wgpu::{WgpuDevice, WgpuRuntime as GpuRuntime};
 use tracing::{info, warn};
@@ -177,7 +177,6 @@ impl Philox {
             self.block_hi += 1;
         }
     }
-
 }
 
 #[cube]
@@ -244,78 +243,78 @@ impl<R: ChainRng> ChainRegs<R> {
         n: u32,
     ) {
         let nn = n as usize;
-    if self.hole_u == NO_HOLE {
-        // remove one of the n matched edges; Hastings factor n/(2n-1)
-        let u = self.rng.next_u32() % n;
-        let v = row_match[base + u as usize];
-        let index = u as usize * nn + v as usize;
-        let activity = adjacency[index];
-        let probability = weights[index]
-            * exp_beta[(3 - activity) as usize]
-            * (f32::cast_from(n) / f32::cast_from(2 * n - 1));
-        if probability >= 1.0 || uniform_f32(self.rng.next_u32()) < probability {
-            row_match[base + u as usize] = NO_HOLE;
-            col_match[base + v as usize] = NO_HOLE;
-            self.hole_u = u;
-            self.hole_v = v;
-            self.active -= activity;
-        }
-    } else {
-        let slot = self.rng.next_u32() % (2 * n - 1);
-        if slot == 0 {
-            // add across the holes; Hastings factor (2n-1)/n
-            let index = self.hole_u as usize * nn + self.hole_v as usize;
+        if self.hole_u == NO_HOLE {
+            // remove one of the n matched edges; Hastings factor n/(2n-1)
+            let u = self.rng.next_u32() % n;
+            let v = row_match[base + u as usize];
+            let index = u as usize * nn + v as usize;
             let activity = adjacency[index];
-            let probability = exp_beta[(activity + 1) as usize] / weights[index]
-                * (f32::cast_from(2 * n - 1) / f32::cast_from(n));
+            let probability = weights[index]
+                * exp_beta[(3 - activity) as usize]
+                * (f32::cast_from(n) / f32::cast_from(2 * n - 1));
             if probability >= 1.0 || uniform_f32(self.rng.next_u32()) < probability {
-                row_match[base + self.hole_u as usize] = self.hole_v;
-                col_match[base + self.hole_v as usize] = self.hole_u;
-                self.active += activity;
-                self.hole_u = NO_HOLE;
-                self.hole_v = NO_HOLE;
-            }
-        } else if slot < n {
-            // slide onto the row hole: column v != hole_v, matched to row z
-            let pick = slot - 1;
-            let v = if pick >= self.hole_v { pick + 1 } else { pick };
-            let z = col_match[base + v as usize];
-            let gained_index = self.hole_u as usize * nn + v as usize;
-            let lost_index = z as usize * nn + v as usize;
-            let gained = adjacency[gained_index];
-            let lost = adjacency[lost_index];
-            let probability = exp_beta[(gained + 2 - lost) as usize]
-                * weights[z as usize * nn + self.hole_v as usize]
-                / weights[self.hole_u as usize * nn + self.hole_v as usize];
-            if probability >= 1.0 || uniform_f32(self.rng.next_u32()) < probability {
-                row_match[base + self.hole_u as usize] = v;
-                col_match[base + v as usize] = self.hole_u;
-                row_match[base + z as usize] = NO_HOLE;
-                self.hole_u = z;
-                self.active = self.active + gained - lost;
+                row_match[base + u as usize] = NO_HOLE;
+                col_match[base + v as usize] = NO_HOLE;
+                self.hole_u = u;
+                self.hole_v = v;
+                self.active -= activity;
             }
         } else {
-            // slide onto the column hole: row u != hole_u, matched to col z
-            let pick = slot - n;
-            let u = if pick >= self.hole_u { pick + 1 } else { pick };
-            let z = row_match[base + u as usize];
-            let gained_index = u as usize * nn + self.hole_v as usize;
-            let lost_index = u as usize * nn + z as usize;
-            let gained = adjacency[gained_index];
-            let lost = adjacency[lost_index];
-            let probability = exp_beta[(gained + 2 - lost) as usize]
-                * weights[self.hole_u as usize * nn + z as usize]
-                / weights[self.hole_u as usize * nn + self.hole_v as usize];
-            if probability >= 1.0 || uniform_f32(self.rng.next_u32()) < probability {
-                row_match[base + u as usize] = self.hole_v;
-                col_match[base + self.hole_v as usize] = u;
-                col_match[base + z as usize] = NO_HOLE;
-                self.hole_v = z;
-                self.active = self.active + gained - lost;
+            let slot = self.rng.next_u32() % (2 * n - 1);
+            if slot == 0 {
+                // add across the holes; Hastings factor (2n-1)/n
+                let index = self.hole_u as usize * nn + self.hole_v as usize;
+                let activity = adjacency[index];
+                let probability = exp_beta[(activity + 1) as usize] / weights[index]
+                    * (f32::cast_from(2 * n - 1) / f32::cast_from(n));
+                if probability >= 1.0 || uniform_f32(self.rng.next_u32()) < probability {
+                    row_match[base + self.hole_u as usize] = self.hole_v;
+                    col_match[base + self.hole_v as usize] = self.hole_u;
+                    self.active += activity;
+                    self.hole_u = NO_HOLE;
+                    self.hole_v = NO_HOLE;
+                }
+            } else if slot < n {
+                // slide onto the row hole: column v != hole_v, matched to row z
+                let pick = slot - 1;
+                let v = if pick >= self.hole_v { pick + 1 } else { pick };
+                let z = col_match[base + v as usize];
+                let gained_index = self.hole_u as usize * nn + v as usize;
+                let lost_index = z as usize * nn + v as usize;
+                let gained = adjacency[gained_index];
+                let lost = adjacency[lost_index];
+                let probability = exp_beta[(gained + 2 - lost) as usize]
+                    * weights[z as usize * nn + self.hole_v as usize]
+                    / weights[self.hole_u as usize * nn + self.hole_v as usize];
+                if probability >= 1.0 || uniform_f32(self.rng.next_u32()) < probability {
+                    row_match[base + self.hole_u as usize] = v;
+                    col_match[base + v as usize] = self.hole_u;
+                    row_match[base + z as usize] = NO_HOLE;
+                    self.hole_u = z;
+                    self.active = self.active + gained - lost;
+                }
+            } else {
+                // slide onto the column hole: row u != hole_u, matched to col z
+                let pick = slot - n;
+                let u = if pick >= self.hole_u { pick + 1 } else { pick };
+                let z = row_match[base + u as usize];
+                let gained_index = u as usize * nn + self.hole_v as usize;
+                let lost_index = u as usize * nn + z as usize;
+                let gained = adjacency[gained_index];
+                let lost = adjacency[lost_index];
+                let probability = exp_beta[(gained + 2 - lost) as usize]
+                    * weights[self.hole_u as usize * nn + z as usize]
+                    / weights[self.hole_u as usize * nn + self.hole_v as usize];
+                if probability >= 1.0 || uniform_f32(self.rng.next_u32()) < probability {
+                    row_match[base + u as usize] = self.hole_v;
+                    col_match[base + self.hole_v as usize] = u;
+                    col_match[base + z as usize] = NO_HOLE;
+                    self.hole_v = z;
+                    self.active = self.active + gained - lost;
+                }
             }
         }
     }
-}
 }
 
 /// One invocation owns one chain. Transitions within a chain are dependent
@@ -467,7 +466,6 @@ fn ratio_kernel<R: ChainRng>(
     perfect_active[chain] = hits;
 }
 
-
 struct GpuEvolveStats {
     ratio: f64,
     perfect_active_samples: usize,
@@ -507,7 +505,7 @@ pub struct InitialChains {
 }
 
 impl InitialChains {
-    fn build(graph: &Graph, config: &Config, global_state: &State) -> Self {
+    fn build(graph: &Graph, config: &Config, global_state: &State, seed: u64) -> Self {
         let size = graph.size;
         let mut adjacency = vec![0u32; size * size];
         for (row, edges) in graph.edges.iter().enumerate() {
@@ -518,8 +516,15 @@ impl InitialChains {
         let mut row_match = Vec::with_capacity(config.num_of_chains * size);
         let mut col_match = vec![0u32; config.num_of_chains * size];
         let mut active_counts = Vec::with_capacity(config.num_of_chains);
+        // The CLI promises that runs with the same seed and configuration
+        // reproduce each other, so the initial matchings must come from the
+        // seed as well - an entropy-seeded RNG here silently broke that.
+        // XOR-folded so the host stream is domain-separated from the device
+        // generators, which consume the seed directly.
+        let mut host_rng =
+            <rand::rngs::StdRng as rand::SeedableRng>::seed_from_u64(seed ^ 0x9E37_79B9_7F4A_7C15);
         for chain in 0..config.num_of_chains {
-            let matching = Match::random(size);
+            let matching = Match::random_with(size, &mut host_rng);
             for &(row, column) in matching.edges.iter() {
                 col_match[chain * size + column] = row as u32;
             }
@@ -724,9 +729,9 @@ impl<R: ChainRng> JsvDevice for CubeclDevice<R> {
 
     fn occupancy_pass(&mut self, samples: usize, interval: usize) -> Vec<u32> {
         let (weights, exp_beta) = self.step_tables();
-        let histogram = self
-            .client
-            .create_from_slice(u32::as_bytes(&vec![0u32; self.size * self.size + 1]));
+        let histogram =
+            self.client
+                .create_from_slice(u32::as_bytes(&vec![0u32; self.size * self.size + 1]));
         unsafe {
             occupancy_kernel::launch_unchecked::<R, GpuRuntime>(
                 &self.client,
@@ -759,9 +764,7 @@ impl<R: ChainRng> JsvDevice for CubeclDevice<R> {
         interval: usize,
     ) -> (f64, usize, usize) {
         let (weights, exp_beta) = self.step_tables();
-        let next_weights = self
-            .client
-            .create_from_slice(f32::as_bytes(next_weights));
+        let next_weights = self.client.create_from_slice(f32::as_bytes(next_weights));
         let ratio_terms = self.client.create_from_slice(f32::as_bytes(ratio_terms));
         let sums = self
             .client
@@ -835,9 +838,16 @@ pub struct GpuMCState {
 
 impl GpuMCState {
     /// Build the shared host state and hand the initial chains to `device`.
-    /// Fallible so a backend that cannot start (no driver, no visible GPU)
-    /// reports it here rather than from inside the annealing loop.
-    pub fn try_with_device<F>(graph: Graph, config: Config, device: F) -> anyhow::Result<Self>
+    /// `seed` covers the host-side initial matchings; the device generators
+    /// are seeded by the backend itself. Fallible so a backend that cannot
+    /// start (no driver, no visible GPU) reports it here rather than from
+    /// inside the annealing loop.
+    pub fn try_with_device<F>(
+        graph: Graph,
+        config: Config,
+        seed: u64,
+        device: F,
+    ) -> anyhow::Result<Self>
     where
         F: FnOnce(&InitialChains) -> anyhow::Result<Box<dyn JsvDevice>>,
     {
@@ -859,7 +869,7 @@ impl GpuMCState {
         );
 
         let global_state = State::from(&graph);
-        let init = InitialChains::build(&graph, &config, &global_state);
+        let init = InitialChains::build(&graph, &config, &global_state, seed);
         let device = device(&init)?;
         info!("GPU backend: {}", device.name());
         Ok(GpuMCState {
@@ -878,8 +888,10 @@ impl GpuMCState {
 
     /// The CubeCL backend with an explicit generator and seed.
     pub fn cubecl(graph: Graph, config: Config, rng: CubeclRng, seed: u64) -> Self {
-        Self::try_with_device(graph, config, |init| Ok(cubecl_device(init, rng, seed)))
-            .expect("the CubeCL backend cannot fail to construct")
+        Self::try_with_device(graph, config, seed, |init| {
+            Ok(cubecl_device(init, rng, seed))
+        })
+        .expect("the CubeCL backend cannot fail to construct")
     }
 
     fn weight_values(&self) -> Vec<f32> {
@@ -1159,7 +1171,7 @@ mod tests {
             num_of_weight_estimations: 512,
             num_of_estimator_estimations: 64,
         };
-        let mut state = GpuMCState::try_with_device(graph, config, device).unwrap();
+        let mut state = GpuMCState::try_with_device(graph, config, 0, device).unwrap();
         state.warmup();
         let schedule = CoolingSchedule::from(CoolingConfig {
             n: NonZeroUsize::new(8).unwrap(),

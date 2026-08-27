@@ -18,9 +18,12 @@ impl Match {
         self.edges.len()
     }
     pub fn random(size: usize) -> Self {
-        let mut rng = rand::rng();
+        Self::random_with(size, &mut rand::rng())
+    }
+
+    pub fn random_with<R: rand::Rng + ?Sized>(size: usize, rng: &mut R) -> Self {
         let mut edges: Box<[usize]> = (0..size).collect();
-        edges.shuffle(&mut rng);
+        edges.shuffle(rng);
         Match {
             edges: edges.iter().copied().enumerate().collect(),
         }
