@@ -226,14 +226,22 @@ impl JsvDevice for NativeCudaDevice {
         format!("native-cuda/{}", self.rng.as_str())
     }
 
-    fn begin_step(&mut self, weights: &[f32], exp_beta: &[f32]) {
+    fn begin_step(&mut self, weights: &[f32], beta: f64) {
+        // The kernels work in log space: ln(w) instead of w (the cap keeps
+        // w in [1e-30, 1e30], so the logs sit in [-69, 69]) and beta * delta
+        // instead of exp(beta * delta). The linear tables fail at large
+        // beta - e^(-beta) reaches subnormal past beta ~ 88 and exact zero
+        // past ~ 103, deleting slides whose weight ratio genuinely
+        // compensates the penalty - while beta * delta is exact at any beta.
+        let log_weights: Vec<f32> = weights.iter().map(|w| w.ln()).collect();
+        let beta_delta: Vec<f32> = (-2..=2).map(|delta| (beta * delta as f64) as f32).collect();
         let stream = self.stream.clone();
         stream
-            .memcpy_htod(weights, &mut self.weights)
-            .expect("failed to upload weights");
+            .memcpy_htod(&log_weights, &mut self.weights)
+            .expect("failed to upload log weights");
         stream
-            .memcpy_htod(exp_beta, &mut self.exp_beta)
-            .expect("failed to upload exp_beta");
+            .memcpy_htod(&beta_delta, &mut self.exp_beta)
+            .expect("failed to upload beta_delta");
     }
 
     fn warmup_pass(&mut self, iterations: usize) {
@@ -297,10 +305,15 @@ impl JsvDevice for NativeCudaDevice {
     fn ratio_pass(
         &mut self,
         next_weights: &[f32],
-        ratio_terms: &[f32],
+        ratio_diff: f64,
         samples: usize,
         interval: usize,
     ) -> (f64, usize, usize) {
+        // Log-space tables, matching begin_step: ln(w') and (beta - beta') * k.
+        let log_next_weights: Vec<f32> = next_weights.iter().map(|w| w.ln()).collect();
+        let log_ratio_terms: Vec<f32> = (0..=self.size)
+            .map(|missing| (ratio_diff * missing as f64) as f32)
+            .collect();
         let n = self.size as u32;
         let chains = self.num_chains as u32;
         let (samples_u64, interval_u64) = (samples as u64, interval as u64);
@@ -309,10 +322,10 @@ impl JsvDevice for NativeCudaDevice {
         let function = self.ratio_fn.clone();
 
         stream
-            .memcpy_htod(next_weights, &mut self.next_weights)
+            .memcpy_htod(&log_next_weights, &mut self.next_weights)
             .expect("failed to upload next_weights");
         stream
-            .memcpy_htod(ratio_terms, &mut self.ratio_terms)
+            .memcpy_htod(&log_ratio_terms, &mut self.ratio_terms)
             .expect("failed to upload ratio_terms");
         // The kernel writes these outright, so they need no clearing.
         let mut builder = stream.launch_builder(&function);
@@ -344,10 +357,19 @@ impl JsvDevice for NativeCudaDevice {
         let hits = stream
             .clone_dtoh(&self.perfect_active)
             .expect("read perfect_active");
+        // Each chain hands back a log-sum-exp pair (max m, scaled sum s)
+        // with term-sum = s * e^m; recombine in f64, where e^m is safe (the
+        // terms are bounded by the step-factor cap, so m is small).
         let total = sums
             .iter()
             .zip(&corrections)
-            .map(|(&sum, &correction)| sum as f64 + correction as f64)
+            .map(|(&max, &scaled)| {
+                if scaled == 0.0 {
+                    0.0
+                } else {
+                    scaled as f64 * (max as f64).exp()
+                }
+            })
             .sum::<f64>();
         let hits = hits.iter().map(|&value| value as usize).sum::<usize>();
         (total, hits, self.num_chains * samples)

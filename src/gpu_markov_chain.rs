@@ -27,22 +27,26 @@ fn default_device() -> WgpuDevice {
 /// sentinel for the per-chain hole registers: the matching is perfect
 const NO_HOLE: u32 = u32::MAX;
 
+/// Streaming log-sum-exp over terms given in log space, carried as
+/// (max, scaled) with term-sum = scaled * e^max. Every exp argument is <= 0,
+/// so nothing can overflow. Today's terms are already range-bounded by the
+/// bootstrap's step-factor cap, so this is insurance that keeps the
+/// estimator's numerics independent of that cap.
 #[derive(CubeType, Clone, Copy)]
-struct CompensatedF32 {
-    sum: f32,
-    correction: f32,
+struct LogSumExp {
+    max: f32,
+    scaled: f32,
 }
 
 #[cube]
-impl CompensatedF32 {
-    fn add(&mut self, value: f32) {
-        let next = self.sum + value;
-        self.correction += if self.sum.abs() >= value.abs() {
-            (self.sum - next) + value
+impl LogSumExp {
+    fn add(&mut self, log_value: f32) {
+        if log_value > self.max {
+            self.scaled = self.scaled * f32::exp(self.max - log_value) + 1.0;
+            self.max = log_value;
         } else {
-            (value - next) + self.sum
-        };
-        self.sum = next;
+            self.scaled += f32::exp(log_value - self.max);
+        }
     }
 }
 
@@ -221,6 +225,14 @@ fn uniform_f32(value: u32) -> f32 {
     f32::cast_from(value >> 8) * (1.0 / 16_777_216.0)
 }
 
+/// ln of a uniform draw on (0, 1]: the +1 shifts the 24-bit lattice off zero,
+/// so the log is always finite and `log u < log p` accepts with probability p
+/// up to the same 2^-24 quantization as the linear test.
+#[cube]
+fn log_uniform_f32(value: u32) -> f32 {
+    f32::ln((f32::cast_from(value >> 8) + 1.0) * (1.0 / 16_777_216.0))
+}
+
 /// One menu-based Metropolis–Hastings proposal of the JSV walker, the exact
 /// GPU mirror of `JsvChain::transit`: a perfect matching draws one of its n
 /// removals, a near-perfect one draws from its 2n-1 menu (add across the
@@ -232,13 +244,16 @@ fn uniform_f32(value: u32) -> f32 {
 #[cube]
 impl<R: ChainRng> ChainRegs<R> {
     #[allow(clippy::too_many_arguments)]
+    // `log_weights` holds ln(w); `beta_delta[delta + 2]` holds beta * delta;
+    // `log_hastings` = ln(n / (2n - 1)), hoisted by the calling kernel.
     fn transit(
         &mut self,
         row_match: &mut Array<u32>,
         col_match: &mut Array<u32>,
-        weights: &Array<f32>,
+        log_weights: &Array<f32>,
         adjacency: &Array<u32>,
-        exp_beta: &Array<f32>,
+        beta_delta: &Array<f32>,
+        log_hastings: f32,
         base: usize,
         n: u32,
     ) {
@@ -249,10 +264,9 @@ impl<R: ChainRng> ChainRegs<R> {
             let v = row_match[base + u as usize];
             let index = u as usize * nn + v as usize;
             let activity = adjacency[index];
-            let probability = weights[index]
-                * exp_beta[(3 - activity) as usize]
-                * (f32::cast_from(n) / f32::cast_from(2 * n - 1));
-            if probability >= 1.0 || uniform_f32(self.rng.next_u32()) < probability {
+            let log_probability =
+                log_weights[index] + beta_delta[(3 - activity) as usize] + log_hastings;
+            if log_probability >= 0.0 || log_uniform_f32(self.rng.next_u32()) < log_probability {
                 row_match[base + u as usize] = NO_HOLE;
                 col_match[base + v as usize] = NO_HOLE;
                 self.hole_u = u;
@@ -265,9 +279,10 @@ impl<R: ChainRng> ChainRegs<R> {
                 // add across the holes; Hastings factor (2n-1)/n
                 let index = self.hole_u as usize * nn + self.hole_v as usize;
                 let activity = adjacency[index];
-                let probability = exp_beta[(activity + 1) as usize] / weights[index]
-                    * (f32::cast_from(2 * n - 1) / f32::cast_from(n));
-                if probability >= 1.0 || uniform_f32(self.rng.next_u32()) < probability {
+                let log_probability =
+                    beta_delta[(activity + 1) as usize] - log_weights[index] - log_hastings;
+                if log_probability >= 0.0 || log_uniform_f32(self.rng.next_u32()) < log_probability
+                {
                     row_match[base + self.hole_u as usize] = self.hole_v;
                     col_match[base + self.hole_v as usize] = self.hole_u;
                     self.active += activity;
@@ -283,10 +298,11 @@ impl<R: ChainRng> ChainRegs<R> {
                 let lost_index = z as usize * nn + v as usize;
                 let gained = adjacency[gained_index];
                 let lost = adjacency[lost_index];
-                let probability = exp_beta[(gained + 2 - lost) as usize]
-                    * weights[z as usize * nn + self.hole_v as usize]
-                    / weights[self.hole_u as usize * nn + self.hole_v as usize];
-                if probability >= 1.0 || uniform_f32(self.rng.next_u32()) < probability {
+                let log_probability = beta_delta[(gained + 2 - lost) as usize]
+                    + log_weights[z as usize * nn + self.hole_v as usize]
+                    - log_weights[self.hole_u as usize * nn + self.hole_v as usize];
+                if log_probability >= 0.0 || log_uniform_f32(self.rng.next_u32()) < log_probability
+                {
                     row_match[base + self.hole_u as usize] = v;
                     col_match[base + v as usize] = self.hole_u;
                     row_match[base + z as usize] = NO_HOLE;
@@ -302,10 +318,11 @@ impl<R: ChainRng> ChainRegs<R> {
                 let lost_index = u as usize * nn + z as usize;
                 let gained = adjacency[gained_index];
                 let lost = adjacency[lost_index];
-                let probability = exp_beta[(gained + 2 - lost) as usize]
-                    * weights[self.hole_u as usize * nn + z as usize]
-                    / weights[self.hole_u as usize * nn + self.hole_v as usize];
-                if probability >= 1.0 || uniform_f32(self.rng.next_u32()) < probability {
+                let log_probability = beta_delta[(gained + 2 - lost) as usize]
+                    + log_weights[self.hole_u as usize * nn + z as usize]
+                    - log_weights[self.hole_u as usize * nn + self.hole_v as usize];
+                if log_probability >= 0.0 || log_uniform_f32(self.rng.next_u32()) < log_probability
+                {
                     row_match[base + u as usize] = self.hole_v;
                     col_match[base + self.hole_v as usize] = u;
                     col_match[base + z as usize] = NO_HOLE;
@@ -345,8 +362,18 @@ fn warmup_kernel<R: ChainRng>(
         active: active_counts[chain],
         rng: R::load(rng_states, chain),
     };
+    let log_hastings = f32::ln(f32::cast_from(n) / f32::cast_from(2 * n - 1));
     for _ in 0..iterations {
-        regs.transit(row_match, col_match, weights, adjacency, exp_beta, base, n);
+        regs.transit(
+            row_match,
+            col_match,
+            weights,
+            adjacency,
+            exp_beta,
+            log_hastings,
+            base,
+            n,
+        );
     }
     holes_u[chain] = regs.hole_u;
     holes_v[chain] = regs.hole_v;
@@ -384,9 +411,19 @@ fn occupancy_kernel<R: ChainRng>(
         active: active_counts[chain],
         rng: R::load(rng_states, chain),
     };
+    let log_hastings = f32::ln(f32::cast_from(n) / f32::cast_from(2 * n - 1));
     for _ in 0..samples {
         for _ in 0..interval {
-            regs.transit(row_match, col_match, weights, adjacency, exp_beta, base, n);
+            regs.transit(
+                row_match,
+                col_match,
+                weights,
+                adjacency,
+                exp_beta,
+                log_hastings,
+                base,
+                n,
+            );
         }
         let slot = if regs.hole_u == NO_HOLE {
             n as usize * n as usize
@@ -402,8 +439,11 @@ fn occupancy_kernel<R: ChainRng>(
 }
 
 /// Ratio pass: accumulate per chain the telescoping terms
-/// e^{(beta - beta') inactive} * w'(M)/w(M) (via the precomputed
-/// `ratio_terms[inactive]` table) and count fully-active perfect samples.
+/// e^{(beta - beta') inactive} * w'(M)/w(M) and count fully-active perfect
+/// samples. `ratio_terms[inactive]` arrives as (beta - beta') * inactive and
+/// the weight tables as ln(w), so each term is a sum of logs, accumulated by
+/// streaming log-sum-exp; the chain hands back (max, scaled) and the host
+/// recombines the pairs in f64.
 #[cube(launch_unchecked)]
 #[allow(clippy::too_many_arguments)]
 fn ratio_kernel<R: ChainRng>(
@@ -436,14 +476,24 @@ fn ratio_kernel<R: ChainRng>(
         active: active_counts[chain],
         rng: R::load(rng_states, chain),
     };
-    let mut acc = CompensatedF32 {
-        sum: 0.0,
-        correction: 0.0,
+    let log_hastings = f32::ln(f32::cast_from(n) / f32::cast_from(2 * n - 1));
+    let mut acc = LogSumExp {
+        max: f32::new(f32::MIN),
+        scaled: 0.0,
     };
     let mut hits = 0u32;
     for _ in 0..samples {
         for _ in 0..interval {
-            regs.transit(row_match, col_match, weights, adjacency, exp_beta, base, n);
+            regs.transit(
+                row_match,
+                col_match,
+                weights,
+                adjacency,
+                exp_beta,
+                log_hastings,
+                base,
+                n,
+            );
         }
         if regs.hole_u == NO_HOLE {
             let inactive = n - regs.active;
@@ -454,15 +504,15 @@ fn ratio_kernel<R: ChainRng>(
         } else {
             let index = regs.hole_u as usize * n as usize + regs.hole_v as usize;
             let inactive = n - 1 - regs.active;
-            acc.add(ratio_terms[inactive as usize] * next_weights[index] / weights[index]);
+            acc.add(ratio_terms[inactive as usize] + next_weights[index] - weights[index]);
         }
     }
     holes_u[chain] = regs.hole_u;
     holes_v[chain] = regs.hole_v;
     active_counts[chain] = regs.active;
     regs.rng.store(rng_states, chain);
-    sums[chain] = acc.sum;
-    corrections[chain] = acc.correction;
+    sums[chain] = acc.max;
+    corrections[chain] = acc.scaled;
     perfect_active[chain] = hits;
 }
 
@@ -552,9 +602,12 @@ pub trait JsvDevice: Send {
     /// Backend name, for logging.
     fn name(&self) -> String;
 
-    /// Upload the per-step weight and `exp(beta * delta)` tables. They stay
-    /// current until the next call.
-    fn begin_step(&mut self, weights: &[f32], exp_beta: &[f32]);
+    /// Upload the per-step weight table and the current beta. They stay
+    /// current until the next call. Both backends run acceptance in log
+    /// space and derive a beta * delta table from the f64 value, which stays
+    /// exact at beta values where a pre-exponentiated f32 table has long
+    /// since drowned in inf/subnormals.
+    fn begin_step(&mut self, weights: &[f32], beta: f64);
 
     /// Advance every chain by `iterations` proposals. Synchronous on return.
     fn warmup_pass(&mut self, iterations: usize);
@@ -564,12 +617,14 @@ pub trait JsvDevice: Send {
     /// in the last slot.
     fn occupancy_pass(&mut self, samples: usize, interval: usize) -> Vec<u32>;
 
-    /// Accumulate the telescoping ratio terms. Returns
-    /// (term sum, fully-active-perfect hits, total samples).
+    /// Accumulate the telescoping ratio terms exp(ratio_diff * missing),
+    /// with `ratio_diff = beta - beta'`; each backend derives the term table
+    /// in its own domain. Returns (term sum, fully-active-perfect hits,
+    /// total samples).
     fn ratio_pass(
         &mut self,
         next_weights: &[f32],
-        ratio_terms: &[f32],
+        ratio_diff: f64,
         samples: usize,
         interval: usize,
     ) -> (f64, usize, usize);
@@ -698,9 +753,14 @@ impl<R: ChainRng> JsvDevice for CubeclDevice<R> {
         )
     }
 
-    fn begin_step(&mut self, weights: &[f32], exp_beta: &[f32]) {
-        self.weights = Some(self.client.create_from_slice(f32::as_bytes(weights)));
-        self.exp_beta = Some(self.client.create_from_slice(f32::as_bytes(exp_beta)));
+    fn begin_step(&mut self, weights: &[f32], beta: f64) {
+        // Log-space tables, mirroring the native CUDA backend: ln(w) and
+        // beta * delta, which stay finite and exact at any beta while the
+        // former exp(beta * delta) f32 table drowns in inf/subnormals.
+        let log_weights: Vec<f32> = weights.iter().map(|w| w.ln()).collect();
+        let beta_delta: Vec<f32> = (-2..=2).map(|delta| (beta * delta as f64) as f32).collect();
+        self.weights = Some(self.client.create_from_slice(f32::as_bytes(&log_weights)));
+        self.exp_beta = Some(self.client.create_from_slice(f32::as_bytes(&beta_delta)));
     }
 
     fn warmup_pass(&mut self, iterations: usize) {
@@ -759,13 +819,21 @@ impl<R: ChainRng> JsvDevice for CubeclDevice<R> {
     fn ratio_pass(
         &mut self,
         next_weights: &[f32],
-        ratio_terms: &[f32],
+        ratio_diff: f64,
         samples: usize,
         interval: usize,
     ) -> (f64, usize, usize) {
+        let log_next_weights: Vec<f32> = next_weights.iter().map(|w| w.ln()).collect();
+        let log_ratio_terms: Vec<f32> = (0..=self.size)
+            .map(|missing| (ratio_diff * missing as f64) as f32)
+            .collect();
         let (weights, exp_beta) = self.step_tables();
-        let next_weights = self.client.create_from_slice(f32::as_bytes(next_weights));
-        let ratio_terms = self.client.create_from_slice(f32::as_bytes(ratio_terms));
+        let next_weights = self
+            .client
+            .create_from_slice(f32::as_bytes(&log_next_weights));
+        let ratio_terms = self
+            .client
+            .create_from_slice(f32::as_bytes(&log_ratio_terms));
         let sums = self
             .client
             .create_from_slice(f32::as_bytes(&vec![0.0f32; self.num_chains]));
@@ -803,10 +871,19 @@ impl<R: ChainRng> JsvDevice for CubeclDevice<R> {
         let sums = f32::from_bytes(&outputs[0]);
         let corrections = f32::from_bytes(&outputs[1]);
         let hits = u32::from_bytes(&outputs[2]);
+        // Each chain hands back (max m, scaled sum s) with term-sum
+        // s * e^m; recombine in f64, where e^m is safe (terms are bounded by
+        // the step-factor cap, so m is small).
         let total = sums
             .iter()
             .zip(corrections)
-            .map(|(&sum, &correction)| sum as f64 + correction as f64)
+            .map(|(&max, &scaled)| {
+                if scaled == 0.0 {
+                    0.0
+                } else {
+                    scaled as f64 * (max as f64).exp()
+                }
+            })
             .sum::<f64>();
         let hits = hits.iter().map(|&value| value as usize).sum::<usize>();
         (total, hits, self.num_chains * samples)
@@ -903,18 +980,12 @@ impl GpuMCState {
             .collect()
     }
 
-    fn exp_beta_values(&self) -> Vec<f32> {
-        let beta = self.global_state.beta() as f32;
-        (-2..=2).map(|delta| (beta * delta as f32).exp()).collect()
-    }
-
     pub fn warmup(&mut self) {
         if self.config.warmup_times == 0 {
             return;
         }
         let weights = self.weight_values();
-        let exp_beta = self.exp_beta_values();
-        self.device.begin_step(&weights, &exp_beta);
+        self.device.begin_step(&weights, self.global_state.beta());
         self.device.warmup_pass(self.config.warmup_times);
     }
 
@@ -924,8 +995,7 @@ impl GpuMCState {
         let first_half = self.config.num_of_weight_estimations / 2;
         let second_half = self.config.num_of_weight_estimations - first_half;
         let weights = self.weight_values();
-        let exp_beta = self.exp_beta_values();
-        self.device.begin_step(&weights, &exp_beta);
+        self.device.begin_step(&weights, self.global_state.beta());
 
         let classes = self.size * self.size + 1;
         let expected_perfect = (self.config.num_of_chains * first_half) as f64 / classes as f64;
@@ -962,13 +1032,9 @@ impl GpuMCState {
         let next_weights_f32 = (0..self.size * self.size)
             .map(|index| next_weight.get(index / self.size, index % self.size) as f32)
             .collect::<Vec<_>>();
-        let diff = (self.global_state.beta() - next_beta) as f32;
-        let ratio_terms = (0..=self.size)
-            .map(|missing| (diff * missing as f32).exp())
-            .collect::<Vec<_>>();
         let (sum, hits, total) = self.device.ratio_pass(
             &next_weights_f32,
-            &ratio_terms,
+            self.global_state.beta() - next_beta,
             second_half,
             self.config.weight_sample_intervals,
         );
@@ -992,14 +1058,10 @@ impl GpuMCState {
             .max((64 * (self.size * self.size + 1)).div_ceil(self.config.num_of_chains));
         let chains = self.config.num_of_chains;
         let weights = self.weight_values();
-        let exp_beta = self.exp_beta_values();
-        self.device.begin_step(&weights, &exp_beta);
-        let ratio_terms = vec![1.0f32; self.size + 1];
+        self.device.begin_step(&weights, self.global_state.beta());
         let interval = self.config.estimator_sample_intervals;
 
-        let (_, mut hits, mut total) =
-            self.device
-                .ratio_pass(&weights, &ratio_terms, configured, interval);
+        let (_, mut hits, mut total) = self.device.ratio_pass(&weights, 0.0, configured, interval);
         let mut rounds = 1;
         while rounds < final_round::MAX_ROUNDS {
             let Some(extra) = final_round::next_per_chain(hits, total, chains, configured) else {
@@ -1010,9 +1072,7 @@ impl GpuMCState {
                  drawing {extra} more per chain",
                 final_round::TARGET_HITS
             );
-            let (_, more_hits, more_total) =
-                self.device
-                    .ratio_pass(&weights, &ratio_terms, extra, interval);
+            let (_, more_hits, more_total) = self.device.ratio_pass(&weights, 0.0, extra, interval);
             hits += more_hits;
             total += more_total;
             rounds += 1;

@@ -1,11 +1,20 @@
 // Native CUDA implementation of the JSV/BSVV walker.
 //
-// This mirrors the CubeCL kernels in src/gpu_markov_chain.rs one-for-one; the
-// only intentional difference is the random source, which here is cuRAND's
-// device API rather than a hand-rolled Philox. Everything else - the menu
-// structure, the Hastings factors, the modulo range reduction and the [0,1)
-// mapping - is kept bit-for-bit identical so the two backends stay
-// comparable.
+// This mirrors the CubeCL kernels in src/gpu_markov_chain.rs one-for-one;
+// the only intentional difference is the random source, which here is
+// cuRAND's device API rather than a hand-rolled Philox. Both backends run
+// acceptance in log space - the weight tables arrive as ln(w),
+// exp(beta*delta) is replaced by beta*delta, and the ratio pass accumulates
+// with a streaming log-sum-exp. Linear f32
+// degrades at large beta: intermediate products like e^(-beta) * w graze the
+// subnormal range from beta ~ 18 on (mostly masked by the weight cap and the
+// 2^-24 acceptance quantization), and past beta ~ 88 e^(-beta) itself decays
+// to subnormal and then exact zero, at which point slides whose large weight
+// ratio genuinely compensates the penalty are silently deleted from the
+// chain. In log space every quantity stays within a few hundred, where f32
+// is comfortable at any beta, and the weight cap stops being a numerical
+// necessity. The two backends are statistically equivalent, not draw-for-draw
+// identical.
 //
 // Compiled device-only (nvcc --ptx) and loaded through the CUDA driver API;
 // no host-side CUDA code is compiled or linked, which keeps the build free of
@@ -140,16 +149,32 @@ __device__ __forceinline__ float uniform_f32(unsigned int value) {
     return (float)(value >> 8) * (1.0f / 16777216.0f);
 }
 
-// Kahan/Neumaier compensated accumulation, matching CompensatedF32::add.
-struct Compensated {
-    float sum;
-    float correction;
+// ln of a uniform draw on (0, 1]: the +1 shifts the 24-bit lattice off zero,
+// so the log is always finite and the acceptance test `log u < log p` accepts
+// with probability p up to the same 2^-24 quantization as the linear test.
+__device__ __forceinline__ float log_uniform_f32(unsigned int value) {
+    return logf(((float)(value >> 8) + 1.0f) * (1.0f / 16777216.0f));
+}
 
-    __device__ __forceinline__ void add(float value) {
-        float next = sum + value;
-        correction += (fabsf(sum) >= fabsf(value)) ? ((sum - next) + value)
-                                                   : ((value - next) + sum);
-        sum = next;
+// Streaming log-sum-exp: accumulates terms given in log space as
+// (max m, scaled sum s) with sum = s * e^m. Every exp argument is <= 0, so
+// nothing can overflow, and a term far below the running max contributes a
+// clean underflow-to-zero instead of poisoning the sum. Strictly, today's
+// terms are already range-bounded by the bootstrap's step-factor cap (w'/w
+// in [1/4, 4]) and the ratio factor <= 1, so this is insurance rather than a
+// fix: it keeps the estimator's numerics correct even if those caps are ever
+// relaxed. It replaces a Kahan-compensated linear accumulator.
+struct LogSumExp {
+    float max;
+    float scaled;
+
+    __device__ __forceinline__ void add(float log_value) {
+        if (log_value > max) {
+            scaled = scaled * expf(max - log_value) + 1.0f;
+            max = log_value;
+        } else {
+            scaled += expf(log_value - max);
+        }
     }
 };
 
@@ -214,11 +239,14 @@ struct ChainRegs {
     // arrays it writes may alias the weight/adjacency tables it reads, and so
     // reloads those tables after every store. Marking them distinct also lets
     // the read-only ones go through the constant/texture path.
+    // `log_weights` holds ln(w); `beta_delta[delta + 2]` holds beta * delta.
+    // `log_hastings` = ln(n / (2n - 1)), hoisted by the caller.
     template <bool SHARED>
     __device__ void transit(MatchRef<SHARED> &m,
-                            const float *__restrict__ weights,
+                            const float *__restrict__ log_weights,
                             const AdjRef<SHARED> &adj,
-                            const float *__restrict__ exp_beta, unsigned int n) {
+                            const float *__restrict__ beta_delta, float log_hastings,
+                            unsigned int n) {
         unsigned int nn = n;
         if (hole_u == NO_HOLE) {
             // remove one of the n matched edges; Hastings factor n/(2n-1)
@@ -226,9 +254,8 @@ struct ChainRegs {
             unsigned int v = m.row_at(u);
             unsigned int index = (unsigned int)u * nn + (unsigned int)v;
             unsigned int activity = adj.at(index);
-            float probability = weights[index] * exp_beta[3 - activity] *
-                                ((float)n / (float)(2 * n - 1));
-            if (probability >= 1.0f || uniform_f32(next_u32()) < probability) {
+            float log_probability = log_weights[index] + beta_delta[3 - activity] + log_hastings;
+            if (log_probability >= 0.0f || log_uniform_f32(next_u32()) < log_probability) {
                 m.set_row(u, NO_HOLE);
                 m.set_col(v, NO_HOLE);
                 hole_u = u;
@@ -241,9 +268,9 @@ struct ChainRegs {
                 // add across the holes; Hastings factor (2n-1)/n
                 unsigned int index = (unsigned int)hole_u * nn + (unsigned int)hole_v;
                 unsigned int activity = adj.at(index);
-                float probability = exp_beta[activity + 1] / weights[index] *
-                                    ((float)(2 * n - 1) / (float)n);
-                if (probability >= 1.0f || uniform_f32(next_u32()) < probability) {
+                float log_probability =
+                    beta_delta[activity + 1] - log_weights[index] - log_hastings;
+                if (log_probability >= 0.0f || log_uniform_f32(next_u32()) < log_probability) {
                     m.set_row(hole_u, hole_v);
                     m.set_col(hole_v, hole_u);
                     active += activity;
@@ -255,9 +282,7 @@ struct ChainRegs {
                 // (row, col, hole_u, hole_v) swapped, so both take one code
                 // path: within a warp the ~50/50 orientation split costs a
                 // few predicated selects instead of serializing two branch
-                // bodies through the loads, the draw and the writes. The
-                // float expression is kept in the exact shape of the split
-                // arms so acceptance decisions stay bit-identical.
+                // bodies through the loads, the draw and the writes.
                 typedef typename MatchRef<SHARED>::word word;
                 const unsigned int st = MatchRef<SHARED>::stride();
                 bool row_slide = slot < n;
@@ -271,10 +296,11 @@ struct ChainRegs {
                 unsigned int z = sec[s * st];
                 unsigned int gained = adj.at(row_slide ? hp * nn + s : s * nn + hp);
                 unsigned int lost = adj.at(row_slide ? z * nn + s : s * nn + z);
-                float probability = exp_beta[gained + 2 - lost] *
-                                    weights[row_slide ? z * nn + hq : hq * nn + z] /
-                                    weights[(unsigned int)hole_u * nn + (unsigned int)hole_v];
-                if (probability >= 1.0f || uniform_f32(next_u32()) < probability) {
+                float log_probability =
+                    beta_delta[gained + 2 - lost] +
+                    log_weights[row_slide ? z * nn + hq : hq * nn + z] -
+                    log_weights[(unsigned int)hole_u * nn + (unsigned int)hole_v];
+                if (log_probability >= 0.0f || log_uniform_f32(next_u32()) < log_probability) {
                     prim[hp * st] = (word)s;
                     sec[s * st] = (word)hp;
                     prim[z * st] = (word)NO_HOLE;
@@ -333,8 +359,9 @@ __device__ __forceinline__ void warmup_body(
     unsigned int base = chain * n;
     ChainRegs<S> regs = load_regs<S>(holes_u, holes_v, active_counts, states, chain);
     MatchRef<SHARED> m = bind_match<SHARED>(row_match, col_match, base, n);
+    const float log_hastings = logf((float)n / (float)(2 * n - 1));
     for (unsigned long long i = 0; i < iterations; ++i)
-        regs.transit(m, weights, adj, exp_beta, n);
+        regs.transit(m, weights, adj, exp_beta, log_hastings, n);
     flush_match<SHARED>(m, row_match, col_match, base, n);
     store_regs<S>(regs, holes_u, holes_v, active_counts, states, chain);
 }
@@ -355,9 +382,10 @@ __device__ __forceinline__ void occupancy_body(
     unsigned int base = chain * n;
     ChainRegs<S> regs = load_regs<S>(holes_u, holes_v, active_counts, states, chain);
     MatchRef<SHARED> m = bind_match<SHARED>(row_match, col_match, base, n);
+    const float log_hastings = logf((float)n / (float)(2 * n - 1));
     for (unsigned long long s = 0; s < samples; ++s) {
         for (unsigned long long i = 0; i < interval; ++i)
-            regs.transit(m, weights, adj, exp_beta, n);
+            regs.transit(m, weights, adj, exp_beta, log_hastings, n);
         unsigned int slot = (regs.hole_u == NO_HOLE) ? n * n : regs.hole_u * n + regs.hole_v;
         atomicAdd(&histogram[slot], 1u);
     }
@@ -383,13 +411,19 @@ __device__ __forceinline__ void ratio_body(
     unsigned int base = chain * n;
     ChainRegs<S> regs = load_regs<S>(holes_u, holes_v, active_counts, states, chain);
     MatchRef<SHARED> m = bind_match<SHARED>(row_match, col_match, base, n);
-    Compensated acc;
-    acc.sum = 0.0f;
-    acc.correction = 0.0f;
+    const float log_hastings = logf((float)n / (float)(2 * n - 1));
+    // `ratio_terms[k]` arrives as (beta - beta') * k, i.e. already in log
+    // space, and the weight tables are ln(w); each sample's term is a sum of
+    // logs, accumulated by streaming log-sum-exp. The chain hands back
+    // (max, scaled) with term-sum = scaled * e^max; the host recombines the
+    // per-chain pairs in f64.
+    LogSumExp acc;
+    acc.max = -INFINITY;
+    acc.scaled = 0.0f;
     unsigned int hits = 0;
     for (unsigned long long s = 0; s < samples; ++s) {
         for (unsigned long long i = 0; i < interval; ++i)
-            regs.transit(m, weights, adj, exp_beta, n);
+            regs.transit(m, weights, adj, exp_beta, log_hastings, n);
         if (regs.hole_u == NO_HOLE) {
             unsigned int inactive = n - regs.active;
             acc.add(ratio_terms[inactive]);
@@ -397,13 +431,13 @@ __device__ __forceinline__ void ratio_body(
         } else {
             unsigned int index = regs.hole_u * n + regs.hole_v;
             unsigned int inactive = n - 1 - regs.active;
-            acc.add(ratio_terms[inactive] * next_weights[index] / weights[index]);
+            acc.add(ratio_terms[inactive] + next_weights[index] - weights[index]);
         }
     }
     flush_match<SHARED>(m, row_match, col_match, base, n);
     store_regs<S>(regs, holes_u, holes_v, active_counts, states, chain);
-    sums[chain] = acc.sum;
-    corrections[chain] = acc.correction;
+    sums[chain] = acc.max;
+    corrections[chain] = acc.scaled;
     perfect_active[chain] = hits;
 }
 
