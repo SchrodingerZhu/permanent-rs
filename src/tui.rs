@@ -63,6 +63,9 @@ struct App {
     final_estimator: Option<f64>,
     started: Instant,
     cooling_started: Option<Instant>,
+    /// Set when `Done` arrives; freezes elapsed/steps-per-second so the
+    /// timers stop at completion while the dashboard stays open.
+    finished: Option<Instant>,
 }
 
 impl App {
@@ -78,6 +81,7 @@ impl App {
             final_estimator: None,
             started: Instant::now(),
             cooling_started: None,
+            finished: None,
         }
     }
 
@@ -101,13 +105,19 @@ impl App {
             TuiEvent::Done { estimator } => {
                 self.phase = Phase::Done;
                 self.final_estimator = Some(estimator);
+                self.finished = Some(Instant::now());
             }
         }
     }
 
+    /// Time since `since`, frozen at the moment the run finished.
+    fn elapsed_since(&self, since: Instant) -> Duration {
+        self.finished.unwrap_or_else(Instant::now) - since
+    }
+
     fn eta(&self) -> Option<Duration> {
         let latest = self.latest.as_ref()?;
-        let elapsed = self.cooling_started?.elapsed();
+        let elapsed = self.elapsed_since(self.cooling_started?);
         if latest.step == 0 {
             return None;
         }
@@ -280,13 +290,13 @@ fn render_stats(frame: &mut Frame, app: &App, area: Rect) {
             l.acceptance * 100.0
         )));
         if let Some(start) = app.cooling_started {
-            let steps_per_sec = l.step as f64 / start.elapsed().as_secs_f64().max(1e-9);
+            let steps_per_sec = l.step as f64 / app.elapsed_since(start).as_secs_f64().max(1e-9);
             lines.push(Line::from(format!("steps/s    {steps_per_sec:.2}")));
         }
     }
     lines.push(Line::from(format!(
         "elapsed    {}",
-        format_duration(app.started.elapsed())
+        format_duration(app.elapsed_since(app.started))
     )));
     if let Some(estimator) = app.final_estimator {
         lines.push(Line::from(vec![
