@@ -52,50 +52,50 @@ pub mod final_round {
         Some(wanted.clamp(floor, floor.saturating_mul(32)))
     }
 
-#[cfg(test)]
-mod test {
-    use super::*;
+    #[cfg(test)]
+    mod test {
+        use super::*;
 
-    #[test]
-    fn stops_once_the_hit_target_is_met() {
-        assert_eq!(next_per_chain(TARGET_HITS, 10_000, 64, 16), None);
-        assert_eq!(next_per_chain(TARGET_HITS + 1, 10_000, 64, 16), None);
-    }
+        #[test]
+        fn stops_once_the_hit_target_is_met() {
+            assert_eq!(next_per_chain(TARGET_HITS, 10_000, 64, 16), None);
+            assert_eq!(next_per_chain(TARGET_HITS + 1, 10_000, 64, 16), None);
+        }
 
-    #[test]
-    fn sizes_the_next_round_from_the_observed_rate() {
-        // 64 hits from 64k samples over 64 chains is a 0.1% rate, so the 960
-        // still missing need ~960/0.001 = 960k more samples, 15000 per chain.
-        // The configured round is large enough here that the cap does not bind.
-        assert_eq!(next_per_chain(64, 64_000, 64, 1000), Some(15_000));
-    }
+        #[test]
+        fn sizes_the_next_round_from_the_observed_rate() {
+            // 64 hits from 64k samples over 64 chains is a 0.1% rate, so the 960
+            // still missing need ~960/0.001 = 960k more samples, 15000 per chain.
+            // The configured round is large enough here that the cap does not bind.
+            assert_eq!(next_per_chain(64, 64_000, 64, 1000), Some(15_000));
+        }
 
-    #[test]
-    fn the_cap_binds_when_the_rate_is_very_low() {
-        // Same 0.1% rate against a small configured round: the request is
-        // 15000 per chain but 32x the configured 16 caps it at 512, so a
-        // sparse graph escalates over several rounds rather than in one leap.
-        assert_eq!(next_per_chain(64, 64_000, 64, 16), Some(512));
-    }
+        #[test]
+        fn the_cap_binds_when_the_rate_is_very_low() {
+            // Same 0.1% rate against a small configured round: the request is
+            // 15000 per chain but 32x the configured 16 caps it at 512, so a
+            // sparse graph escalates over several rounds rather than in one leap.
+            assert_eq!(next_per_chain(64, 64_000, 64, 16), Some(512));
+        }
 
-    #[test]
-    fn escalates_blindly_when_nothing_has_hit_yet() {
-        assert_eq!(next_per_chain(0, 10_000, 64, 16), Some(64));
-    }
+        #[test]
+        fn escalates_blindly_when_nothing_has_hit_yet() {
+            assert_eq!(next_per_chain(0, 10_000, 64, 16), Some(64));
+        }
 
-    #[test]
-    fn never_draws_less_than_the_configured_round() {
-        // A high hit rate would ask for a tiny round; the floor keeps it at
-        // the configured size so this can only ever add work.
-        assert_eq!(next_per_chain(1000, 2000, 64, 16), Some(16));
-    }
+        #[test]
+        fn never_draws_less_than_the_configured_round() {
+            // A high hit rate would ask for a tiny round; the floor keeps it at
+            // the configured size so this can only ever add work.
+            assert_eq!(next_per_chain(1000, 2000, 64, 16), Some(16));
+        }
 
-    #[test]
-    fn caps_the_escalation() {
-        // An extremely low rate would ask for an unbounded round.
-        assert_eq!(next_per_chain(1, 10_000_000, 1, 16), Some(16 * 32));
+        #[test]
+        fn caps_the_escalation() {
+            // An extremely low rate would ask for an unbounded round.
+            assert_eq!(next_per_chain(1, 10_000_000, 1, 16), Some(16 * 32));
+        }
     }
-}
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -330,29 +330,26 @@ impl MCState {
         let ratio_sum = self
             .chains
             .par_iter_mut()
-            .fold(
-                RatioSum::new,
-                |mut local, x| {
-                    let mut rng = SmallRng::from_rng(&mut rand::rng());
-                    for _ in 0..second_half {
-                        x.transit_n_times(
-                            &self.global_state,
-                            self.config.weight_sample_intervals,
-                            &mut rng,
-                        );
-                        let mut term = (diff * x.inactive_count() as f64).exp();
-                        if let Some((u, v)) = x.hole() {
-                            term *= next_weight.get(u, v) / self.global_state.weight.get(u, v);
-                        }
-                        local.sum += term;
-                        local.samples += 1;
-                        if x.is_fully_active_perfect() {
-                            local.perfect_active += 1;
-                        }
+            .fold(RatioSum::new, |mut local, x| {
+                let mut rng = SmallRng::from_rng(&mut rand::rng());
+                for _ in 0..second_half {
+                    x.transit_n_times(
+                        &self.global_state,
+                        self.config.weight_sample_intervals,
+                        &mut rng,
+                    );
+                    let mut term = (diff * x.inactive_count() as f64).exp();
+                    if let Some((u, v)) = x.hole() {
+                        term *= next_weight.get(u, v) / self.global_state.weight.get(u, v);
                     }
-                    local
-                },
-            )
+                    local.sum += term;
+                    local.samples += 1;
+                    if x.is_fully_active_perfect() {
+                        local.perfect_active += 1;
+                    }
+                }
+                local
+            })
             .reduce(RatioSum::new, |left, right| left.merge(right));
 
         self.global_state.weight = next_weight;

@@ -37,7 +37,6 @@ impl Matrix {
         self.data[u * self.size + v] += value;
     }
 
-
     /// Bootstrap the next hole-weight table from per-class occupancy counts,
     /// following BSVV: with the current table `w`, the chain's stationary
     /// occupancy of hole class (u, v) is proportional to
@@ -98,7 +97,6 @@ impl Matrix {
             },
         )
     }
-
 }
 
 pub struct BitMatrix {
@@ -195,5 +193,4 @@ mod test {
             }
         }
     }
-
 }
