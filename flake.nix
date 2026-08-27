@@ -4,6 +4,9 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    # Run-time discovery of the host NVIDIA driver libraries on non-NixOS
+    # hosts (see driverLibPath below for why this cannot come from nixpkgs).
+    nix-gl-host.url = "github:numtide/nix-gl-host";
   };
 
   outputs =
@@ -11,6 +14,7 @@
       self,
       nixpkgs,
       flake-utils,
+      nix-gl-host,
     }:
     flake-utils.lib.eachDefaultSystem (
       system:
@@ -59,10 +63,15 @@
 
         # `libcuda.so` ships with the NVIDIA *driver*, never with the
         # toolkit, so it cannot come from nixpkgs. NixOS exposes it at
-        # /run/opengl-driver/lib; other distributions keep it on the system
-        # loader path. This is the one unavoidable impurity for actually
-        # running (not building) CUDA code.
+        # /run/opengl-driver/lib. On FHS distributions the driver libs sit
+        # next to the system glibc (e.g. /usr/lib/aarch64-linux-gnu), which
+        # must never land on a nix binary's LD_LIBRARY_PATH wholesale; the
+        # cuda shell instead uses nixglhost, which at run time copies just
+        # the driver DSOs into an isolated cache directory and prints that
+        # path. This is the one unavoidable impurity for actually running
+        # (not building) CUDA code.
         driverLibPath = "/run/opengl-driver/lib:/run/opengl-driver-32/lib";
+        nixglhost = nix-gl-host.packages.${system}.default;
       in
       {
         packages.default = pkgs.rustPlatform.buildRustPackage {
@@ -119,6 +128,7 @@
             vulkan-loader
           ]) ++ [
             cudaEnv
+            nixglhost
             # Nsight Compute, for grounding kernel-level performance claims.
             cudaPackages.nsight_compute
           ];
@@ -133,6 +143,16 @@
           env.NVCC_PREPEND_FLAGS = "-I${cudaEnv}/include";
           env.LD_LIBRARY_PATH =
             "${pkgs.lib.makeLibraryPath [ pkgs.vulkan-loader cudaEnv ]}:${driverLibPath}";
+          # On non-NixOS hosts /run/opengl-driver does not exist and the
+          # driver libs cannot be taken from the system lib dir directly (its
+          # glibc would shadow the nix one). nixglhost copies just the driver
+          # DSOs into an isolated cache dir; -p prints that dir so plain
+          # `cargo run` works without wrapping every invocation.
+          shellHook = ''
+            if [ ! -d /run/opengl-driver/lib ]; then
+              export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$(nixglhost -p 2>/dev/null || true)"
+            fi
+          '';
         };
       }
     );
