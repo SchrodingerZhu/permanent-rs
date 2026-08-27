@@ -6,8 +6,15 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
-default = []
-# Route the CubeCL kernels through NVRTC/CUDA instead of WGSL/Vulkan.
+default = ["vulkan"]
+# CubeCL over WGSL/Vulkan - the portable default.
+vulkan = ["cubecl/vulkan"]
+# Route the CubeCL kernels through NVRTC/CUDA instead of WGSL/Vulkan. Build
+# with `--no-default-features --features cuda` so the wgpu runtime is not
+# compiled in at all - a compiled-in Vulkan runtime still probes for adapters
+# at startup and panics its discovery thread on machines with no usable ICD.
+# Enabling `cubecl/cuda` on the dependency alone does NOT flip the backend:
+# src/gpu_markov_chain.rs selects the runtime by this crate feature.
 cuda = ["cubecl/cuda"]
 # Hand-written CUDA kernels driven through cuRAND. Needs nvcc at build time
 # and an NVIDIA driver at run time; see build.rs.
@@ -19,7 +26,7 @@ clap = { version = "4.6.6", features = ["derive"] }
 cubecl = {
     version = "0.10.0",
     default-features = false,
-    features = ["std", "vulkan"],
+    features = ["std"],
 }
 rand = { version = "0.10.2" }
 # Matches the feature set cubecl-cuda selects, so the two share one build of

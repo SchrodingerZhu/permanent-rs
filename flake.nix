@@ -46,6 +46,12 @@
             cuda_crt
             cuda_cudart
             cccl
+            # cubecl-cuda JIT-compiles its kernels through NVRTC at run time;
+            # without libnvrtc.so on the loader path every kernel launch
+            # panics inside cudarc (and cubecl's task channel swallows the
+            # panic, so the run "finishes" with garbage instead of failing).
+            cuda_nvrtc
+            cuda_nvrtc.lib
             libcurand
             libcurand.dev
             libcurand.include
