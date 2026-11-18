@@ -78,6 +78,15 @@ struct SweepState {
     done: u64,
     total: u64,
     started: Instant,
+    /// When the round's last sweep finished; its rate is fixed from then on.
+    ended: Option<Instant>,
+}
+
+impl SweepState {
+    fn rate(&self) -> f64 {
+        let seconds = (self.ended.unwrap_or_else(Instant::now) - self.started).as_secs_f64();
+        self.done as f64 / seconds.max(1e-9)
+    }
 }
 
 struct App {
@@ -137,11 +146,13 @@ impl App {
             }
             TuiEvent::Sweep { round, done, total } => {
                 self.phase = Phase::Sampling;
-                let started = match &self.sweep {
-                    Some(s) if s.round == round => s.started,
-                    _ => Instant::now(),
+                let now = Instant::now();
+                let (started, ended) = match &self.sweep {
+                    Some(s) if s.round == round => (s.started, s.ended),
+                    _ => (now, None),
                 };
-                self.sweep = Some(SweepState { round, done, total, started });
+                let ended = ended.or((done >= total).then_some(now));
+                self.sweep = Some(SweepState { round, done, total, started, ended });
             }
             TuiEvent::Round { islands, ln_permanent, std_error } => {
                 self.rounds.push((islands, ln_permanent, std_error))
@@ -298,10 +309,7 @@ fn render_stats(frame: &mut Frame, app: &App, area: Rect) {
         Line::from(format!("temperatures  {}", app.weights.len())),
     ];
     if let Some(s) = &app.sweep {
-        let rate = s.done as f64 / s.started.elapsed().as_secs_f64().max(1e-9);
-        if app.phase == Phase::Sampling {
-            lines.push(Line::from(format!("sweeps/s      {rate:.1}")));
-        }
+        lines.push(Line::from(format!("sweeps/s      {:.1}", s.rate())));
     }
     if let Some(&(islands, ln_permanent, std_error)) = app.rounds.last() {
         lines.push(Line::from(format!("islands       {islands}")));
@@ -415,6 +423,14 @@ mod test {
         assert!(screen(&app).contains("phase 1: learning weights, 5 temperatures"));
         app.update(TuiEvent::Sweep { round: 0, done: 10, total: 40 });
         assert!(screen(&app).contains("10/40 temperature sweeps"));
+        // a full bar stops the rate, whatever the run does next
+        app.update(TuiEvent::Sweep { round: 0, done: 40, total: 40 });
+        let rate = app.sweep.as_ref().unwrap().rate();
+        std::thread::sleep(Duration::from_millis(30));
+        assert_eq!(app.sweep.as_ref().unwrap().rate(), rate);
+        // and the next round starts its own clock
+        app.update(TuiEvent::Sweep { round: 1, done: 1, total: 40 });
+        assert!(app.sweep.as_ref().unwrap().ended.is_none());
         app.update(TuiEvent::Round { islands: 32, ln_permanent: 3.01, std_error: 0.04 });
         app.update(TuiEvent::Line("permanent ≈ 2.028740e+1".into()));
         app.update(TuiEvent::Done);
