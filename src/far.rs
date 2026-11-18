@@ -17,12 +17,17 @@
 //!
 //! Learning without a mixing-time assumption: the chain watched only at its
 //! perfect states is itself a stationary chain with law mu = pi restricted
-//! to perfect matchings. Started from an exact mu sample and run until its
+//! to perfect matchings. Started from a mu sample and run until its
 //! (k+1)-th perfect step, the expected number of visits to a class S during
-//! those k cycles is exactly k pi(S)/pi(P) (Kac's formula). With S = the
-//! hole class N(r, v) of the anchor row this yields
+//! those k cycles is exactly k pi(S)/pi(P) (Kac's formula), for every
+//! k >= 1. With S = the hole class N(r, v) of the anchor row this yields
 //!
 //!   lambda(P)/lambda(N(r,v)) = w(r,v) R_r W(r,v) k / (n^2 E[visits_v]).
+//!
+//! Because the identity holds per cycle, W chains of k cycles are worth one
+//! chain of W k: the learner runs every particle of the population for a
+//! few cycles instead of a few chains for many. The matching a chain stops
+//! on is again a mu sample, so a run also moves its particle.
 
 use rand::RngExt;
 use rand::rngs::SmallRng;
@@ -40,17 +45,16 @@ pub struct FarStats {
     pub visit_energy: Vec<f64>,
     /// Sum of energies over perfect steps.
     pub perfect_energy: f64,
-    /// Energies of the first few perfect matchings entered (pilot data).
-    pub pilot: Vec<f64>,
+    /// The step cap was hit; `row` was left as it started.
     pub capped: bool,
 }
 
-pub const PILOT_PER_CHAIN: usize = 64;
-
+/// Run `cycles` cycles from the perfect matching `row`, which is replaced
+/// by the perfect matching the chain stops on.
 pub fn run(
     tables: &Tables,
     energy: &[f64],
-    start: &[u32],
+    row: &mut [u32],
     cycles: u64,
     max_steps: u64,
     rng: &mut SmallRng,
@@ -58,7 +62,7 @@ pub fn run(
     let n = tables.n;
     let nf = n as f64;
     let r = tables.anchor;
-    let mut row: Vec<u32> = start.to_vec();
+    let start: Vec<u32> = row.to_vec();
     let mut col = vec![NONE; n];
     let mut h = 0.0;
     for (u, &v) in row.iter().enumerate() {
@@ -72,10 +76,8 @@ pub fn run(
         visits: vec![0; n],
         visit_energy: vec![0.0; n],
         perfect_energy: 0.0,
-        pilot: Vec::with_capacity(PILOT_PER_CHAIN),
         capped: false,
     };
-    let mut entered = true;
     loop {
         match hole {
             None => {
@@ -84,12 +86,6 @@ pub fn run(
                 }
                 stats.perfect_steps += 1;
                 stats.perfect_energy += h;
-                if entered {
-                    entered = false;
-                    if stats.pilot.len() < PILOT_PER_CHAIN {
-                        stats.pilot.push(h);
-                    }
-                }
                 stats.steps += 1;
                 if rng.random::<u32>() & 1 == 0 {
                     let u = ((rng.random::<u32>() as u64 * n as u64) >> 32) as usize;
@@ -108,6 +104,7 @@ pub fn run(
                 stats.steps += 1;
                 if stats.steps > max_steps {
                     stats.capped = true;
+                    row.copy_from_slice(&start);
                     break;
                 }
                 let b = tables.b[u * n + v];
@@ -121,7 +118,6 @@ pub fn run(
                     col[v] = u as u32;
                     h += energy[u * n + v];
                     hole = None;
-                    entered = true;
                 } else if x < p_add + p_slide {
                     // left slide: the left hole takes over a matched column
                     let z = tables.sample_row(u, rng);
@@ -195,7 +191,8 @@ mod test {
                 }
                 x -= w;
             }
-            let stats = run(&tables, &scaled.energy, &perms[pick], per_chain, u64::MAX, &mut rng);
+            let mut row = perms[pick].clone();
+            let stats = run(&tables, &scaled.energy, &mut row, per_chain, u64::MAX, &mut rng);
             cycles += stats.perfect_steps;
             for v in 0..n {
                 visits[v] += stats.visits[v];

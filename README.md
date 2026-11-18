@@ -1,64 +1,107 @@
 # permanent
 
 Estimates the permanent of a nonnegative matrix to a requested relative
-accuracy. You give the matrix, `--epsilon` and `--delta`; the number of
-temperatures, the samples at each, and the sampler's run length are derived.
+accuracy. You give the matrix, `--epsilon` and `--delta`; the temperatures,
+the population and the number of independent runs are derived.
 
     cargo run --release -- data/weighted-16.json --exact
     cargo run --release -- data/grid-8x8.json -e 0.05
     cargo run --release -- data/cyc-64-m4.json --plan-only
+    cargo run --release -- data/cyc-64-m4.json --tui --log-file run.log
 
 Input is JSON in one of three forms: `{"matrix": [[...], ...]}` (dense),
 `{"size": n, "entries": [[row, col, weight], ...]}` (sparse), or the 0/1
 form `{"size": n, "edges": [[columns of row 0], ...]}`.
 
+The report goes to stdout. Progress is logged to stderr (`-v` for more,
+`PERMANENT_LOG_LEVEL` to filter, `--log-file` to redirect); `--tui` shows
+the run in a dashboard instead.
+
 ## Method
 
-The algorithm follows Chen, Guo, Vigoda and Yang, "An Õ(n³)-time FPRAS for
-the permanent" (arXiv:2609.20717).
+The ingredients are those of Chen, Guo, Vigoda and Yang, "An Õ(n³)-time
+FPRAS for the permanent" (arXiv:2609.20717). What differs is how samples
+are produced: the paper draws every sample from nothing; here a population
+of perfect matchings is carried from one temperature to the next, and the
+paper's sampler is what cuts that population into independent pieces.
 
 1. **Scaling** (`scaling.rs`). A maximum-product matching and its dual
    potentials turn A into a row-stochastic A' whose matched entries are row
    maxima. Entries below tau = P*/(2 n!) are raised to tau, which makes
-   every entry positive. The identity per(A') = per(A~) E[g] is exact, and
-   E[g] >= 2/3.
+   every entry positive. The identity per(A') = per(A~) E[g] is exact.
 2. **Annealing.** Activities are a~(u,v)^beta for beta from 0 (uniform over
-   all n! permutations) to 1.
-3. **Sampler** (`sampler.rs`). Independent perfect matchings are drawn by
-   annealing relaxed assignments. Only n anchor weights are needed, and the
-   output distribution is correct for any weights; poor weights only lower
-   the acceptance rate.
-4. **Learning** (`far.rs`). The anchor weights at each temperature are
+   all n! permutations) to 1, so
+   per(A) = n! · ∏ E_i[exp(-d_i H)] · E[g] / c.
+3. **Learning** (`far.rs`). The n anchor weights of each temperature are
    learned with the FAR chain, counted over cycles between perfect states
-   (Kac's formula), which needs no mixing-time assumption.
-5. **Estimate** (`estimator.rs`). per(A) = n! · ∏ E[exp(-d_i H)] · E[g] / c.
-   Samples are independent, so the standard error is measured from them and
-   sampling continues until it meets the target.
+   (Kac's formula). The identity holds per cycle, so every particle of the
+   population runs a few cycles instead of a few chains running many.
+4. **Population** (`estimator.rs`, `sampler.rs`). P particles at one
+   temperature are weighted by exp(-d H), resampled, and moved by the
+   relaxed-assignment dynamics at the top activity, run until time t has
+   been spent in perfect matchings. That move leaves the next temperature's
+   distribution invariant for any weights and contracts it by exp(-t)
+   (the paper's spectral gap of 1 carries over to the chain watched on
+   perfect matchings).
+5. **Segments.** The temperature ladder is cut into S segments. Each one
+   after the first starts from fresh draws of the paper's annealing sampler,
+   so segments are independent, multiply without bias, and run at the same
+   time on different ranks.
+6. **Islands.** Every segment is run R times independently; the error bar
+   is the measured spread of those runs.
 
-## What is derived, and what backs it
+## What is guaranteed, and what backs it
 
-| Quantity | How it is chosen |
+| Statement | Backing |
 |---|---|
-| Temperatures | Adaptive: the largest step keeping the ratio's relative variance near 0.25 and the weights within a factor 2, never below the paper's step. `--rigorous-schedule` uses the paper's step only. |
-| Samples per temperature | Proportional to the square root of each term's variance, sized so the standard error of ln(per) is ln(1+epsilon)/z; topped up from measured variances. |
-| Sampler time per stage | Doubled until two independent estimates agree within 2 standard errors; the longer run is reported. `--rigorous-sampler` uses the paper's explicit time instead (hundreds of times longer). |
+| The estimate is unbiased for every P, t and any anchor weights, once the schedule and weights are fixed. | Unnormalized particle estimates are unbiased (Del Moral 2004, Thm 7.4.2); segment starts are exact at beta = 0 and from the sampler elsewhere. Checked by a test with 4 particles per island. |
+| Its relative variance is about v / P with v ≤ (1 − √g e^(−t))^(−2) · Σ relvar_i. | Asymptotic in P, from the exp(-t) contraction; g bounds a step's largest weight over its mean. Measured values have been 4–10 times below it. |
+| The error bar is honest. | Islands are i.i.d. and unbiased; the bar is their spread, and islands are added until it meets the target. |
+| Segment starts follow the target. | `--rigorous-sampler` runs the sampler for the paper's explicit time. Otherwise the boundary check compares, at every segment boundary, the particles carried there with the fresh draws; both target the same distribution. |
 
-The reported interval is statistical: it assumes the sampler's draws follow
-the target distribution. In the default mode that assumption rests on the
-doubling check, not on a theorem. The paper leaves one constant of the
-sampler's activity schedule unspecified (A_alpha); `--density` sets it and
-defaults to the paper's J_alpha = 32.
+The variance bound sizes P; nothing else depends on it. A wider machine
+holds more particles per sweep, and the error falls as 1/√P at the same
+number of sweeps.
+
+## GPU
+
+`cuda/` is the same program with the population resident on an NVIDIA GPU.
+Its kernels are Rust, compiled with cuda-oxide
+(https://github.com/NVIDIA/cuda-rust), which needs its pinned toolchain,
+LLVM 21+ and CUDA 13+:
+
+    cd cuda
+    cargo oxide build
+    target/release/permanent-cuda ../data/cyc-64-m4.json
+    cargo oxide test -- --release      # needs a GPU
+
+The mutation, the sampler, the measurement of energies and the resampling
+run on the device; the FAR learner still runs on the host.
+
+## MPI
+
+Built with `--features mpi`, every rank runs the same driver on its own
+share of the work (and, in the GPU build, its own device):
+
+    cargo build --release --features mpi
+    mpirun -n 4 target/release/permanent data/cyc-64-m4.json
+
+Ranks split the segments and islands of Phase 2, which share nothing, and
+pool their learning statistics in Phase 1. Results do not depend on the
+number of ranks beyond the split of the Phase 1 population.
 
 ## Layout
 
     src/problem.rs    input formats
     src/scaling.rs    Hungarian method, scaling, regularization
     src/tables.rs     per-temperature B matrix and alias tables
-    src/sampler.rs    relaxed-assignment annealing sampler
+    src/sampler.rs    relaxed-assignment dynamics: annealing sampler, mutation
     src/far.rs        FAR chain and cycle counting
-    src/estimator.rs  schedule, planning, estimation, validation
+    src/engine.rs     population operations; the CPU engine
+    src/comm.rs       reductions across MPI ranks
+    src/estimator.rs  schedule, planning, segments, islands
+    src/philox.rs     Philox4x32-10, shared with the GPU kernels
+    src/cli.rs        command line, report, logging
+    src/tui.rs        dashboard
     src/exact.rs      exact subset DP for n <= 26
-
-This rewrite is CPU-only (rayon). The earlier JSV/BSVV implementation with
-its CubeCL and CUDA backends and the TUI is in the history before this
-branch.
+    cuda/             GPU engine and kernels

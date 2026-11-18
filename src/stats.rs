@@ -61,6 +61,16 @@ pub fn normal_quantile(p: f64) -> f64 {
     }
 }
 
+/// Format exp(ln_value) as mantissa x 10^exponent without overflow.
+pub fn scientific(ln_value: f64) -> String {
+    if ln_value == f64::NEG_INFINITY {
+        return "0".into();
+    }
+    let log10 = ln_value / std::f64::consts::LN_10;
+    let exponent = log10.floor();
+    format!("{:.6}e{:+}", 10f64.powf(log10 - exponent), exponent as i64)
+}
+
 /// SplitMix64 finalizer, used to derive independent per-sample seeds from
 /// (run seed, phase, level, index) so results do not depend on scheduling.
 pub fn mix(mut z: u64) -> u64 {

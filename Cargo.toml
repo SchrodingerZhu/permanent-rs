@@ -3,6 +3,11 @@ name = "permanent"
 version = "0.2.0"
 edition = "2024"
 
+[features]
+# Run one rank per GPU under MPI (`mpirun -n R permanent ...`). Needs an MPI
+# implementation at build time.
+mpi = ["dep:mpi"]
+
 [dependencies]
 anyhow = "1.0.104"
 clap = { version = "4.6.6", features = ["derive"] }
@@ -11,6 +16,14 @@ rayon = "1.12.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1"
 mimalloc = "0.1.52"
+ratatui = "0.30.2"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+mpi = { version = "0.8", optional = true }
+
+[lints.rust]
+# set by the GPU crate, which compiles src/philox.rs for the device
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(cuda_kernel)'] }
 
 [profile.release]
 lto = "thin"

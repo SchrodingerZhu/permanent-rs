@@ -1,5 +1,6 @@
-//! Perfect-matching sampler by annealed relaxed assignments (arXiv:2609.20717,
-//! Lemmas 8, 10, 11, 49).
+//! Relaxed-assignment dynamics (arXiv:2609.20717, Section 4), used two ways:
+//! `sample_perfect` draws a perfect matching from nothing by annealing the
+//! activity, and `mutate` moves an existing one at the top activity.
 //!
 //! A state assigns every left vertex u either a right vertex or "unassigned"
 //! (`NONE`). With cr = sum_v max(d_v - 1, 0) counting collisions and `un` the
@@ -19,6 +20,18 @@
 //! removes one (1+J)^-1 penalty and the faster clock pays for it exactly.
 //! The paper proves spectral gap >= 1 for every a, so the time to spend at
 //! each activity is an explicit logarithm, not a guessed mixing time.
+//!
+//! `mutate` runs the dynamics at a = J from a perfect matching until the
+//! time spent in perfect matchings reaches t. Cutting the excursions out of
+//! a reversible process leaves a process on the perfect matchings that is
+//! reversible for the restricted law mu, with a spectral gap no smaller
+//! than the full one. So the kernel K_t that `mutate` applies satisfies
+//!
+//!   mu K_t = mu,   ||K_t f - mu f||_2 <= exp(-t) ||f - mu f||_2
+//!
+//! for every f and any anchor weights. A population carried from one
+//! temperature to the next only needs `mutate`; `sample_perfect` is what
+//! starts a population at a temperature of its own (see `estimator.rs`).
 
 use rand::RngExt;
 use rand::rngs::SmallRng;
@@ -29,6 +42,12 @@ pub const NONE: u32 = u32::MAX;
 
 /// Roughness the weights are assumed to satisfy (the paper's alpha = 2).
 pub const ALPHA: f64 = 2.0;
+
+/// The collision penalty J = J_alpha n^2 with J_alpha = 8 alpha^2, which is
+/// also the top activity.
+pub fn penalty(n: usize) -> f64 {
+    8.0 * ALPHA * ALPHA * (n * n) as f64
+}
 
 /// Activities a_0 = 1/n < ... < a_m = J and the collision penalty J.
 #[derive(Debug, Clone)]
@@ -46,7 +65,7 @@ impl StageSchedule {
     /// and defaults to J_alpha. Larger is more conservative.
     pub fn new(n: usize, density: f64) -> Self {
         let nf = n as f64;
-        let penalty = 8.0 * ALPHA * ALPHA * nf * nf;
+        let penalty = penalty(n);
         let mut activities = vec![1.0 / nf];
         loop {
             let a = *activities.last().unwrap();
@@ -76,9 +95,8 @@ impl StageSchedule {
         (16.0 * self.stages() as f64 / eta).ln()
     }
 
-    /// Starting point for the validated mode: a total annealing time of
-    /// 8 ln(2n), spread evenly over the stages. The estimator doubles it
-    /// until two consecutive settings agree.
+    /// Unit of the default (not rigorous) setting: a total annealing time
+    /// of 8 ln(2n), spread evenly over the stages.
     pub fn initial_stage_time(&self, n: usize) -> f64 {
         8.0 * (2.0 * n as f64).ln() / self.stages() as f64
     }
@@ -119,6 +137,17 @@ impl Scratch {
             n_conf: 0,
             unassigned: n,
         }
+    }
+
+    /// Set the state to the perfect matching `perm`.
+    pub fn load(&mut self, perm: &[u32]) {
+        self.sigma.copy_from_slice(perm);
+        self.deg.fill(1);
+        for (u, &v) in perm.iter().enumerate() {
+            self.occ[v as usize] = u as u32;
+        }
+        self.n_conf = 0;
+        self.unassigned = 0;
     }
 
     fn reset(&mut self) {
@@ -294,6 +323,85 @@ pub fn sample_perfect(
     false
 }
 
+/// Event cap of one `mutate` call. The paper bounds the events of time T at
+/// activity a by C n (1 + sqrt(a)) (T + ln 2n)^2 with an unspecified C; this
+/// uses that shape with a generous constant. Hitting it fails the call.
+pub fn mutate_event_cap(n: usize, perfect_time: f64) -> u64 {
+    let nf = n as f64;
+    let per = (2.0 * perfect_time + (2.0 * nf).ln()).powi(2);
+    (64.0 * nf * (1.0 + penalty(n).sqrt()) * per) as u64 + 1_000_000
+}
+
+/// What one `mutate` call cost.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct MutateCost {
+    pub events: u64,
+    /// Elapsed chain time, excursions included; perfect_time / time
+    /// estimates nu_J(perfect).
+    pub time: f64,
+    /// Calls that hit the event cap; their particle is left unchanged.
+    pub over_budget: u64,
+}
+
+impl MutateCost {
+    pub fn add(&mut self, other: MutateCost) {
+        self.events += other.events;
+        self.time += other.time;
+        self.over_budget += other.over_budget;
+    }
+}
+
+/// Apply K_t to the perfect matching in `scratch` (set with `load`): run the
+/// dynamics at activity J until `perfect_time` has been spent in perfect
+/// matchings. The state at that moment is a perfect matching, unless the
+/// event cap was hit (`over_budget`), which leaves the state unusable.
+pub fn mutate(
+    tables: &Tables,
+    perfect_time: f64,
+    event_cap: u64,
+    scratch: &mut Scratch,
+    rng: &mut SmallRng,
+) -> MutateCost {
+    let n = tables.n;
+    let nf = n as f64;
+    let penalty = penalty(n);
+    let fast = 1.0 + penalty;
+    let p_unassign = 1.0 / (1.0 + penalty);
+    let mut remaining = perfect_time;
+    let mut cost = MutateCost::default();
+    loop {
+        let nc = scratch.n_conf as f64;
+        let conflicted_rate = nc * fast;
+        let rate = (nf - nc) + conflicted_rate;
+        let dt = -(1.0 - rng.random::<f64>()).ln() / rate;
+        if scratch.is_perfect() {
+            if dt >= remaining {
+                cost.time += remaining;
+                return cost;
+            }
+            remaining -= dt;
+        }
+        cost.time += dt;
+        cost.events += 1;
+        if cost.events > event_cap {
+            cost.over_budget = 1;
+            return cost;
+        }
+        let x = rng.random::<f64>() * rate;
+        let slot = if x < conflicted_rate {
+            ((x / fast) as usize).min(scratch.n_conf - 1)
+        } else {
+            (scratch.n_conf + (x - conflicted_rate) as usize).min(n - 1)
+        };
+        let u = scratch.list[slot];
+        scratch.remove(u);
+        if rng.random::<f64>() >= p_unassign {
+            let v = tables.sample_row(u as usize, rng);
+            scratch.place(u, v);
+        }
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod test {
     use super::*;
@@ -376,5 +484,64 @@ pub(crate) mod test {
         }
         // with these rough weights more than a fifth of the trials succeed
         assert!((draws as f64) / (cost.trials as f64) > 0.2);
+    }
+
+    /// Histogram of K_t applied `draws` times, each from a start chosen by
+    /// `start`, against lambda(M) / sum lambda.
+    fn check(perfect_time: f64, draws: usize, mut start: impl FnMut(&mut SmallRng, &[Vec<u32>], &[f64]) -> usize) {
+        let scaled = test_instance();
+        let n = scaled.n;
+        let beta = 0.6;
+        // deliberately far from ideal: the target may not depend on the weights
+        let log_w = [0.3, -0.4, 1.0, 0.0];
+        let tables = Tables::build(&scaled, beta, &log_w, 0);
+        let cap = mutate_event_cap(n, perfect_time);
+        let perms = permutations(n);
+        let weights: Vec<f64> = perms.iter().map(|p| (-beta * scaled.energy_of(p)).exp()).collect();
+        let total: f64 = weights.iter().sum();
+        let mut rng = SmallRng::seed_from_u64(5);
+        let mut scratch = Scratch::new(n);
+        let mut histogram: HashMap<Vec<u32>, usize> = HashMap::new();
+        for _ in 0..draws {
+            let pick = start(&mut rng, &perms, &weights);
+            scratch.load(&perms[pick]);
+            let cost = mutate(&tables, perfect_time, cap, &mut scratch, &mut rng);
+            assert_eq!(cost.over_budget, 0);
+            assert!(scratch.is_perfect());
+            *histogram.entry(scratch.sigma.clone()).or_default() += 1;
+        }
+        for (perm, weight) in perms.iter().zip(&weights) {
+            let expected = weight / total;
+            let observed = *histogram.get(perm).unwrap_or(&0) as f64 / draws as f64;
+            let sigma = (expected * (1.0 - expected) / draws as f64).sqrt();
+            assert!(
+                (observed - expected).abs() < 5.0 * sigma + 1e-4,
+                "{perm:?}: expected {expected:.5}, observed {observed:.5}"
+            );
+        }
+    }
+
+    /// K_t forgets its start: from one fixed matching, a long run lands on
+    /// the target distribution.
+    #[test]
+    fn a_long_run_reaches_the_target_distribution() {
+        check(24.0, 40_000, |_, _, _| 0);
+    }
+
+    /// K_t leaves mu invariant for every t, however short: starting from
+    /// exact samples, the output is still an exact sample.
+    #[test]
+    fn a_short_run_keeps_the_target_distribution() {
+        check(0.3, 200_000, |rng, _, weights| {
+            let total: f64 = weights.iter().sum();
+            let mut x = rng.random::<f64>() * total;
+            for (i, w) in weights.iter().enumerate() {
+                if x < *w {
+                    return i;
+                }
+                x -= w;
+            }
+            weights.len() - 1
+        });
     }
 }

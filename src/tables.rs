@@ -112,6 +112,12 @@ impl Tables {
         if rng.random::<f64>() < prob[i] { i } else { alias[i] as usize }
     }
 
+    /// The row alias tables: for row u, entries u*n..(u+1)*n hold each
+    /// cell's keep probability and its alias column.
+    pub fn row_alias(&self) -> (&[f64], &[u32]) {
+        (&self.row_prob, &self.row_alias)
+    }
+
     /// A column v with probability B(u, v).
     #[inline]
     pub fn sample_row(&self, u: usize, rng: &mut SmallRng) -> usize {
