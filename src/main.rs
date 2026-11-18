@@ -1,509 +1,219 @@
-use std::num::NonZeroUsize;
-
 use clap::Parser;
-use tracing::{error, info, level_filters::LevelFilter};
-use tracing_subscriber::EnvFilter;
-
-use crate::{
-    cooling_schedule::CoolingConfig,
-    cooling_state::State,
-    gpu_markov_chain::{CubeclRng, CurandRng, GpuMCState},
-    graph::Graph,
-    markov_chain::{Config, MCState},
-};
-
-pub mod chain;
-pub mod cooling_schedule;
-pub mod cooling_state;
-#[cfg(feature = "native-cuda")]
-pub mod cuda_backend;
-pub mod dinic;
-pub mod exact;
-pub mod gpu_markov_chain;
-pub mod graph;
-
-pub mod markov_chain;
-pub mod tui;
+use permanent::estimator::{Config, Session, Verdict};
+use permanent::problem::Problem;
+use permanent::scaling::{Prepared, prepare};
+use permanent::exact;
 
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-/// Execution backend, naming both the device and the generator it draws from.
-/// The two are chosen together because which generators exist depends on the
-/// device: cuRAND's are reachable only from hand-written CUDA, and the CubeCL
-/// kernels carry their own.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Backend {
-    /// Multi-threaded CPU chains.
-    Cpu,
-    /// CubeCL kernels, 32-bit xorshift. Fast, but fails Crush; a speed baseline.
-    CubeclXorshift,
-    /// CubeCL kernels, Philox4x32-10. The portable default.
-    CubeclPhilox,
-    /// Native CUDA kernels, cuRAND `curandStatePhilox4_32_10_t`.
-    CudaPhilox,
-    /// Native CUDA kernels, cuRAND `curandStateXORWOW_t`.
-    CudaXorwow,
-    /// Native CUDA kernels, cuRAND `curandStateMRG32k3a_t`.
-    CudaMrg32k3a,
-}
-
-impl Backend {
-    const VALUES: [(&'static str, Backend); 6] = [
-        ("cpu", Backend::Cpu),
-        ("cubecl_xorshift", Backend::CubeclXorshift),
-        ("cubecl_philox", Backend::CubeclPhilox),
-        ("cuda_philox", Backend::CudaPhilox),
-        ("cuda_xorwow", Backend::CudaXorwow),
-        ("cuda_mrg32k3a", Backend::CudaMrg32k3a),
-    ];
-
-    pub fn as_str(self) -> &'static str {
-        Self::VALUES
-            .iter()
-            .find(|(_, backend)| *backend == self)
-            .map(|(name, _)| *name)
-            .unwrap_or("cpu")
-    }
-
-    /// Whether this backend needs the `native-cuda` feature and a driver.
-    pub fn is_native_cuda(self) -> bool {
-        matches!(
-            self,
-            Backend::CudaPhilox | Backend::CudaXorwow | Backend::CudaMrg32k3a
-        )
-    }
-}
-
-impl std::str::FromStr for Backend {
-    type Err = String;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        // Accept hyphens too, so `cuda-philox` works as well as `cuda_philox`.
-        let normalized = value.trim().to_ascii_lowercase().replace('-', "_");
-        Self::VALUES
-            .iter()
-            .find(|(name, _)| *name == normalized)
-            .map(|(_, backend)| *backend)
-            .ok_or_else(|| {
-                let names = Self::VALUES
-                    .iter()
-                    .map(|(name, _)| *name)
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!("unknown backend `{value}`; expected one of: {names}")
-            })
-    }
-}
-
-impl std::fmt::Display for Backend {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(self.as_str())
-    }
-}
-
+/// Estimate the permanent of a nonnegative matrix to a requested accuracy.
+///
+/// Give the matrix and the accuracy; the number of temperatures, the samples
+/// at each, and the sampler's run lengths are derived, not supplied.
 #[derive(Parser, Debug)]
-pub struct Cli {
-    /// Path to the graph file.
-    #[arg(short, long)]
-    pub graph_path: std::path::PathBuf,
-    /// Markov-chain execution backend and generator: cpu, cubecl_xorshift,
-    /// cubecl_philox, cuda_philox, cuda_xorwow, cuda_mrg32k3a. The cuda_*
-    /// backends need a build with `--features native-cuda` and an NVIDIA driver.
-    #[arg(long, default_value_t = Backend::Cpu)]
-    pub backend: Backend,
-    /// Seed for the generators (host initial matchings and device streams).
-    /// Drawn from system entropy when not given; the drawn value is logged so
-    /// any run can be reproduced by passing it back. Runs with the same seed
-    /// and the same configuration reproduce each other.
+#[command(version)]
+struct Cli {
+    /// JSON input: {"matrix": [[..],..]}, {"size": n, "entries": [[i,j,w],..]},
+    /// or the 0/1 form {"size": n, "edges": [[cols of row 0],..]}.
+    input: std::path::PathBuf,
+    /// Target relative error of the estimate.
+    #[arg(short, long, default_value_t = 0.1)]
+    epsilon: f64,
+    /// Probability with which the estimate may miss that target.
+    #[arg(short, long, default_value_t = 0.05)]
+    delta: f64,
+    /// Learn the schedule and print the plan (temperatures, samples, cost)
+    /// without running the estimation phase.
     #[arg(long)]
-    pub seed: Option<u64>,
-    /// CUDA device ordinal for the cuda_* backends.
-    #[arg(long, default_value_t = 0)]
-    pub cuda_device: usize,
-    /// Number of chains.
-    #[arg(short, long, default_value_t = 2048)]
-    pub num_of_chains: usize,
-    /// Potential mixing time of initial runs.
-    #[arg(short, long, default_value_t = 16384)]
-    pub warmup_times: usize,
-    /// Proposals between per-step samples. The JSV walker needs stirring
-    /// that grows with the graph; values around n are a good starting point
-    /// for large instances (the mixing-time guesswork lives here).
-    #[arg(short = 'W', long, default_value_t = 16)]
-    pub weight_sample_intervals: usize,
-    /// Proposals between samples in the final perfect-fraction round.
-    #[arg(short, long, default_value_t = 128)]
-    pub estimator_sample_intervals: usize,
-    /// Per-chain samples per cooling step; the first half bootstraps the
-    /// hole-weight table, the second half feeds the ratio estimator.
-    #[arg(short = 'q', long, default_value_t = 2048)]
-    pub num_of_weight_estimations: usize,
-    /// Minimum per-chain samples in the final perfect-fraction round.
-    #[arg(short = 'p', long, default_value_t = 64)]
-    pub num_of_estimator_estimations: usize,
-    /// Number of threads to use (use all available threads if not specified).
-    #[arg(short = 't', long)]
-    pub num_of_threads: Option<usize>,
-    /// Slow down factor of the additive increment.
-    #[arg(long, default_value_t = NonZeroUsize::new(4).unwrap())]
-    pub additive_slow_down: NonZeroUsize,
-    /// Slow down factor of the multiplicative increment.
-    #[arg(long, default_value_t = NonZeroUsize::new(4).unwrap())]
-    pub multiplicative_slow_down: NonZeroUsize,
-    /// Also compute the exact permanent via Ryser's formula (feasible for
-    /// small graphs only) and report it alongside the estimate.
-    #[arg(long, default_value_t = false)]
-    pub exact: bool,
-    /// Visualize the annealing process in a live terminal dashboard.
-    #[arg(long, default_value_t = false)]
-    pub tui: bool,
+    plan_only: bool,
+    /// Also compute the exact permanent (n <= 26) and compare.
+    #[arg(long)]
+    exact: bool,
+    /// Run the sampler for the paper's explicit time per stage. Hundreds of
+    /// times slower than the default, which instead doubles the time until
+    /// two independent estimates agree.
+    #[arg(long)]
+    rigorous_sampler: bool,
+    /// Use only the paper's guaranteed temperature steps instead of the
+    /// adaptive schedule. Many more temperatures; no step relies on pilot
+    /// statistics.
+    #[arg(long)]
+    rigorous_schedule: bool,
+    /// Seed; drawn from system entropy and printed when omitted.
+    #[arg(long)]
+    seed: Option<u64>,
+    /// Worker threads (default: all).
+    #[arg(short, long)]
+    threads: Option<usize>,
+    /// Print one line per temperature during Phase 1.
+    #[arg(short, long)]
+    verbose: bool,
+    /// Expert: activity-schedule density constant K of the sampler.
+    #[arg(long, default_value_t = 32.0, hide = true)]
+    density: f64,
+    /// Expert: force a sampler time per stage and skip validation.
+    #[arg(long, hide = true)]
+    stage_time: Option<f64>,
 }
 
-enum ChainState {
-    Cpu(MCState),
-    Gpu(Box<GpuMCState>),
+/// Format exp(ln_value) as mantissa x 10^exponent without overflow.
+fn scientific(ln_value: f64) -> String {
+    if ln_value == f64::NEG_INFINITY {
+        return "0".into();
+    }
+    let log10 = ln_value / std::f64::consts::LN_10;
+    let exponent = log10.floor();
+    format!("{:.6}e{:+}", 10f64.powf(log10 - exponent), exponent as i64)
 }
 
-/// Device knobs that only apply to the GPU backends.
-#[derive(Debug, Clone, Copy)]
-pub struct GpuOptions {
-    pub seed: u64,
-    pub cuda_device: usize,
-}
-
-impl ChainState {
-    fn new(
-        backend: Backend,
-        graph: Graph,
-        config: Config,
-        options: GpuOptions,
-    ) -> anyhow::Result<Self> {
-        match backend {
-            Backend::Cpu => Ok(ChainState::Cpu(MCState::new(graph, config))),
-            Backend::CubeclXorshift => Ok(ChainState::Gpu(Box::new(GpuMCState::cubecl(
-                graph,
-                config,
-                CubeclRng::Xorshift32,
-                options.seed,
-            )))),
-            Backend::CubeclPhilox => Ok(ChainState::Gpu(Box::new(GpuMCState::cubecl(
-                graph,
-                config,
-                CubeclRng::Philox,
-                options.seed,
-            )))),
-            Backend::CudaPhilox => Self::new_native_cuda(graph, config, CurandRng::Philox, options),
-            Backend::CudaXorwow => Self::new_native_cuda(graph, config, CurandRng::Xorwow, options),
-            Backend::CudaMrg32k3a => {
-                Self::new_native_cuda(graph, config, CurandRng::Mrg32k3a, options)
-            }
-        }
-    }
-
-    #[cfg(feature = "native-cuda")]
-    fn new_native_cuda(
-        graph: Graph,
-        config: Config,
-        rng: CurandRng,
-        options: GpuOptions,
-    ) -> anyhow::Result<Self> {
-        use crate::cuda_backend::NativeCudaDevice;
-        use crate::gpu_markov_chain::{InitialChains, JsvDevice};
-        let state =
-            GpuMCState::try_with_device(graph, config, options.seed, |init: &InitialChains| {
-                let device = NativeCudaDevice::new(init, rng, options.seed, options.cuda_device)?;
-                Ok(Box::new(device) as Box<dyn JsvDevice>)
-            })?;
-        Ok(ChainState::Gpu(Box::new(state)))
-    }
-
-    #[cfg(not(feature = "native-cuda"))]
-    fn new_native_cuda(
-        _graph: Graph,
-        _config: Config,
-        _rng: CurandRng,
-        _options: GpuOptions,
-    ) -> anyhow::Result<Self> {
-        anyhow::bail!(
-            "this binary was built without the native CUDA backend. Rebuild with \
-             `cargo build --release --features native-cuda` (which needs nvcc; \
-             `nix develop .#cuda` provides one), or use `--backend cubecl_philox` \
-             for the portable CubeCL path."
-        )
-    }
-
-    fn warmup(&mut self) {
-        match self {
-            ChainState::Cpu(state) => state.warmup(),
-            ChainState::Gpu(state) => state.warmup(),
-        }
-    }
-
-    fn cooling_evolve_with<F>(
-        &mut self,
-        schedule: cooling_schedule::CoolingSchedule,
-        observer: F,
-    ) -> f64
-    where
-        F: FnMut(&markov_chain::StepStats, &State) -> bool,
-    {
-        match self {
-            ChainState::Cpu(state) => state.cooling_evolve_with(schedule, observer),
-            ChainState::Gpu(state) => state.cooling_evolve_with(schedule, observer),
-        }
-    }
-
-    fn cooling_evolve(&mut self, schedule: cooling_schedule::CoolingSchedule) -> f64 {
-        match self {
-            ChainState::Cpu(state) => state.cooling_evolve(schedule),
-            ChainState::Gpu(state) => state.cooling_evolve(schedule),
-        }
-    }
-
-    fn global_state(&self) -> &State {
-        match self {
-            ChainState::Cpu(state) => &state.global_state,
-            ChainState::Gpu(state) => &state.global_state,
-        }
-    }
-}
-
-fn make_schedule(
-    size: usize,
-    add_factor: NonZeroUsize,
-    mul_factor: NonZeroUsize,
-) -> cooling_schedule::CoolingSchedule {
-    let cooling_cfg = CoolingConfig {
-        n: NonZeroUsize::new(size).unwrap(),
-        additive_ratio: add_factor,
-        multiplicative_ratio: mul_factor,
-    };
-    cooling_schedule::CoolingSchedule::from(cooling_cfg)
-}
-
-fn run_chain(
-    mut state: ChainState,
-    size: usize,
-    add_factor: NonZeroUsize,
-    mul_factor: NonZeroUsize,
-) -> f64 {
-    state.warmup();
-    info!("Warmup finished");
-    let schedule = make_schedule(size, add_factor, mul_factor);
-    let estimator = state.cooling_evolve(schedule);
-    info!("final hole-class abundances (1/w):");
-    for i in 0..size {
-        for j in 0..size {
-            print!("{:.2} ", 1.0 / state.global_state().weight.get(i, j));
-        }
-        println!();
-    }
-    estimator
-}
-
-fn run_chain_tui(
-    mut state: ChainState,
-    size: usize,
-    adjacency: Vec<bool>,
-    add_factor: NonZeroUsize,
-    mul_factor: NonZeroUsize,
-    exact: Option<f64>,
-) -> Option<f64> {
-    let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let _ = tx.send(tui::TuiEvent::Init { n: size, adjacency });
-        let _ = tx.send(tui::TuiEvent::WarmupStarted);
-        state.warmup();
-        let schedule = make_schedule(size, add_factor, mul_factor);
-        let estimator = state.cooling_evolve_with(schedule, |step, global| {
-            let mut marginals = vec![0.0; size * size];
-            for (index, value) in marginals.iter_mut().enumerate() {
-                *value = 1.0 / global.weight_of_edge(index / size, index % size);
-            }
-            tx.send(tui::TuiEvent::Step(tui::StepUpdate {
-                step: step.step,
-                total_steps: step.total_steps,
-                beta: step.beta,
-                ratio: step.ratio,
-                estimator: step.estimator,
-                acceptance: step.accepted_samples / step.attempted_samples.max(1) as f64,
-                marginals,
-            }))
-            .is_ok()
-        });
-        let _ = tx.send(tui::TuiEvent::Done { estimator });
-    });
-    tui::run(rx, exact).expect("terminal error")
-}
-
-fn main() {
+fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
-    if !cli.tui {
-        // the log stream would fight the dashboard for the terminal
-        tracing_subscriber::fmt()
-            .with_env_filter(
-                EnvFilter::builder()
-                    .with_default_directive(LevelFilter::INFO.into())
-                    .with_env_var("PERMANENT_LOG_LEVEL")
-                    .from_env_lossy(),
-            )
-            .init();
+    if let Some(threads) = cli.threads {
+        rayon::ThreadPoolBuilder::new().num_threads(threads).build_global()?;
     }
-    let thd_cnt = cli.num_of_threads.unwrap_or_else(|| {
-        std::thread::available_parallelism()
-            .map(|x| x.get())
-            .unwrap_or(1)
-    });
-    info!("Using {} threads", thd_cnt);
-    info!("Using {} Markov-chain backend", cli.backend);
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(thd_cnt)
-        .build_global()
-        .unwrap();
-    let graph = Graph::load(cli.graph_path).unwrap();
-    info!("Graph loaded: {:?}", graph);
-    if graph.find_match().size() != graph.size {
-        error!("Graph does not have a perfect matching");
-        return;
-    }
-    let config = Config {
-        num_of_chains: cli.num_of_chains,
-        warmup_times: cli.warmup_times,
-        weight_sample_intervals: cli.weight_sample_intervals,
-        estimator_sample_intervals: cli.estimator_sample_intervals,
-        num_of_weight_estimations: cli.num_of_weight_estimations,
-        num_of_estimator_estimations: cli.num_of_estimator_estimations,
-    };
-    info!(
-        "additive increment is slow down by {}",
-        cli.additive_slow_down
+    let problem = Problem::load(&cli.input)?;
+    let n = problem.n;
+    println!(
+        "matrix: {n} x {n}, {} nonzero entries{}",
+        problem.a.iter().filter(|&&x| x > 0.0).count(),
+        if problem.is_zero_one() { " (0/1)" } else { " (weighted)" }
     );
-    info!(
-        "multiplicative increment is slow down by {}",
-        cli.multiplicative_slow_down
-    );
-    info!("{:#?}", config);
-    let exact = cli.exact.then(|| exact::permanent(&graph));
-    let exact_f64 = exact.as_ref().map(exact::to_f64);
-    let size = graph.size;
-    let adjacency = {
-        let mut adjacency = vec![false; size * size];
-        for (u, edges) in graph.edges.iter().enumerate() {
-            for v in edges.iter().copied() {
-                adjacency[u * size + v] = true;
-            }
+    let exact = if cli.exact {
+        let value = exact::ln_permanent(&problem);
+        if value.is_none() {
+            println!("exact: skipped, n > {}", exact::MAX_EXACT_N);
         }
-        adjacency
+        value
+    } else {
+        None
     };
-    // Built before the dashboard takes the terminal, so a backend that cannot
-    // start reports plainly instead of from behind the TUI.
+    let scaled = match prepare(&problem) {
+        Prepared::Zero => {
+            println!("permanent = 0 exactly (the support has no perfect matching)");
+            return Ok(());
+        }
+        Prepared::Scaled(scaled) => scaled,
+    };
+    if n == 1 {
+        println!("permanent = {} exactly", problem.a[0]);
+        return Ok(());
+    }
     let seed = cli.seed.unwrap_or_else(rand::random);
-    info!("seed: {seed:#018x}");
-    let options = GpuOptions {
+    println!("target: relative error {} with probability {}; seed {seed}", cli.epsilon, 1.0 - cli.delta);
+    let config = Config {
+        epsilon: cli.epsilon,
+        delta: cli.delta,
         seed,
-        cuda_device: cli.cuda_device,
+        rigorous_schedule: cli.rigorous_schedule,
+        rigorous_sampler: cli.rigorous_sampler,
+        density: cli.density,
+        stage_time: cli.stage_time,
+        verbose: cli.verbose,
     };
-    let state = match ChainState::new(cli.backend, graph, config, options) {
-        Ok(state) => state,
-        Err(problem) => {
-            if cli.tui {
-                eprintln!("error: {problem:#}");
-            } else {
-                error!("{problem:#}");
-            }
-            std::process::exit(1);
-        }
-    };
-    if cli.tui {
-        let estimator = run_chain_tui(
-            state,
-            size,
-            adjacency,
-            cli.additive_slow_down,
-            cli.multiplicative_slow_down,
-            exact_f64,
-        );
-        // the subscriber is not installed in TUI mode; print plainly
-        match estimator {
-            Some(estimator) => {
-                println!("estimated permanent: {estimator:.6e}");
-                if let Some(exact) = exact.as_ref() {
-                    let exact_f64 = exact::to_f64(exact);
-                    println!(
-                        "exact permanent (Ryser): {exact}, relative error: {:.2}%",
-                        (estimator - exact_f64).abs() / exact_f64 * 100.0
-                    );
-                }
-            }
-            None => println!("annealing interrupted before completion"),
-        }
-        return;
-    }
-    let estimator = run_chain(
-        state,
-        size,
-        cli.additive_slow_down,
-        cli.multiplicative_slow_down,
+    let mut session = Session::new(&scaled, &config)?;
+    let levels = session.learn_schedule()?;
+    let d = session.diagnostics.clone();
+    println!(
+        "phase 1 (learn weights, build schedule): {:.1} s",
+        d.phase1_seconds
     );
-    info!("estimated permanent: {estimator:.6e}");
-    if let Some(exact) = exact.as_ref() {
-        let exact_f64 = exact::to_f64(exact);
-        info!(
-            "exact permanent (Ryser): {exact}, relative error: {:.2}%",
-            (estimator - exact_f64).abs() / exact_f64 * 100.0
+    println!("  temperatures (rounds):       {}", levels.len());
+    println!(
+        "  sampler:                     {} activity stages, acceptance {:.3}",
+        session.stages.stages(),
+        d.phase1.accepted as f64 / d.phase1.trials.max(1) as f64
+    );
+    println!(
+        "  work:                        {} learning passes, {:.3e} sampler events, {:.3e} FAR steps",
+        d.learn_iterations, d.phase1.events as f64, d.phase1_far_steps as f64
+    );
+    println!("  worst first-pass correction: x{:.3}", d.worst_first_correction.exp());
+    println!("  weight check (should be ~1): {:.3} to {:.3}", d.check_min, d.check_max);
+    if d.learn_capped_chains + d.learn_failed_starts + d.phase1.over_budget > 0 {
+        println!(
+            "  WARNING: {} capped FAR chains, {} failed starts, {} over-budget trials",
+            d.learn_capped_chains, d.learn_failed_starts, d.phase1.over_budget
         );
     }
-}
-
-#[cfg(test)]
-mod cli_tests {
-    use super::*;
-    use std::str::FromStr;
-
-    fn parse_backend(value: &str) -> Backend {
-        Cli::try_parse_from(["permanent", "--graph-path", "g.json", "--backend", value])
-            .unwrap()
-            .backend
+    let first = session.plan(&Session::pilot_relvar(&levels), session.learn_stage_time());
+    let (min, max) = first.samples.iter().fold((u64::MAX, 0), |(lo, hi), &s| (lo.min(s), hi.max(s)));
+    println!("plan:");
+    println!("  samples per temperature:     {min} to {max} (total {})", first.total_samples);
+    println!(
+        "  target std error of ln(per): {:.4} (interval z = {:.3})",
+        session.sigma_target, session.z
+    );
+    if cli.rigorous_sampler {
+        let t = session.rigorous_stage_time(first.total_samples);
+        let plan = session.plan(&Session::pilot_relvar(&levels), t);
+        println!(
+            "  one run at the paper's stage time {t:.1}: ~{:.3e} events, ~{:.0} s",
+            plan.predicted_events, plan.predicted_seconds
+        );
+    } else if cli.stage_time.is_none() {
+        println!(
+            "  first two runs (stage time {:.4} and {:.4}): ~{:.3e} events, ~{:.0} s",
+            first.stage_time,
+            2.0 * first.stage_time,
+            3.0 * first.predicted_events,
+            3.0 * first.predicted_seconds
+        );
     }
-
-    #[test]
-    fn backend_defaults_to_cpu() {
-        let default = Cli::try_parse_from(["permanent", "--graph-path", "g.json"]).unwrap();
-        assert_eq!(default.backend, Backend::Cpu);
+    if cli.plan_only {
+        return Ok(());
     }
-
-    #[test]
-    fn every_backend_round_trips_through_its_name() {
-        for (name, expected) in Backend::VALUES {
-            assert_eq!(parse_backend(name), expected, "parsing {name}");
-            assert_eq!(expected.as_str(), name, "displaying {name}");
-        }
+    println!("phase 2 (estimate):");
+    let (attempts, verdict) = session.estimate_validated(&levels, |attempt| {
+        let e = &attempt.estimate;
+        println!(
+            "  stage time {:<8.4} ln(per) = {:.5} ± {:.5}   {} samples, {:.3e} events, {:.1} s, acceptance {:.3}{}",
+            attempt.plan.stage_time,
+            e.ln_permanent,
+            e.std_error,
+            e.samples,
+            e.cost.events as f64,
+            e.seconds,
+            e.cost.accepted as f64 / e.cost.trials.max(1) as f64,
+            if e.failed_samples + e.cost.over_budget > 0 {
+                format!("  WARNING: {} failed samples, {} over-budget trials", e.failed_samples, e.cost.over_budget)
+            } else {
+                String::new()
+            }
+        );
+    });
+    let estimate = &attempts.last().unwrap().estimate;
+    match verdict {
+        Verdict::Rigorous => println!("  sampler setting: the paper's explicit stage time"),
+        Verdict::Validated(gap) => println!(
+            "  sampler setting: validated; halving the stage time moves the estimate by {gap:+.2} standard errors"
+        ),
+        Verdict::Unchecked => println!("  sampler setting: forced by --stage-time, not checked"),
+        Verdict::NotValidated => println!(
+            "  WARNING: the estimates never stabilized under doubling; treat the result as unreliable"
+        ),
     }
-
-    #[test]
-    fn backend_names_accept_hyphens_and_case() {
-        assert_eq!(parse_backend("cuda-mrg32k3a"), Backend::CudaMrg32k3a);
-        assert_eq!(parse_backend("CUBECL_PHILOX"), Backend::CubeclPhilox);
+    println!("  regularization factor E[g]:  {:.4}", estimate.mean_gap);
+    let half = session.z * estimate.std_error;
+    println!("permanent ≈ {}", scientific(estimate.ln_permanent));
+    println!("  ln(permanent) = {:.6} ± {:.6} (std error)", estimate.ln_permanent, estimate.std_error);
+    println!(
+        "  {:.1}% statistical interval: [{}, {}]  (relative half-width {:.2}%)",
+        100.0 * (1.0 - cli.delta / 2.0), // half of delta is statistical
+        scientific(estimate.ln_permanent - half),
+        scientific(estimate.ln_permanent + half),
+        100.0 * (half.exp() - 1.0)
+    );
+    if !estimate.met_target {
+        println!("  WARNING: the measured error did not reach the target within the top-up limit");
     }
-
-    #[test]
-    fn unknown_backend_lists_the_valid_names() {
-        let error = Backend::from_str("gpu").unwrap_err();
-        assert!(error.contains("unknown backend `gpu`"), "{error}");
-        for (name, _) in Backend::VALUES {
-            assert!(error.contains(name), "{error} should mention {name}");
-        }
+    if let Some(exact) = exact {
+        println!(
+            "exact = {}; relative error {:+.3}% ({:+.2} std errors)",
+            scientific(exact),
+            100.0 * ((estimate.ln_permanent - exact).exp() - 1.0),
+            (estimate.ln_permanent - exact) / estimate.std_error
+        );
     }
-
-    #[test]
-    fn cuda_backends_are_flagged_as_native() {
-        for (name, backend) in Backend::VALUES {
-            assert_eq!(
-                backend.is_native_cuda(),
-                name.starts_with("cuda_"),
-                "{name}"
-            );
-        }
-    }
+    Ok(())
 }

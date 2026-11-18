@@ -1,0 +1,41 @@
+use permanent::estimator::{Config, Session, Verdict};
+use permanent::exact;
+use permanent::problem::Problem;
+use permanent::scaling::{Prepared, prepare};
+
+fn check(problem: &Problem, seed: u64) {
+    let exact = exact::ln_permanent(problem).unwrap();
+    let Prepared::Scaled(scaled) = prepare(problem) else { panic!("permanent is zero") };
+    let config = Config { epsilon: 0.1, delta: 0.05, seed, ..Default::default() };
+    let mut session = Session::new(&scaled, &config).unwrap();
+    let levels = session.learn_schedule().unwrap();
+    let (attempts, verdict) = session.estimate_validated(&levels, |_| {});
+    assert!(!matches!(verdict, Verdict::NotValidated));
+    let estimate = &attempts.last().unwrap().estimate;
+    assert!(estimate.met_target);
+    // 4 standard errors: a fixed-seed regression check, not a coverage test
+    let z = (estimate.ln_permanent - exact) / estimate.std_error;
+    assert!(z.abs() < 4.0, "estimate {} vs exact {exact} ({z:+.2} se)", estimate.ln_permanent);
+}
+
+#[test]
+fn weighted_sparse_matrix() {
+    let n = 7;
+    let mut a = vec![0.0; n * n];
+    for u in 0..n {
+        for v in 0..n {
+            if (u * 5 + v * 3) % 4 != 1 || u == v {
+                a[u * n + v] = (((u * 7 + v * 11) % 13) as f64 - 6.0).exp();
+            }
+        }
+    }
+    check(&Problem { n, a }, 1);
+}
+
+#[test]
+fn zero_one_cycle_cover() {
+    // rows u adjacent to columns u, u+1, u+3 (mod n)
+    let n = 10;
+    let edges: Vec<Vec<usize>> = (0..n).map(|u| vec![u, (u + 1) % n, (u + 3) % n]).collect();
+    check(&Problem::from_edges(n, &edges).unwrap(), 2);
+}
