@@ -41,11 +41,14 @@
 //!
 //! Check. At a segment boundary the particles carried there and the fresh
 //! draws of the next segment target the same distribution. Their mean
-//! weights are compared; a disagreement means the mutation time or the
-//! sampler's run length is too short.
+//! weights are compared, the carried side as an unbiased ratio over
+//! islands; a disagreement means the sampler's run length is too short.
 //!
 //! Phase 1 fixes the schedule and learns the anchor weights with one
-//! population of its own: every particle runs a few FAR cycles (`far.rs`).
+//! population of its own: every particle runs a few FAR cycles (`far.rs`),
+//! which also move it.
+//!
+//! misc/theory.md derives all of this.
 
 use rand::rngs::SmallRng;
 use rand::seq::SliceRandom;
@@ -812,11 +815,27 @@ impl<'a> Session<'a> {
             }
             let mut worst: f64 = 0.0;
             for boundary in 1..segments {
-                let carried: Vec<f64> = runs[boundary - 1].iter().map(|run| run.carried).collect();
+                // An island's carried mean weight is biased by O(1/P), but
+                // its product with the island's own estimate is unbiased
+                // for one more ratio. So the carried side is the ratio of
+                // two means over islands, sum(Z c) / sum(Z), whose error
+                // comes from the residuals Z (c - ratio) / mean(Z).
+                let previous = &runs[boundary - 1];
+                let top = previous.iter().map(|run| run.ln_ratio).fold(f64::NEG_INFINITY, f64::max);
+                let estimates: Vec<f64> = previous.iter().map(|run| (run.ln_ratio - top).exp()).collect();
+                let total: f64 = estimates.iter().sum();
+                let a = previous.iter().zip(&estimates).map(|(run, z)| z * run.carried).sum::<f64>() / total;
+                let scale = previous.len() as f64 / total;
+                let residuals: Vec<f64> =
+                    previous.iter().zip(&estimates).map(|(run, z)| z * (run.carried - a) * scale).collect();
+                let va = mean_and_error(&residuals).1;
                 let fresh: Vec<f64> = runs[boundary].iter().map(|run| run.fresh).collect();
-                let (a, va) = mean_and_error(&carried);
                 let (b, vb) = mean_and_error(&fresh);
-                let gap = (a - b) / (va + vb).sqrt();
+                // When every particle has the same weight (a 0/1 matrix at
+                // high beta) both sides are equal up to rounding, and so are
+                // their errors; the floor keeps that from reading as a gap.
+                let rounding = 1e-12 * a.abs().max(b.abs());
+                let gap = (a - b) / (va + vb + rounding * rounding).sqrt();
                 debug!(boundary, level = plan.segments[boundary].start, gap, "boundary check");
                 if gap.abs() > worst.abs() {
                     worst = gap;
