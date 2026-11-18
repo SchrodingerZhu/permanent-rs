@@ -34,8 +34,9 @@ paper's sampler is what cuts that population into independent pieces.
    per(A) = n! · ∏ E_i[exp(-d_i H)] · E[g] / c.
 3. **Learning** (`far.rs`). The n anchor weights of each temperature are
    learned with the FAR chain, counted over cycles between perfect states
-   (Kac's formula). The identity holds per cycle, so every particle of the
-   population runs a few cycles instead of a few chains running many.
+   (Kac's formula). The identity holds per cycle, so every particle of a
+   population runs a few cycles instead of a few chains running many, and
+   the runs are also what moves that population between temperatures.
 4. **Population** (`estimator.rs`, `sampler.rs`). P particles at one
    temperature are weighted by exp(-d H), resampled, and moved by the
    relaxed-assignment dynamics at the top activity, run until time t has
@@ -54,7 +55,7 @@ paper's sampler is what cuts that population into independent pieces.
 
 | Statement | Backing |
 |---|---|
-| The estimate is unbiased for every P, t and any anchor weights, once the schedule and weights are fixed. | Unnormalized particle estimates are unbiased (Del Moral 2004, Thm 7.4.2); segment starts are exact at beta = 0 and from the sampler elsewhere. Checked by a test with 4 particles per island. |
+| The estimate is unbiased for every P, t and any anchor weights, once the schedule and weights are fixed. | Unnormalized particle estimates are unbiased (Del Moral 2004, Section 7.4); segment starts are exact at beta = 0 and from the sampler elsewhere. Checked by a test with 4 particles per island. |
 | Its relative variance is about v / P with v ≤ (1 − √g e^(−t))^(−2) · Σ relvar_i. | Asymptotic in P, from the exp(-t) contraction; g bounds a step's largest weight over its mean. Measured values have been 4–10 times below it. |
 | The error bar is honest. | Islands are i.i.d. and unbiased; the bar is their spread, and islands are added until it meets the target. |
 | Segment starts follow the target. | `--rigorous-sampler` runs the sampler for the paper's explicit time. Otherwise the boundary check compares, at every segment boundary, the particles carried there with the fresh draws; both target the same distribution. |
@@ -62,6 +63,17 @@ paper's sampler is what cuts that population into independent pieces.
 The variance bound sizes P; nothing else depends on it. A wider machine
 holds more particles per sweep, and the error falls as 1/√P at the same
 number of sweeps.
+
+[misc/theory.md](misc/theory.md) has the proofs, the derivation of every
+sizing rule, and an enumeration check of them (`misc/verify_variance.py`).
+
+Against exact permanents of twelve weighted matrices (n = 12 to 24: dense
+and sparse, lognormal with entries spread over e^±12, entries spanning
+twelve decades, near-permutations, weakly coupled blocks) and one 0/1
+matrix, 40 seeds each on the CPU and the GPU engine, the reported interval
+contained the exact value in 1007 of 1040 runs (96.8%), and (estimate − exact) /
+(reported error) had mean between −0.35 and 0.55 and standard deviation 0.8
+to 1.2 on every matrix. The table is in the theory note.
 
 ## GPU
 
@@ -75,8 +87,9 @@ LLVM 21+ and CUDA 13+:
     target/release/permanent-cuda ../data/cyc-64-m4.json
     cargo oxide test -- --release      # needs a GPU
 
-The mutation, the sampler, the measurement of energies and the resampling
-run on the device; the FAR learner still runs on the host.
+Every population operation runs on the device. FAR chains have very
+uneven lengths, so a FAR launch gives each chain a step budget and the few
+that overrun it are finished on host threads.
 
 ## MPI
 
@@ -89,6 +102,17 @@ share of the work (and, in the GPU build, its own device):
 Ranks split the segments and islands of Phase 2, which share nothing, and
 pool their learning statistics in Phase 1. Results do not depend on the
 number of ranks beyond the split of the Phase 1 population.
+
+## Nix
+
+    nix build              # the CPU program, tests included
+    nix build .#mpi        # with MPI
+    nix develop            # cargo and rustc
+    nix develop .#mpi      # plus an MPI and libclang for its bindings
+    nix develop .#cuda     # the GPU crate's pinned toolchain and CUDA 13
+
+The GPU crate is built inside the `cuda` shell with `cargo oxide`, which
+the shell tells you how to install; the NVIDIA driver comes from the host.
 
 ## Layout
 
