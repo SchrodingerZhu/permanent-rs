@@ -165,6 +165,8 @@ pub struct Plan {
     pub island_relvar: f64,
     /// Sampler time per stage for the segment starts.
     pub stage_time: f64,
+    /// Mutation events of the first round, extrapolated from Phase 1's
+    /// mutations; 0 when Phase 1 made none.
     pub predicted_events: f64,
 }
 
@@ -664,7 +666,9 @@ impl<'a> Session<'a> {
             SAMPLER_TIME * self.stages.initial_stage_time(self.scaled.n)
         };
         let d = &self.diagnostics;
-        let per_mutation = d.mutate.events as f64 / d.mutations.max(1) as f64;
+        // a mutation's cost grows in proportion to its time
+        let per_mutation = d.mutate.events as f64 / d.mutations.max(1) as f64 * self.config.mutation_time
+            / self.config.learn_mutation_time.max(f64::MIN_POSITIVE);
         let predicted_events = per_mutation * (particles * islands * (steps + count - 1)) as f64;
         Plan { segments, particles, islands, relvar_sum, mixing_factor, island_relvar, stage_time, predicted_events }
     }

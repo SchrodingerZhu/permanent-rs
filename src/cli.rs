@@ -283,12 +283,16 @@ fn run(
         d.mutate.events as f64,
         d.far_steps as f64
     );
-    say!(
-        reporter,
-        "  mutation (t = {t}):           {:.0} events each, {:.3} of the time in perfect matchings",
-        d.mutate.events as f64 / d.mutations.max(1) as f64,
-        t * d.mutations as f64 / d.mutate.time
-    );
+    // Phase 1 mutates only when --learn-mutation-time asks for it
+    if d.mutations > 0 {
+        say!(
+            reporter,
+            "  mutation (t = {}):         {:.0} events each, {:.3} of the time in perfect matchings",
+            cli.learn_mutation_time,
+            d.mutate.events as f64 / d.mutations as f64,
+            cli.learn_mutation_time * d.mutations as f64 / d.mutate.time
+        );
+    }
     say!(reporter, "  worst first-pass correction: x{:.3}", d.worst_first_correction.exp());
     say!(reporter, "  weight check (should be ~1): {:.3} to {:.3}", d.check_min, d.check_max);
     if d.learn_capped_chains + d.mutate.over_budget > 0 {
@@ -337,12 +341,10 @@ fn run(
         session.sigma_target,
         session.z
     );
-    say!(
-        reporter,
-        "  predicted:                   ~{:.3e} mutation events; sampler stage time {:.4}",
-        plan.predicted_events,
-        plan.stage_time
-    );
+    say!(reporter, "  sampler stage time:          {:.4}", plan.stage_time);
+    if plan.predicted_events > 0.0 {
+        say!(reporter, "  predicted:                   ~{:.3e} mutation events", plan.predicted_events);
+    }
     if cli.plan_only {
         return Ok(());
     }
