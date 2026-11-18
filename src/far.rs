@@ -59,17 +59,36 @@ pub fn run(
     max_steps: u64,
     rng: &mut SmallRng,
 ) -> FarStats {
+    resume(tables, energy, row, None, cycles, max_steps, rng)
+}
+
+/// `run` for a chain that was stopped part-way, with `cycles` perfect steps
+/// still to take. If it stopped between perfect matchings, `hole` is its
+/// pair of holes and `row` holds `NONE` at the left one. A chain resumed
+/// there that then hits the step cap is closed by adding the edge across
+/// its holes, since its starting matching is not known here.
+pub fn resume(
+    tables: &Tables,
+    energy: &[f64],
+    row: &mut [u32],
+    mut hole: Option<(usize, usize)>,
+    cycles: u64,
+    max_steps: u64,
+    rng: &mut SmallRng,
+) -> FarStats {
     let n = tables.n;
     let nf = n as f64;
     let r = tables.anchor;
     let start: Vec<u32> = row.to_vec();
+    let resumed = hole.is_some();
     let mut col = vec![NONE; n];
     let mut h = 0.0;
     for (u, &v) in row.iter().enumerate() {
-        col[v as usize] = u as u32;
-        h += energy[u * n + v as usize];
+        if v != NONE {
+            col[v as usize] = u as u32;
+            h += energy[u * n + v as usize];
+        }
     }
-    let mut hole: Option<(usize, usize)> = None;
     let mut stats = FarStats {
         perfect_steps: 0,
         steps: 0,
@@ -104,7 +123,11 @@ pub fn run(
                 stats.steps += 1;
                 if stats.steps > max_steps {
                     stats.capped = true;
-                    row.copy_from_slice(&start);
+                    if resumed {
+                        row[u] = v as u32;
+                    } else {
+                        row.copy_from_slice(&start);
+                    }
                     break;
                 }
                 let b = tables.b[u * n + v];

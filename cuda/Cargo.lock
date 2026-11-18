@@ -1379,6 +1379,8 @@ dependencies = [
  "cuda-host",
  "mimalloc",
  "permanent",
+ "rand 0.10.4",
+ "rayon",
  "tracing",
 ]
 

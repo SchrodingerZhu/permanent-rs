@@ -79,9 +79,16 @@ pub struct Cli {
     /// written only when this is given.
     #[arg(long)]
     log_file: Option<std::path::PathBuf>,
+    /// Write what Phase 1 fixed (temperatures, anchor weights) and the
+    /// scaled matrix to this JSON file.
+    #[arg(long)]
+    save_schedule: Option<std::path::PathBuf>,
     /// Expert: time a mutation spends in perfect matchings.
     #[arg(long, default_value_t = 1.5, hide = true)]
     mutation_time: f64,
+    /// Expert: time of the mutation Phase 1 applies at each temperature.
+    #[arg(long, default_value_t = 0.0, hide = true)]
+    learn_mutation_time: f64,
     /// Expert: particles per island.
     #[arg(long, hide = true)]
     particles: Option<usize>,
@@ -196,6 +203,7 @@ fn run(
         rigorous_sampler: cli.rigorous_sampler,
         density: cli.density,
         mutation_time: cli.mutation_time,
+        learn_mutation_time: cli.learn_mutation_time,
         learn_particles: cli.learn_particles,
         particles: cli.particles,
         islands: cli.islands,
@@ -290,6 +298,18 @@ fn run(
             d.learn_capped_chains,
             d.mutate.over_budget
         );
+    }
+    if let Some(path) = cli.save_schedule.as_ref().filter(|_| comm.rank() == 0) {
+        let schedule = serde_json::json!({
+            "n": n,
+            "mutation_time": t,
+            "energy": scaled.energy,
+            "log_gap": scaled.log_gap.iter().map(|g| g.max(f64::MIN)).collect::<Vec<_>>(),
+            "log_scale": scaled.log_scale,
+            "levels": levels,
+        });
+        std::fs::write(path, serde_json::to_string(&schedule)?)
+            .map_err(|error| anyhow::anyhow!("writing {}: {error}", path.display()))?;
     }
     let plan = session.plan(&levels);
     say!(reporter, "plan:");

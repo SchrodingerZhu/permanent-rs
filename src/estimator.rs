@@ -15,7 +15,7 @@
 //! resampled in proportion, and moved by the mutation kernel K_t of
 //! `sampler.rs`, which leaves mu_{i+1} invariant for any anchor weights and
 //! contracts L2(mu_{i+1}) by exp(-t). The product of the mean weights is an
-//! unbiased estimate of Z_j / Z_i (Del Moral 2004, Thm 7.4.2), for every P
+//! unbiased estimate of Z_j / Z_i (Del Moral 2004, Section 7.4), for every P
 //! and every t, provided the first particles are exact samples and the
 //! schedule and weights were fixed beforehand. Its relative variance is
 //! asymptotically v / P with
@@ -81,7 +81,11 @@ pub struct Config {
     pub density: f64,
     /// Time t a mutation spends in perfect matchings.
     pub mutation_time: f64,
-    /// Particles of the Phase 1 population, over all ranks.
+    /// Time of the mutation Phase 1 applies when it enters a temperature;
+    /// 0 leaves the moving to the FAR runs.
+    pub learn_mutation_time: f64,
+    /// Particles of the Phase 1 population, over all ranks; the engine's
+    /// preference per rank when absent.
     pub learn_particles: Option<usize>,
     /// Particles per island; derived when absent.
     pub particles: Option<usize>,
@@ -101,6 +105,7 @@ impl Default for Config {
             rigorous_sampler: false,
             density: 32.0,
             mutation_time: 1.5,
+            learn_mutation_time: 0.0,
             learn_particles: None,
             particles: None,
             islands: None,
@@ -110,7 +115,7 @@ impl Default for Config {
 }
 
 /// One temperature of the schedule, as fixed by Phase 1.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct Level {
     pub beta: f64,
     pub log_w: Vec<f64>,
@@ -214,7 +219,6 @@ const PHASE_ANNEAL: u64 = 1001;
 const PHASE_MUTATE: u64 = 1002;
 const PHASE_RESAMPLE: u64 = 1003;
 
-const DEFAULT_LEARN_PARTICLES: usize = 4096;
 /// Particles are pooled per rank into this many groups, whose spread gives
 /// the error of the learned weights.
 const LEARN_GROUPS: usize = 64;
@@ -251,12 +255,18 @@ struct Learned {
 /// largest such weight over their mean.
 fn weight_stats(pilot: &[f64], step: f64) -> (f64, f64) {
     let min = pilot.iter().copied().fold(f64::INFINITY, f64::min);
-    let (mut m1, mut m2) = (0.0, 0.0);
-    for &h in pilot {
-        let x = (-step * (h - min)).exp();
-        m1 += x;
-        m2 += x * x;
-    }
+    // summed by fixed chunks, in order, so the result does not depend on
+    // how the pool schedules them
+    let sums: Vec<(f64, f64)> = pilot
+        .par_chunks(4096)
+        .map(|chunk| {
+            chunk.iter().fold((0.0, 0.0), |(m1, m2), &h| {
+                let x = (-step * (h - min)).exp();
+                (m1 + x, m2 + x * x)
+            })
+        })
+        .collect();
+    let (m1, m2) = sums.iter().fold((0.0, 0.0), |a, b| (a.0 + b.0, a.1 + b.1));
     let k = pilot.len() as f64;
     let mean = m1 / k;
     ((m2 / k) / (mean * mean) - 1.0, 1.0 / mean)
@@ -414,9 +424,9 @@ impl<'a> Session<'a> {
             let tables = Tables::build(scaled, beta, &log_w, anchor);
             // Once per temperature, to spread out the copies resampling
             // made; after that the FAR runs themselves move the particles.
-            if iteration == 0 && !exact {
+            if iteration == 0 && !exact && self.config.learn_mutation_time > 0.0 {
                 let stream = self.learn_stream();
-                let cost = self.engine.mutate(&tables, self.config.mutation_time, stream)?;
+                let cost = self.engine.mutate(&tables, self.config.learn_mutation_time, stream)?;
                 self.diagnostics.mutate.add(cost);
                 self.diagnostics.mutations += local as u64;
             }
@@ -533,7 +543,7 @@ impl<'a> Session<'a> {
         let spread = 2.0 * scaled.log_inv_tau;
         let start = Instant::now();
 
-        let wanted = self.config.learn_particles.unwrap_or(DEFAULT_LEARN_PARTICLES);
+        let wanted = self.config.learn_particles.unwrap_or_else(|| self.engine.learn_particles() * ranks);
         let local = wanted.div_ceil(ranks).min(self.engine.capacity());
         anyhow::ensure!(local * ranks >= 2 * LEARN_GROUPS, "Phase 1 needs at least {} particles", 2 * LEARN_GROUPS);
         self.diagnostics.learn_particles = local;

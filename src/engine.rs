@@ -78,6 +78,12 @@ pub trait Engine {
     /// Most particles the engine can hold.
     fn capacity(&self) -> usize;
 
+    /// The Phase 1 population this engine handles well: FAR learning needs
+    /// a fixed total of cycles, so more particles mean fewer cycles each.
+    fn learn_particles(&self) -> usize {
+        4096
+    }
+
     /// Replace the population by the perfect matchings in `perms` (rows of
     /// n); `first_id` is the global id of the first one.
     fn load(&mut self, perms: &[u32], first_id: u64) -> anyhow::Result<()>;

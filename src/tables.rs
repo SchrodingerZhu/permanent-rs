@@ -12,11 +12,17 @@
 
 use rand::RngExt;
 use rand::rngs::SmallRng;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::scaling::Scaled;
 use crate::stats::log_sum_exp;
 
+static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+
 pub struct Tables {
+    /// Distinct for every table built in this process, so an engine can
+    /// tell whether the copy it holds is still the current one.
+    pub id: u64,
     pub n: usize,
     pub anchor: usize,
     pub b: Vec<f64>,
@@ -102,7 +108,8 @@ impl Tables {
                 &mut col_alias[v * n..(v + 1) * n],
             );
         }
-        Tables { n, anchor, b, s, log_anchor_norm, row_prob, row_alias, col_prob, col_alias }
+        let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+        Tables { id, n, anchor, b, s, log_anchor_norm, row_prob, row_alias, col_prob, col_alias }
     }
 
     #[inline]
@@ -116,6 +123,12 @@ impl Tables {
     /// cell's keep probability and its alias column.
     pub fn row_alias(&self) -> (&[f64], &[u32]) {
         (&self.row_prob, &self.row_alias)
+    }
+
+    /// The column alias tables: for column v, entries v*n..(v+1)*n hold
+    /// each cell's keep probability and its alias row.
+    pub fn col_alias(&self) -> (&[f64], &[u32]) {
+        (&self.col_prob, &self.col_alias)
     }
 
     /// A column v with probability B(u, v).

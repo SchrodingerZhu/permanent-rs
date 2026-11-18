@@ -18,6 +18,8 @@ cuda-host = { git = "https://github.com/NVIDIA/cuda-rust.git" }
 # Has to come from the same repository as cuda-host, which depends on it.
 cuda-core = { git = "https://github.com/NVIDIA/cuda-rust.git" }
 anyhow = "1.0.104"
+rand = { version = "0.10.2" }
+rayon = "1.12.0"
 mimalloc = "0.1.52"
 tracing = "0.1.44"
 
