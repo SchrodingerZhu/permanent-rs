@@ -1,9 +1,15 @@
 {
-  description = "Approximate permanent computation via simulated annealing on matchings";
+  description = "Permanent of a nonnegative matrix to a requested accuracy, by population annealing";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    # The GPU crate needs the exact toolchain of cuda/rust-toolchain.toml,
+    # with rustc-dev, which nixpkgs' rustc does not ship.
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     # Run-time discovery of the host NVIDIA driver libraries on non-NixOS
     # hosts (see driverLibPath below for why this cannot come from nixpkgs).
     nix-gl-host.url = "github:numtide/nix-gl-host";
@@ -14,50 +20,48 @@
       self,
       nixpkgs,
       flake-utils,
+      rust-overlay,
       nix-gl-host,
     }:
     flake-utils.lib.eachDefaultSystem (
       system:
       let
         # The CUDA toolkit is unfree, so this flake instantiates its own
-        # nixpkgs with `allowUnfree` rather than relying on the caller's
-        # config. Only the CUDA dev shell pulls unfree paths in; the default
-        # package below never references them.
+        # nixpkgs with `allowUnfree`. Only the CUDA dev shell pulls unfree
+        # paths in; the packages below never reference them.
         pkgs = import nixpkgs {
           inherit system;
           config.allowUnfree = true;
+          overlays = [ rust-overlay.overlays.default ];
         };
 
-        # Pinned to 13.2 to match the `nvcc`/cuRAND pairing the kernels are
-        # built against, and because Blackwell (sm_100/sm_120) needs 13.x.
-        cudaPackages = pkgs.cudaPackages_13_2;
+        # cuda-oxide wants CUDA 13 and a 580-series driver.
+        cudaPackages = pkgs.cudaPackages_13;
 
-        # Only the pieces the kernels actually need: nvcc, the CUDA runtime
-        # and CCCL headers it includes, and cuRAND. Merged into one tree so
-        # CUDA_PATH resolves bin/ and include/ the way nvcc and cubecl-cuda
-        # expect. Deliberately not `cudaPackages.cudatoolkit`, which drags in
-        # cuda_gdb, Nsight and friends for no benefit here.
+        # What cuda-oxide links device code against: libNVVM and libdevice
+        # (shipped with nvcc), nvJitLink, and the runtime headers. Merged
+        # into one tree so CUDA_PATH resolves the way the toolkit lays it out.
         cudaEnv = pkgs.symlinkJoin {
           name = "cuda-env-${cudaPackages.cudaMajorMinorVersion}";
           paths = with cudaPackages; [
             cuda_nvcc
-            # CUDA 13 split the CRT headers (crt/host_config.h, which
-            # cuda_runtime.h pulls in) into their own redistributable.
             cuda_crt
             cuda_cudart
-            cccl
-            # cubecl-cuda JIT-compiles its kernels through NVRTC at run time;
-            # without libnvrtc.so on the loader path every kernel launch
-            # panics inside cudarc (and cubecl's task channel swallows the
-            # panic, so the run "finishes" with garbage instead of failing).
             cuda_nvrtc
-            cuda_nvrtc.lib
+            libnvjitlink
+            # cuda-oxide's driver bindings include curand.h, which nixpkgs
+            # keeps in an output of its own
             libcurand
             libcurand.dev
             libcurand.include
             libcurand.lib
           ];
         };
+
+        # cuda-oxide generates its driver bindings with bindgen.
+        libclang = pkgs.llvmPackages_21.libclang;
+
+        cudaToolchain = pkgs.rust-bin.fromRustupToolchainFile ./cuda/rust-toolchain.toml;
 
         rustDevPackages = with pkgs; [
           cargo
@@ -70,93 +74,95 @@
         # `libcuda.so` ships with the NVIDIA *driver*, never with the
         # toolkit, so it cannot come from nixpkgs. NixOS exposes it at
         # /run/opengl-driver/lib. On FHS distributions the driver libs sit
-        # next to the system glibc (e.g. /usr/lib/aarch64-linux-gnu), which
-        # must never land on a nix binary's LD_LIBRARY_PATH wholesale; the
-        # cuda shell instead uses nixglhost, which at run time copies just
-        # the driver DSOs into an isolated cache directory and prints that
-        # path. This is the one unavoidable impurity for actually running
-        # (not building) CUDA code.
-        driverLibPath = "/run/opengl-driver/lib:/run/opengl-driver-32/lib";
+        # next to the system glibc, which must never land on a nix binary's
+        # LD_LIBRARY_PATH wholesale; nixglhost copies just the driver DSOs
+        # into an isolated cache directory and prints that path.
+        driverLibPath = "/run/opengl-driver/lib";
         nixglhost = nix-gl-host.packages.${system}.default;
+
+        # The CPU program. `cuda/` is a crate of its own, built with
+        # cuda-oxide inside the cuda shell, and is left out of the source.
+        permanent =
+          { withMpi }:
+          pkgs.rustPlatform.buildRustPackage {
+            pname = "permanent" + pkgs.lib.optionalString withMpi "-mpi";
+            version = (pkgs.lib.importTOML ./Cargo.toml).package.version;
+            src = pkgs.lib.cleanSourceWith {
+              src = self;
+              filter =
+                path: type:
+                let
+                  base = baseNameOf path;
+                in
+                # .cargo/config.toml sets target-cpu=native, which is impure
+                !(builtins.elem base [
+                  "flake.nix"
+                  "flake.lock"
+                  ".cargo"
+                  "cuda"
+                  "misc"
+                ]);
+            };
+            cargoLock.lockFile = ./Cargo.lock;
+            buildFeatures = pkgs.lib.optional withMpi "mpi";
+            # the MPI bindings are generated with bindgen against mpi.h
+            nativeBuildInputs = pkgs.lib.optionals withMpi [
+              pkgs.rustPlatform.bindgenHook
+              pkgs.mpi
+            ];
+            buildInputs = pkgs.lib.optional withMpi pkgs.mpi;
+            meta.mainProgram = "permanent";
+          };
       in
       {
-        packages.default = pkgs.rustPlatform.buildRustPackage {
-          pname = "permanent";
-          version = "0.1.0";
-          src = pkgs.lib.cleanSourceWith {
-            src = self;
-            filter =
-              path: type:
-              let
-                base = baseNameOf path;
-              in
-              base != "flake.nix" && base != "flake.lock" && base != ".cargo";
-          };
-          cargoLock.lockFile = ./Cargo.lock;
-          nativeBuildInputs = [ pkgs.makeWrapper ];
-          postInstall = ''
-            wrapProgram $out/bin/permanent \
-              --prefix LD_LIBRARY_PATH : ${pkgs.lib.makeLibraryPath [ pkgs.vulkan-loader ]}
-          '';
-          # .cargo/config.toml sets target-cpu=native which is impure; the
-          # source filter above drops it so the nix build stays reproducible.
-        };
+        packages.default = permanent { withMpi = false; };
+        # `mpirun -n R permanent ...`
+        packages.mpi = permanent { withMpi = true; };
 
         devShells.default = pkgs.mkShell {
-          packages = rustDevPackages ++ (with pkgs; [
-            pkg-config
-            vulkan-loader
-          ]);
+          packages = rustDevPackages;
           env.RUST_BACKTRACE = "1";
-          env.LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [ pkgs.vulkan-loader ];
-          # `nix develop` is impure and inherits the caller's environment, so
-          # an ambient CUDA_PATH (e.g. a system /opt/cuda) would leak in and
-          # a `--features cuda` build here would silently link against it.
-          # Drop it: CUDA belongs to the `.#cuda` shell, which pins its own.
-          shellHook = ''
-            unset CUDA_PATH NVCC_PREPEND_FLAGS
-          '';
         };
 
-        # `nix develop .#cuda` — adds a reproducible CUDA 13.2 toolchain on
-        # top of the default shell. Everything (nvcc, cuRAND headers, the
-        # host compiler nvcc drives) comes from nixpkgs; nothing is taken
-        # from a system-wide /opt/cuda or /usr/local/cuda.
-        devShells.cuda = pkgs.mkShell {
-          # `backendStdenv` is the stdenv nixpkgs builds CUDA with: its gcc
-          # is one nvcc 13.2 accepts, and it avoids the binutils/glibc
-          # mismatch you get from pointing a system CUDA at a nix host
-          # toolchain.
-          stdenv = cudaPackages.backendStdenv;
+        # `nix develop .#mpi` — for `cargo build --features mpi`.
+        devShells.mpi = pkgs.mkShell {
+          packages = rustDevPackages ++ [ pkgs.mpi ];
+          nativeBuildInputs = [ pkgs.rustPlatform.bindgenHook ];
+          env.RUST_BACKTRACE = "1";
+        };
 
-          packages = rustDevPackages ++ (with pkgs; [
-            pkg-config
-            vulkan-loader
-          ]) ++ [
+        # `nix develop .#cuda` — for the GPU crate: `cd cuda && cargo oxide
+        # build`. Everything but the driver comes from nixpkgs. cargo-oxide
+        # itself is not packaged: it fetches and builds its compiler backend
+        # on first use, so install it once inside this shell with the
+        # command the shell prints.
+        devShells.cuda = pkgs.mkShell {
+          packages = [
+            cudaToolchain
             cudaEnv
+            libclang
+            pkgs.mpi
             nixglhost
-            # Nsight Compute, for grounding kernel-level performance claims.
-            cudaPackages.nsight_compute
           ];
+          nativeBuildInputs = [ pkgs.rustPlatform.bindgenHook ];
 
           env.RUST_BACKTRACE = "1";
-          # cubecl-cuda and our build.rs both look at CUDA_PATH first; point
-          # it at the merged toolkit tree so bin/nvcc and include/ resolve.
           env.CUDA_PATH = "${cudaEnv}";
-          # nvcc derives its default include dir from realpath(nvcc)/../include,
-          # which resolves back into the cuda_nvcc store path alone and misses
-          # the cudart/CRT/cuRAND headers. Point it at the merged tree.
-          env.NVCC_PREPEND_FLAGS = "-I${cudaEnv}/include";
-          env.LD_LIBRARY_PATH =
-            "${pkgs.lib.makeLibraryPath [ pkgs.vulkan-loader cudaEnv ]}:${driverLibPath}";
-          # On non-NixOS hosts /run/opengl-driver does not exist and the
-          # driver libs cannot be taken from the system lib dir directly (its
-          # glibc would shadow the nix one). nixglhost copies just the driver
-          # DSOs into an isolated cache dir; -p prints that dir so plain
-          # `cargo run` works without wrapping every invocation.
+          env.CUDA_HOME = "${cudaEnv}";
+          env.LD_LIBRARY_PATH = "${pkgs.lib.makeLibraryPath [ cudaEnv ]}:${driverLibPath}";
           shellHook = ''
+            # keep cargo-installed tools of this shell apart from the user's
+            export CARGO_HOME="''${CARGO_HOME:-$HOME/.cargo}"
+            export PATH="$CARGO_HOME/bin:$PATH"
+            # Where the driver lives somewhere nixglhost does not look (a
+            # container with /usr/lib64-nvidia, say), add that directory to
+            # LD_LIBRARY_PATH by hand.
             if [ ! -d /run/opengl-driver/lib ]; then
               export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$(nixglhost -p 2>/dev/null || true)"
+            fi
+            if ! command -v cargo-oxide >/dev/null; then
+              echo "cargo-oxide is not installed; run:"
+              echo "  cargo install --locked --git https://github.com/NVIDIA/cuda-rust.git cargo-oxide"
             fi
           '';
         };
