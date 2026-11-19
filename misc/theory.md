@@ -161,7 +161,8 @@ So a_i ≤ √v_i + q a_{i+1}, hence a_i ≤ Σ_{j≥i} q^(j−i) √v_j: the se
 inequality gives Σ a_i² ≤ (1−q)^(−2) Σ v_i.  ∎
 
 (3.1) is asymptotic in P. The program does not rely on it for the error
-bar (section 5); it uses the bound of Proposition 4 only to choose P.
+bar (section 5); the bound of Proposition 4 only caps the size of an
+island.
 
 ## 4. Segments
 
@@ -228,21 +229,29 @@ Nothing about this error bar depends on the mixing bound, on P, or on
 of δ is given to the statistical error, two-sided: z = Φ⁻¹(1 − δ/4), and
 the target is se ≤ σ_t = ln(1+ε)/z.
 
-**Particles.** By Proposition 4 an island's relative variance is about
-c Σ_i v_i / P with c = (1 − q)^(−2). The program takes
+**Particles.** Proposition 4 bounds an island's relative variance by
+c Σ_i v_i / P with c = (1 − q)^(−2). That c is far from what is measured.
+q uses the largest normalized weight g, and the largest weight in a
+population grows with the population it is read from, so on larger problems
+c reaches the cap of 100 the program puts on it, while the measured variance
+stays within 1.2 Σ_i v_i / P (section 9). Sizing by c made a 256 × 256
+problem do a hundred times the work its target needed. The program
+therefore sizes for twice the perfect-mixing variance,
 
-    P = ⌈ c Σ_i v_i / V₀ ⌉,   V₀ = 1/4,   P ≥ 64,
+    P = ⌈ 2 Σ_i v_i / V₀ ⌉,   V₀ = 1/4,   P ≥ 64,
 
-from Phase 1's v_i and g_i, so that an island's relative standard deviation
-is at most 1/2: small enough that the island values are far from the heavy
-right tail an under-mixed estimate develops, and that the mean of R ≥ 32 of
-them is close to normal.
+and lets the measurement correct it: if the first islands come out with a
+relative variance above 1, they are thrown away and run again with P
+multiplied by (measured / V₀), up to the P the bound asks for. V₀ = 1/4
+keeps an island's relative standard deviation at most 1/2: small enough
+that the island values are far from the heavy right tail an under-mixed
+estimate develops, and that the mean of R ≥ 32 of them is close to normal.
 
-**Islands.** R starts at 32, the fewest that measure their own spread to
-about 25%. If se > σ_t, islands are added to reach R' = 1.1 R (se/σ_t)²,
-since the error of a mean of i.i.d. values falls as 1/√R. Because c is an
-upper bound (measured island variances are 2 to 10 times below it, section
-9), the first 32 islands usually suffice.
+**Islands.** R starts at the number the target is expected to take,
+1.1 · 1.2 Σ_i v_i / (P σ_t²) and at least 32, so that one round usually
+does and the islands run together. If se > σ_t afterwards, islands are
+added to reach R' = 1.1 R (se/σ_t)², since the error of a mean of i.i.d.
+values falls as 1/√R.
 
 **Mutation time.** For a fixed target the work is proportional to
 P · t ∝ t (1 − q₀ e^(−t))^(−2) with q₀ = max √g_i. Its minimum is at
@@ -313,6 +322,19 @@ mutations. In a scheme that draws every sample from nothing, each sample
 costs a fresh draw; here a particle costs one at the start of its segment
 and a mutation at every level after.
 
+On the GPU a particle's working state is its matching, the inverse, and a
+list of up to 32 rows in a collision: 2n + 32 sixteen-bit words. Collisions
+cost a factor 1/(1+J) each in the target, so the list is almost always
+empty; a particle that overflows it is treated like one that hit its event
+cap. A warp's state is staged in shared memory while it fits (n up to about
+370) and kept in global memory beyond. Mutation events per second on an RTX
+PRO 6000 Blackwell, 65,536 particles (32,768 at n = 128):
+
+| n | 128 | 256 | 512 |
+|---|---|---|---|
+| shared memory | 3.6e9 | 3.3e9 | 2.1e9 (16 per block) |
+| global memory | 2.6e9 | 3.4e9 | 4.1e9 |
+
 ## 8. Scaling
 
 One sweep is L mutations of every particle. On a device that holds W
@@ -369,41 +391,78 @@ runs whose 97.5% interval contains the exact value.
 
 | matrix | n | mean z (cpu / gpu) | sd z (cpu / gpu) | in CI (cpu / gpu) |
 |---|---|---|---|---|
-| dense, uniform(0,1) | 20 | 0.15 / 0.00 | 1.00 / 0.92 | 0.97 / 0.95 |
-| dense, lognormal σ = 2 | 20 | 0.22 / 0.03 | 1.04 / 0.95 | 0.97 / 1.00 |
-| dense, lognormal σ = 4 | 18 | 0.22 / −0.14 | 1.12 / 0.99 | 0.95 / 0.95 |
-| 25% dense, lognormal σ = 1.5 | 22 | −0.06 / 0.14 | 1.22 / 1.05 | 0.93 / 0.95 |
-| 60% dense, entries 10^U(−6, 6) | 18 | 0.00 / −0.16 | 1.08 / 1.08 | 0.97 / 0.93 |
-| near a permutation, rest 10^U(−4, −1) | 20 | 0.02 / −0.21 | 0.86 / 0.86 | 1.00 / 1.00 |
-| two dense blocks coupled at 10⁻³ | 24 | 0.00 / −0.28 | 1.01 / 0.98 | 0.97 / 0.97 |
-| Poisson(1.2) counts plus identity | 20 | 0.00 / −0.22 | 0.78 / 0.83 | 1.00 / 1.00 |
+| dense, uniform(0,1) | 20 | 0.16 / 0.27 | 0.97 / 1.11 | 1.00 / 0.95 |
+| dense, lognormal σ = 2 | 20 | 0.02 / 0.16 | 1.05 / 0.90 | 0.97 / 1.00 |
+| dense, lognormal σ = 4 | 18 | 0.14 / −0.26 | 1.04 / 0.75 | 0.93 / 1.00 |
+| 25% dense, lognormal σ = 1.5 | 22 | 0.12 / 0.07 | 0.85 / 0.92 | 1.00 / 1.00 |
+| 60% dense, entries 10^U(−6, 6) | 18 | 0.01 / 0.13 | 0.84 / 0.96 | 1.00 / 0.97 |
+| near a permutation, rest 10^U(−4, −1) | 20 | 0.22 / −0.04 | 0.82 / 1.09 | 1.00 / 0.93 |
+| two dense blocks coupled at 10⁻³ | 24 | −0.16 / 0.07 | 0.77 / 1.33 | 0.97 / 0.95 |
+| Poisson(1.2) counts plus identity | 20 | −0.14 / −0.03 | 0.86 / 0.72 | 1.00 / 1.00 |
 | rank one plus 0.1 · uniform | 20 | −0.11 / −0.11 | 1.12 / 1.12 | 0.97 / 0.97 |
-| `data/weighted-12.json` | 12 | 0.15 / 0.19 | 0.99 / 1.07 | 0.97 / 0.97 |
-| `data/weighted-16.json` | 16 | 0.04 / 0.07 | 1.14 / 1.09 | 0.97 / 0.93 |
-| `data/weighted-20.json` | 20 | 0.55 / 0.09 | 0.99 / 1.05 | 0.93 / 1.00 |
-| 0/1, 30% dense (for comparison) | 20 | −0.35 / 0.14 | 0.97 / 1.03 | 0.97 / 0.95 |
+| `data/weighted-12.json` | 12 | 0.21 / 0.30 | 1.03 / 1.02 | 0.95 / 0.95 |
+| `data/weighted-16.json` | 16 | 0.18 / −0.22 | 1.09 / 1.14 | 0.95 / 0.97 |
+| `data/weighted-20.json` | 20 | 0.05 / 0.16 | 0.90 / 0.91 | 0.97 / 1.00 |
+| 0/1, 30% dense (for comparison) | 20 | −0.06 / 0.05 | 1.02 / 1.05 | 0.97 / 0.97 |
 
-Over the 1040 runs the interval contained the exact value in 1007 (96.8%)
-and the relative error was within 10% in 1024 (98.5%). No run failed, and the regularization
-factor E[g] was 1.000 throughout. The largest |z| was 4.3 (one run); the
-standard error comes from 32 islands, so z has heavier tails than a normal.
-The one mean that stands out, 0.55 for `weighted-20` on the CPU engine, was
-rerun with 400 fresh seeds: mean z −0.09 ± 0.05, sd 1.03, 98.0% in the
-interval.
+Over the 1040 runs the interval contained the exact value in 1015 (97.6%)
+and the relative error was within 10% in 1032 (99.2%). No run failed, and
+the regularization factor E[g] was 1.000 throughout. The largest |z| was
+3.25.
 
 Two larger weighted matrices without an exact value, 6 seeds per engine:
 
 | matrix | ln per, cpu (sd over seeds) | ln per, gpu (sd over seeds) | reported se | seconds, cpu / gpu |
 |---|---|---|---|---|
-| 64 × 64 dense, lognormal σ = 2 | 315.790 (0.025) | 315.792 (0.033) | 0.034 to 0.037 | 2.8 / 4.4 |
-| 96 × 96, 15% dense, lognormal σ = 1.5 | 253.747 (0.030) | 253.769 (0.023) | 0.028 to 0.034 | 54 / 19 |
+| 64 × 64 dense, lognormal σ = 2 | 315.813 (0.030) | 315.783 (0.031) | 0.038 | 2.5 / 3.8 |
+| 96 × 96, 15% dense, lognormal σ = 1.5 | 253.743 (0.028) | 253.755 (0.040) | 0.037 | 20 / 13 |
 
 The engines agree, and the spread over seeds matches the reported error.
 
-The boundary check of section 4, over 60 seeds on three of the weighted
-matrices (three boundaries each): the largest difference averaged 1.3 to
-1.4 standard errors, as the largest of three standard normals does, and
-never exceeded 3.3.
+The boundary check of section 4, over 300 seeds on three of the weighted
+matrices at ε = 0.05 (2700 differences): mean within 0.06 of zero, standard
+deviation 1.01 to 1.03, and 2 beyond 3.5 where a normal expects 1.3. So a
+run with three boundaries raises a false alarm about once in 500.
+
+### Weighted lattices against Kasteleyn's formula
+
+The dimer model on a square lattice with bond weights is a weighted
+permanent with an exact value at any size (`misc/dimers.py`), which checks
+the estimator where the subset DP cannot. GPU engine, one RTX PRO 6000
+Blackwell:
+
+| lattice | n | bond weights | ln Z, estimate | ln Z, exact | z | time |
+|---|---|---|---|---|---|---|
+| 16 × 16 | 128 | 1, 1 | 69.9598 ± 0.0191 | 69.9716 | −0.61 | 26 s |
+| 16 × 16 | 128 | 1, 0.5 | 34.9926 ± 0.0186 | 35.0184 | −1.39 | 27 s |
+| 16 × 16 | 128 | 1, 0.1 | 4.1953 ± 0.0190 | 4.1993 | −0.21 | 32 s |
+| 12 × 20 | 120 | 2, 0.3 | 89.7604 ± 0.0189 | 89.7489 | +0.61 | 29 s |
+| 32 × 32 | 512 | 1, 0.5 | 149.2797 ± 0.0378 | 149.2338 | +1.21 | 11 min |
+
+(ε = 0.05 for n ≤ 128, 0.1 for n = 512.) The 16 × 32 lattice (n = 256,
+weights 1 and 0.5, exact ln Z = 71.4440) on six seeds at ε = 0.1 gave
+z = −1.11, +0.47, +0.17, +1.15, +0.60, −0.05, two minutes each. Its
+measured island variance was 0.136 against a planned 0.25, and the n = 512
+run's 0.131: the perfect-mixing sizing of section 5 holds at these sizes.
+
+### The cubic lattice
+
+No closed form exists in three dimensions. The open 4 × 4 × 4 cube has
+5,051,532,105 coverings (cell-by-cell DP, ln = 22.3430); the estimate is
+22.3176 ± 0.0190, z = −1.34. Entropy per site, ln Z / sites, on periodic
+boxes:
+
+| box | 4³ | 4·4·6 | 4·6·6 | 6³ | 6·6·8 | 8³ |
+|---|---|---|---|---|---|---|
+| sites | 64 | 96 | 144 | 216 | 288 | 512 |
+| entropy per site | 0.47502 | 0.46876 | 0.46292 | 0.45794 | 0.45629 | 0.45360 |
+| ± | 0.00030 | 0.00020 | 0.00013 | 0.00008 | 0.00006 | 0.00007 |
+
+The 8³ box (n = 256) takes two minutes. The three cubes are fitted exactly
+by s∞ + a/L² + c/L³ with s∞ = 0.450; three sizes do not give that
+extrapolation an error. Every finite box must exceed Schrijver's bound
+½ ln(5⁵/6⁴) = 0.4401, and they do. Published estimates of the limit are
+slightly lower, near 0.447.
 
 ## 10. What is not proven
 

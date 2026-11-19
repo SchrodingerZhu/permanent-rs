@@ -56,13 +56,14 @@ paper's sampler is what cuts that population into independent pieces.
 | Statement | Backing |
 |---|---|
 | The estimate is unbiased for every P, t and any anchor weights, once the schedule and weights are fixed. | Unnormalized particle estimates are unbiased (Del Moral 2004, Section 7.4); segment starts are exact at beta = 0 and from the sampler elsewhere. Checked by a test with 4 particles per island. |
-| Its relative variance is about v / P with v ≤ (1 − √g e^(−t))^(−2) · Σ relvar_i. | Asymptotic in P, from the exp(-t) contraction; g bounds a step's largest weight over its mean. Measured values have been 4–10 times below it. |
+| Its relative variance is about v / P with v ≤ (1 − √g e^(−t))^(−2) · Σ relvar_i. | Asymptotic in P, from the exp(-t) contraction; g bounds a step's largest weight over its mean. Measured, v has stayed within 1.2 of Σ relvar_i, far below the bound. |
 | The error bar is honest. | Islands are i.i.d. and unbiased; the bar is their spread, and islands are added until it meets the target. |
 | Segment starts follow the target. | `--rigorous-sampler` runs the sampler for the paper's explicit time. Otherwise the boundary check compares, at every segment boundary, the particles carried there with the fresh draws; both target the same distribution. |
 
-The variance bound sizes P; nothing else depends on it. A wider machine
-holds more particles per sweep, and the error falls as 1/√P at the same
-number of sweeps.
+Islands are sized for twice the perfect-mixing variance Σ relvar_i / P and
+rerun larger if the first ones measure noisier than planned, so the bound
+is a ceiling on P, not its size. A wider machine holds more particles per
+sweep, and the error falls as 1/√(particles) at the same number of sweeps.
 
 [misc/theory.md](misc/theory.md) has the proofs, the derivation of every
 sizing rule, and an enumeration check of them (`misc/verify_variance.py`).
@@ -71,9 +72,16 @@ Against exact permanents of twelve weighted matrices (n = 12 to 24: dense
 and sparse, lognormal with entries spread over e^±12, entries spanning
 twelve decades, near-permutations, weakly coupled blocks) and one 0/1
 matrix, 40 seeds each on the CPU and the GPU engine, the reported interval
-contained the exact value in 1007 of 1040 runs (96.8%), and (estimate − exact) /
-(reported error) had mean between −0.35 and 0.55 and standard deviation 0.8
-to 1.2 on every matrix. The table is in the theory note.
+contained the exact value in 1015 of 1040 runs (97.6%), and (estimate −
+exact) / (reported error) had mean between −0.26 and 0.30 and standard
+deviation 0.7 to 1.3 on every matrix.
+
+Past the reach of exact methods, weighted square-lattice dimer models have
+Kasteleyn's closed form (`misc/dimers.py`): a 512 × 512 matrix (32 × 32
+lattice, bond weights 1 and 0.5) comes out at ln Z = 149.280 ± 0.038
+against the exact 149.234, in 11 minutes on one GPU, and a 256 × 256 one is
+within 1.2 standard errors on each of six seeds, two minutes a run. The
+tables are in the theory note.
 
 ## GPU
 
@@ -87,9 +95,12 @@ LLVM 21+ and CUDA 13+:
     target/release/permanent-cuda ../data/cyc-64-m4.json
     cargo oxide test -- --release      # needs a GPU
 
-Every population operation runs on the device. FAR chains have very
-uneven lengths, so a FAR launch gives each chain a step budget and the few
-that overrun it are finished on host threads.
+Every population operation runs on the device. A particle's working state
+is its matching, the inverse and a short list of collisions, staged in
+shared memory while a warp's worth fits (n up to about 370) and kept in
+global memory beyond. FAR chains have very uneven lengths, so a FAR launch
+gives each chain a step budget and the few that overrun it are finished on
+host threads.
 
 ## MPI
 
