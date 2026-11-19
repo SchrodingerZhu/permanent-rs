@@ -330,10 +330,10 @@ fn run(
     );
     say!(
         reporter,
-        "  variance bound:              sum of step variances {:.3} x mixing factor {:.2} / particles = {:.4} per island",
+        "  variance per island:         planned {:.4} (sum of step variances {:.3}, margin 2); bound factor {:.2}",
+        plan.island_relvar,
         plan.relvar_sum,
-        plan.mixing_factor,
-        plan.island_relvar
+        plan.mixing_factor
     );
     say!(
         reporter,
@@ -352,9 +352,10 @@ fn run(
     let estimate = session.estimate(&levels, &plan)?;
     say!(
         reporter,
-        "  measured variance per island: {:.4} (bound {:.4})",
+        "  measured variance per island: {:.4} with {} particles (planned {:.4})",
         estimate.island_relvar,
-        plan.island_relvar
+        estimate.particles,
+        plan.island_relvar * plan.particles as f64 / estimate.particles as f64
     );
     match estimate.verdict {
         Verdict::Consistent(gap) => say!(

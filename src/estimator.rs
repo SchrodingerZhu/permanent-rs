@@ -24,7 +24,9 @@
 //!
 //! where relvar_i is the relative variance of G_i under mu_i and g bounds
 //! G_i / E[G_i]. So the error falls as 1/sqrt(P) at a fixed number of
-//! sweeps: a wider machine buys accuracy, not just speed.
+//! sweeps: a wider machine buys accuracy, not just speed. Measured, v has
+//! stayed within 1.2 of sum_i relvar_i, far below the bound, so P is sized
+//! from that sum and corrected by what the first islands measure.
 //!
 //! Segments. The ladder is cut into S segments. A segment that starts at
 //! beta = 0 takes uniform permutations; any other takes fresh draws from
@@ -35,9 +37,8 @@
 //! it S times shorter at the price of S P sampler calls.
 //!
 //! Islands. Each segment is run R times independently. The R values are
-//! i.i.d. and unbiased, so the error bar is their measured spread. The
-//! bound above sizes P; R starts small and grows until the measured error
-//! meets the target.
+//! i.i.d. and unbiased, so the error bar is their measured spread. R
+//! starts small and grows until the measured error meets the target.
 //!
 //! Check. At a segment boundary the particles carried there and the fresh
 //! draws of the next segment target the same distribution. Their mean
@@ -161,8 +162,10 @@ pub struct Plan {
     pub relvar_sum: f64,
     /// The bound's factor (1 - sqrt(g) exp(-t))^-2.
     pub mixing_factor: f64,
-    /// Predicted relative variance of one island.
+    /// Relative variance one island is planned to have.
     pub island_relvar: f64,
+    /// Most particles a restart may grow an island to: what the bound asks.
+    pub particles_bound: usize,
     /// Sampler time per stage for the segment starts.
     pub stage_time: f64,
     /// Mutation events of the first round, extrapolated from Phase 1's
@@ -178,6 +181,8 @@ pub struct Estimate {
     pub met_target: bool,
     pub rounds: usize,
     pub islands: usize,
+    /// Particles per island, after any restart.
+    pub particles: usize,
     /// Measured relative variance of one island (all segments).
     pub island_relvar: f64,
     pub mean_gap: f64,
@@ -236,6 +241,13 @@ const LEARN_ACCEPT: f64 = 0.2624; // ln 1.3
 const STEP_RELVAR: f64 = 0.25;
 /// Relative variance one island is sized for.
 const ISLAND_RELVAR: f64 = 0.25;
+/// Islands are sized as if their variance were this many times the sum of
+/// the step variances, which is what perfect mixing would give.
+const MIXING_MARGIN: f64 = 2.0;
+/// What an island's variance has measured, in the same units.
+const EXPECTED_MIXING: f64 = 1.2;
+/// First islands noisier than this are thrown away and rerun larger.
+const RESTART_RELVAR: f64 = 1.0;
 const MIN_PARTICLES: usize = 64;
 const MIN_ISLANDS: usize = 32;
 const DEFAULT_SEGMENTS: usize = 4;
@@ -648,15 +660,24 @@ impl<'a> Session<'a> {
         let weight_max = levels.iter().map(|l| l.weight_max).fold(1.0, f64::max);
         let q = weight_max.sqrt() * (-self.config.mutation_time).exp();
         let mixing_factor = if q < 0.9 { 1.0 / ((1.0 - q) * (1.0 - q)) } else { 100.0 };
-        let particles = self
-            .config
-            .particles
-            .unwrap_or(((mixing_factor * relvar_sum / ISLAND_RELVAR).ceil() as usize).max(MIN_PARTICLES))
-            .min(self.engine.capacity());
-        let island_relvar = mixing_factor * relvar_sum / particles as f64;
-        // Start with the fewest islands that measure their own spread; the
-        // bound sizes the particles, the measurement sizes the islands.
-        let islands = self.config.islands.unwrap_or(MIN_ISLANDS);
+        // The bound's factor is far above anything measured, so islands are
+        // sized from a fixed margin over perfect mixing; `estimate` grows
+        // them, up to what the bound asks, if the first ones come out noisy.
+        let sized = |factor: f64| ((factor * relvar_sum / ISLAND_RELVAR).ceil() as usize).max(MIN_PARTICLES);
+        let capacity = self.engine.capacity();
+        let particles = self.config.particles.unwrap_or(sized(MIXING_MARGIN)).min(capacity);
+        let particles_bound = match self.config.particles {
+            Some(fixed) => fixed.min(capacity),
+            None => sized(mixing_factor.max(MIXING_MARGIN)).min(capacity),
+        };
+        let island_relvar = MIXING_MARGIN * relvar_sum / particles as f64;
+        // Start with the islands the target is expected to take, so that
+        // one round usually does and fills the engine: measured island
+        // variances run about 1.2 times the perfect-mixing value. Never
+        // fewer than measure their own spread.
+        let sigma2 = self.sigma_target * self.sigma_target;
+        let expected = EXPECTED_MIXING * relvar_sum / particles as f64;
+        let islands = self.config.islands.unwrap_or(((1.1 * expected / sigma2).ceil() as usize).max(MIN_ISLANDS));
         let fresh = (count - 1) * particles * islands;
         let stage_time = if self.config.rigorous_sampler {
             // the total-variation budget delta/2 is shared by every fresh
@@ -670,7 +691,17 @@ impl<'a> Session<'a> {
         let per_mutation = d.mutate.events as f64 / d.mutations.max(1) as f64 * self.config.mutation_time
             / self.config.learn_mutation_time.max(f64::MIN_POSITIVE);
         let predicted_events = per_mutation * (particles * islands * (steps + count - 1)) as f64;
-        Plan { segments, particles, islands, relvar_sum, mixing_factor, island_relvar, stage_time, predicted_events }
+        Plan {
+            segments,
+            particles,
+            islands,
+            relvar_sum,
+            mixing_factor,
+            island_relvar,
+            particles_bound,
+            stage_time,
+            predicted_events,
+        }
     }
 
     /// Run islands `islands` of segment `segment` on this rank's engine.
@@ -762,22 +793,25 @@ impl<'a> Session<'a> {
     /// error meets the target. Each round is reported as `Progress::Round`.
     pub fn estimate(&mut self, levels: &[Level], plan: &Plan) -> anyhow::Result<Estimate> {
         let start = Instant::now();
+        let mut plan = plan.clone();
         let scaled = self.scaled;
         let n = scaled.n;
         let rank = self.comm.rank();
         let ranks = self.comm.size();
         let segments = plan.segments.len();
-        let capacity = (self.engine.capacity() / plan.particles).max(1) as u64;
         let sigma2 = self.sigma_target * self.sigma_target;
         let mut mutate = MutateCost::default();
         let mut sampler = SampleCost::default();
         let mut packed: Vec<f64> = Vec::new();
+        // islands first..done are in use; earlier ones were thrown away
+        let mut first = 0u64;
         let mut done = 0u64;
         let mut want = plan.islands as u64;
         let mut estimate = None;
         for round in 0..MAX_TOPUP_ROUNDS {
             // Each segment's new islands are split into one contiguous block
             // per rank, rotated by segment so the ranks carry equal loads.
+            let capacity = (self.engine.capacity() / plan.particles).max(1) as u64;
             let block = |slot: u64| done + (want - done) * slot / ranks as u64;
             let mine: Vec<(usize, Range<u64>)> = (0..segments)
                 .map(|s| {
@@ -797,7 +831,7 @@ impl<'a> Session<'a> {
                 while next < islands.end {
                     let batch = next..(next + capacity).min(islands.end);
                     next = batch.end;
-                    let runs = self.run_segment(levels, plan, s, batch, &mut mutate, &mut sampler, &mut |observer| {
+                    let runs = self.run_segment(levels, &plan, s, batch, &mut mutate, &mut sampler, &mut |observer| {
                         swept += 1;
                         if let Some(observer) = observer.as_mut() {
                             observer(Progress::Sweep { round, done: swept, total });
@@ -874,7 +908,7 @@ impl<'a> Session<'a> {
             self.comm.sum_u64(&mut counts);
             self.comm.sum_f64(&mut time);
             let steps = (levels.len() - 1 + segments - 1) as u64;
-            let islands = done as usize;
+            let islands = (done - first) as usize;
             let gaps: Vec<f64> = runs[segments - 1].iter().map(|run| run.carried).collect();
             let current = Estimate {
                 ln_permanent: ln_factorial(n) + ln_ratio - scaled.log_scale,
@@ -882,6 +916,7 @@ impl<'a> Session<'a> {
                 met_target: variance <= sigma2 * 1.02,
                 rounds: round + 1,
                 islands,
+                particles: plan.particles,
                 island_relvar: variance * islands as f64,
                 mean_gap: mean_and_error(&gaps).0,
                 mutate: MutateCost { events: counts[0], time: time[0], over_budget: counts[1] },
@@ -907,13 +942,32 @@ impl<'a> Session<'a> {
                 observer(Progress::Round { index: round, estimate: &current });
             }
             let met = current.met_target;
+            let island_relvar = current.island_relvar;
             estimate = Some(current);
             if met {
                 break;
             }
+            // Noisy islands have skewed values, and their spread is then a
+            // poor error bar: start over with larger ones. Fresh island
+            // numbers give the new islands streams of their own.
+            if island_relvar > RESTART_RELVAR && plan.particles < plan.particles_bound {
+                let grown = (plan.particles as f64 * island_relvar / ISLAND_RELVAR).ceil() as usize;
+                warn!(
+                    particles = plan.particles,
+                    grown = grown.min(plan.particles_bound),
+                    island_relvar,
+                    "islands too noisy; starting over with larger ones"
+                );
+                plan.particles = grown.min(plan.particles_bound);
+                packed.clear();
+                first = done;
+                want = done + plan.islands as u64;
+                continue;
+            }
             // islands are i.i.d., so the error falls as 1/sqrt(islands)
-            let needed = (1.1 * done as f64 * variance / sigma2).ceil() as u64;
-            want = needed.max(done + done / 10 + 1);
+            let used = done - first;
+            let needed = (1.1 * used as f64 * variance / sigma2).ceil() as u64;
+            want = first + needed.max(used + used / 10 + 1);
         }
         Ok(estimate.unwrap())
     }
