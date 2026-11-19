@@ -3,8 +3,18 @@
 //! The kernels are Rust, compiled for the device by cuda-oxide. One GPU
 //! thread owns one particle. Between launches only the particles' matchings
 //! (n 16-bit words each) stay in global memory; a launch stages each
-//! particle's working arrays in the block's shared memory, so the event
+//! particle's working state in the block's shared memory, so the event
 //! loop touches global memory for the alias table alone.
+//!
+//! How many particles a multiprocessor runs at once is set by how much
+//! shared memory each needs, so the working state is kept to the matching,
+//! its inverse, and a short list of the vertices in a collision. The
+//! penalty J keeps collisions rare at every activity, which is what makes a
+//! short list enough; a particle that overflows it is treated like one that
+//! hit its event cap. Once a warp's worth of state no longer fits shared
+//! memory (n above about 370), the state lives in global memory instead:
+//! it is small enough to sit in the device's cache, and that measures
+//! faster than staging fewer particles per block.
 //!
 //! The arithmetic differs from the CPU engine, so the two are statistically
 //! equivalent, not draw-for-draw identical:
@@ -49,20 +59,19 @@ use philox::{Philox, philox_new, philox_next, philox_next_u64};
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-/// The five working arrays of a particle, each n words (see
-/// `permanent::sampler::Scratch`).
+/// A particle's working state: the matching sigma (row u to column, or
+/// NONE), its inverse (column v to its row, NONE when free, MULTI when two
+/// or more rows are on it), then the rows in a collision.
 const SIGMA: usize = 0;
-const DEG: usize = 1;
-const OCC: usize = 2;
-const LIST: usize = 3;
-const POS: usize = 4;
-const ARRAYS: usize = 5;
-/// The FAR chain's matching, in the first two working arrays.
-const ROW: usize = 0;
 const COL: usize = 1;
+/// The FAR chain's matching, in the same two arrays.
+const ROW: usize = 0;
+/// Rows in a collision that the list can hold.
+const CONFLICTS: usize = 32;
 /// Fixed-point scale of the FAR chain's energies.
 const ENERGY_ONE: f64 = (1u64 << 24) as f64;
 const NONE: u32 = 0xFFFF;
+const MULTI: u32 = 0xFFFE;
 /// Set in a particle's event count when its move hit the event cap.
 const OVER_BUDGET: u64 = 1 << 63;
 /// Set in a trial's event count when it ended on a perfect matching.
@@ -70,8 +79,14 @@ const PERFECT: u64 = 1 << 62;
 /// Stage time of the sampler, in ticks.
 const STAGE_TICKS: u64 = 1 << 40;
 
-/// One particle's working arrays. Element i of array a lives at
-/// `base + (a n + i) stride`: stride 1 in global memory, the block size in
+/// Words of working state per particle.
+const fn lane_words(n: usize) -> usize {
+    2 * n + CONFLICTS
+}
+
+/// One particle's working state. Element i of array a lives at
+/// `base + (a n + i) stride`, and entry i of the collision list at
+/// `base + (2 n + i) stride`: stride 1 in global memory, the block size in
 /// shared memory, where it puts the lanes of a warp in distinct banks.
 #[derive(Clone, Copy)]
 struct Work {
@@ -80,6 +95,8 @@ struct Work {
     n: usize,
     n_conf: u32,
     unassigned: u32,
+    /// The collision list was full when a row had to be added.
+    overflow: bool,
 }
 
 #[device]
@@ -93,36 +110,44 @@ unsafe fn set(work: &Work, array: usize, index: u32, value: u32) {
 }
 
 #[device]
-unsafe fn swap(work: &Work, i: u32, j: u32) {
-    unsafe {
-        let a = get(work, LIST, i);
-        let b = get(work, LIST, j);
-        set(work, LIST, i, b);
-        set(work, LIST, j, a);
-        set(work, POS, a, j);
-        set(work, POS, b, i);
-    }
+unsafe fn conflict(work: &Work, index: u32) -> u32 {
+    unsafe { get(work, 2, index) }
 }
 
 #[device]
-unsafe fn mark_conflicted(work: &mut Work, u: u32) {
-    unsafe {
-        let p = get(work, POS, u);
-        if p >= work.n_conf {
-            swap(work, p, work.n_conf);
-            work.n_conf += 1;
+unsafe fn is_conflicted(work: &Work, u: u32) -> bool {
+    let mut i = 0u32;
+    while i < work.n_conf {
+        if unsafe { conflict(work, i) } == u {
+            return true;
         }
+        i += 1;
     }
+    false
 }
 
 #[device]
-unsafe fn mark_clear(work: &mut Work, u: u32) {
-    unsafe {
-        let p = get(work, POS, u);
-        if p < work.n_conf {
-            work.n_conf -= 1;
-            swap(work, p, work.n_conf);
+unsafe fn add_conflict(work: &mut Work, u: u32) {
+    if work.n_conf as usize == CONFLICTS {
+        work.overflow = true;
+        return;
+    }
+    unsafe { set(work, 2, work.n_conf, u) };
+    work.n_conf += 1;
+}
+
+#[device]
+unsafe fn drop_conflict(work: &mut Work, u: u32) {
+    let mut i = 0u32;
+    while i < work.n_conf {
+        unsafe {
+            if conflict(work, i) == u {
+                work.n_conf -= 1;
+                set(work, 2, i, conflict(work, work.n_conf));
+                return;
+            }
         }
+        i += 1;
     }
 }
 
@@ -135,16 +160,27 @@ unsafe fn remove(work: &mut Work, u: u32) {
         }
         set(work, SIGMA, u, NONE);
         work.unassigned += 1;
-        let degree = get(work, DEG, v) - 1;
-        set(work, DEG, v, degree);
-        // 16-bit wrapping sum of the vertices on v
-        let rest = get(work, OCC, v).wrapping_sub(u) & 0xFFFF;
-        set(work, OCC, v, rest);
-        if degree >= 1 {
-            mark_clear(work, u);
-            if degree == 1 {
-                mark_clear(work, rest);
+        if get(work, COL, v) != MULTI {
+            // u was alone on v
+            set(work, COL, v, NONE);
+            return;
+        }
+        drop_conflict(work, u);
+        // if one row is left on v, it is no longer in a collision
+        let mut left = 0u32;
+        let mut last = NONE;
+        let mut i = 0u32;
+        while i < work.n_conf {
+            let w = conflict(work, i);
+            if get(work, SIGMA, w) == v {
+                left += 1;
+                last = w;
             }
+            i += 1;
+        }
+        if left == 1 {
+            drop_conflict(work, last);
+            set(work, COL, v, last);
         }
     }
 }
@@ -154,16 +190,16 @@ unsafe fn place(work: &mut Work, u: u32, v: u32) {
     unsafe {
         set(work, SIGMA, u, v);
         work.unassigned -= 1;
-        let degree = get(work, DEG, v) + 1;
-        set(work, DEG, v, degree);
-        let occupants = get(work, OCC, v);
-        if degree == 2 {
-            mark_conflicted(work, occupants);
-            mark_conflicted(work, u);
-        } else if degree > 2 {
-            mark_conflicted(work, u);
+        let occupant = get(work, COL, v);
+        if occupant == NONE {
+            set(work, COL, v, u);
+        } else if occupant == MULTI {
+            add_conflict(work, u);
+        } else {
+            set(work, COL, v, MULTI);
+            add_conflict(work, occupant);
+            add_conflict(work, u);
         }
-        set(work, OCC, v, occupants.wrapping_add(u) & 0xFFFF);
     }
 }
 
@@ -206,10 +242,19 @@ unsafe fn ring(
 ) {
     let n = work.n as u32;
     let conflicted = mul_high(philox_next_u64(rng), rate) < conflicted_rate;
-    let bits = philox_next(rng);
-    let position = if conflicted { below(bits, work.n_conf) } else { work.n_conf + below(bits, n - work.n_conf) };
     unsafe {
-        let u = get(work, LIST, position);
+        let mut u;
+        if conflicted {
+            u = conflict(work, below(philox_next(rng), work.n_conf));
+        } else {
+            // uniform over the rows outside the list, by rejection
+            loop {
+                u = below(philox_next(rng), n);
+                if !is_conflicted(work, u) {
+                    break;
+                }
+            }
+        }
         remove(work, u);
         if philox_next_u64(rng) >= unassign_below {
             let v = alias_draw(table, u, n, rng);
@@ -218,7 +263,7 @@ unsafe fn ring(
     }
 }
 
-/// This thread's working arrays: a lane of the block's shared memory when
+/// This thread's working state: a lane of the block's shared memory when
 /// `staged`, else its slot of `scratch`.
 #[device]
 unsafe fn bind(scratch: *mut u16, slot: usize, n: usize, staged: u32) -> Work {
@@ -231,9 +276,10 @@ unsafe fn bind(scratch: *mut u16, slot: usize, n: usize, staged: u32) -> Work {
                 n,
                 n_conf: 0,
                 unassigned: 0,
+                overflow: false,
             }
         } else {
-            Work { base: scratch.add(slot * ARRAYS * n), stride: 1, n, n_conf: 0, unassigned: 0 }
+            Work { base: scratch.add(slot * lane_words(n)), stride: 1, n, n_conf: 0, unassigned: 0, overflow: false }
         }
     }
 }
@@ -284,10 +330,7 @@ mod kernels {
             unsafe {
                 let v = *row.add(u as usize) as u32;
                 set(&work, SIGMA, u, v);
-                set(&work, DEG, u, 1);
-                set(&work, OCC, v, u);
-                set(&work, LIST, u, u);
-                set(&work, POS, u, u);
+                set(&work, COL, v, u);
             }
             u += 1;
         }
@@ -316,6 +359,10 @@ mod kernels {
                 break;
             }
             unsafe { ring(&mut work, &mut rng, table, rate, conflicted_rate, unassign_below) };
+            if work.overflow {
+                over_budget = true;
+                break;
+            }
         }
 
         if !over_budget {
@@ -370,10 +417,7 @@ mod kernels {
         while u < n {
             unsafe {
                 set(&work, SIGMA, u, NONE);
-                set(&work, DEG, u, 0);
-                set(&work, OCC, u, 0);
-                set(&work, LIST, u, u);
-                set(&work, POS, u, u);
+                set(&work, COL, u, NONE);
             }
             u += 1;
         }
@@ -406,6 +450,10 @@ mod kernels {
                 break;
             }
             unsafe { ring(&mut work, &mut rng, table, rate, conflicted_rate, unassign_below) };
+            if work.overflow {
+                outcome = OVER_BUDGET;
+                break;
+            }
         }
 
         if outcome == 0 && work.n_conf == 0 && work.unassigned == 0 {
@@ -639,11 +687,18 @@ mod kernels {
 const BLOCK: u32 = 32;
 /// Shared memory a block may use without opting in to more.
 const SHARED_LIMIT: usize = 48 * 1024;
+
+/// Whether a block of particles with `words` words of working state each
+/// can keep that state in shared memory.
+fn fits_shared(words: usize) -> bool {
+    BLOCK as usize * words * size_of::<u16>() <= SHARED_LIMIT
+}
 /// Most particles resident at once, and the device memory they may take.
 const MAX_PARTICLES: usize = 1 << 20;
 const MEMORY_BUDGET: usize = 8 << 30;
-/// The kernels index vertices with 16-bit words; 0xFFFF marks "unassigned".
-const MAX_N: usize = 0xFFFE;
+/// The kernels index vertices with 16-bit words; the two highest values
+/// mark "unassigned" and "more than one row here".
+const MAX_N: usize = 0xFFFD;
 
 struct Cuda<'a> {
     scaled: &'a Scaled,
@@ -652,8 +707,6 @@ struct Cuda<'a> {
     module: kernels::LoadedModule,
     first_id: u64,
     count: usize,
-    /// Working arrays fit a block's shared memory.
-    staged: bool,
     energy: DeviceBuffer<f64>,
     log_gap: DeviceBuffer<f64>,
     /// The energies in the FAR kernel's fixed point.
@@ -721,15 +774,13 @@ impl<'a> Cuda<'a> {
         let stream = ctx.default_stream();
         let module = kernels::load(&ctx).context("loading the kernels")?;
         let device = ctx.device_name()?;
-        let staged = BLOCK as usize * ARRAYS * n * size_of::<u16>() <= SHARED_LIMIT;
-        info!(%device, staged, "CUDA engine ready");
+        info!(%device, staged = fits_shared(lane_words(n)), far_staged = fits_shared(2 * n), "CUDA engine ready");
         Ok(Cuda {
             scaled,
             name: format!("cuda:{ordinal} ({device})"),
             module,
             first_id: 0,
             count: 0,
-            staged,
             energy: DeviceBuffer::from_host(&stream, &scaled.energy)?,
             log_gap: DeviceBuffer::from_host(&stream, &scaled.log_gap)?,
             energy_fixed: DeviceBuffer::from_host(
@@ -756,17 +807,24 @@ impl<'a> Cuda<'a> {
         })
     }
 
-    /// Launch shape for `threads` particle threads, each staging `arrays`
-    /// working arrays in the block's shared memory. A kernel that uses
-    /// fewer arrays leaves room for more blocks on a multiprocessor.
-    fn config(&self, threads: usize, arrays: usize) -> LaunchConfig {
-        let arrays = if self.staged { arrays } else { 0 };
-        let shared = BLOCK as usize * arrays * self.scaled.n * size_of::<u16>();
-        LaunchConfig {
+    /// Launch shape for `threads` particle threads of `words` words of
+    /// working state each, and whether that state is staged in shared
+    /// memory (else it lives in `scratch`). 0 words is a kernel with no
+    /// working state.
+    fn config(&self, threads: usize, words: usize) -> (LaunchConfig, u32) {
+        let staged = words > 0 && fits_shared(words);
+        let shared = if staged { BLOCK as usize * words * size_of::<u16>() } else { 0 };
+        let config = LaunchConfig {
             grid_dim: ((threads as u32).div_ceil(BLOCK), 1, 1),
             block_dim: (BLOCK, 1, 1),
             shared_mem_bytes: shared as u32,
-        }
+        };
+        (config, staged as u32)
+    }
+
+    /// Whether some kernel keeps its working state in `scratch`.
+    fn needs_scratch(&self) -> bool {
+        !fits_shared(lane_words(self.scaled.n))
     }
 
     /// Put the row alias table of `tables` on the device, unless it is there.
@@ -811,7 +869,7 @@ impl<'a> Cuda<'a> {
         self.count = count;
         self.sigma = DeviceBuffer::zeroed(&self.stream, count * n)?;
         self.next = DeviceBuffer::zeroed(&self.stream, count * n)?;
-        let scratch = if self.staged { 1 } else { count * ARRAYS * n };
+        let scratch = if self.needs_scratch() { count * lane_words(n) } else { 1 };
         self.scratch = DeviceBuffer::zeroed(&self.stream, scratch)?;
         self.events = DeviceBuffer::zeroed(&self.stream, count)?;
         self.time = DeviceBuffer::zeroed(&self.stream, count)?;
@@ -830,7 +888,7 @@ impl<'a> Cuda<'a> {
     }
 
     fn measure(&mut self) -> Result<()> {
-        let config = self.config(self.count, 0);
+        let (config, _) = self.config(self.count, 0);
         // SAFETY: the arguments match the kernel, and every per-particle
         // buffer holds `count` entries.
         unsafe {
@@ -857,7 +915,8 @@ impl Engine for Cuda<'_> {
 
     fn capacity(&self) -> usize {
         let n = self.scaled.n;
-        let per_particle = (2 + if self.staged { 0 } else { ARRAYS }) * n * size_of::<u16>() + 32;
+        let scratch = if self.needs_scratch() { lane_words(n) } else { 0 };
+        let per_particle = (2 * n + scratch) * size_of::<u16>() + 48;
         MAX_PARTICLES.min(MEMORY_BUDGET / per_particle)
     }
 
@@ -909,7 +968,7 @@ impl Engine for Cuda<'_> {
                 .collect();
             let seeds = DeviceBuffer::from_host(&self.stream, &seeds)?;
             let targets = DeviceBuffer::from_host(&self.stream, &pending)?;
-            let config = self.config(pending.len(), ARRAYS);
+            let (config, staged) = self.config(pending.len(), lane_words(n));
             // SAFETY: the arguments match the kernel; the targets are
             // distinct particles below `count`, and every per-slot buffer
             // holds at least `pending.len()` entries.
@@ -926,7 +985,7 @@ impl Engine for Cuda<'_> {
                     &mut self.events,
                     n as u32,
                     pending.len() as u32,
-                    self.staged as u32,
+                    staged,
                     stages.stages() as u32,
                     ticks_per_time,
                     1 + stages.penalty as u64,
@@ -964,10 +1023,10 @@ impl Engine for Cuda<'_> {
         let seeds = DeviceBuffer::from_host(&self.stream, &seeds)?;
         let penalty = penalty(n);
         let unassign_below = fraction(1.0 / (1.0 + penalty));
-        let config = self.config(self.count, ARRAYS);
+        let (config, staged) = self.config(self.count, lane_words(n));
         // SAFETY: the arguments match the kernel; `sigma` holds count rows
-        // of n, `scratch` the working arrays when they are not staged, and
-        // the dynamic shared memory the block's working arrays when they are.
+        // of n, `scratch` the working state when it is not staged, and the
+        // dynamic shared memory the block's working state when it is.
         unsafe {
             self.module.mutate(
                 self.stream.as_ref(),
@@ -980,7 +1039,7 @@ impl Engine for Cuda<'_> {
                 &mut self.time,
                 n as u32,
                 self.count as u32,
-                self.staged as u32,
+                staged,
                 perfect_time as f32,
                 1 + penalty as u64,
                 unassign_below,
@@ -1010,7 +1069,7 @@ impl Engine for Cuda<'_> {
 
     fn resample(&mut self, ancestors: &[u32]) -> Result<()> {
         let ancestors = DeviceBuffer::from_host(&self.stream, ancestors)?;
-        let config = self.config(self.count, 0);
+        let (config, _) = self.config(self.count, 0);
         // SAFETY: the arguments match the kernel; both populations hold
         // count rows of n and every ancestor is below count.
         unsafe {
@@ -1047,8 +1106,8 @@ impl Engine for Cuda<'_> {
         let visits = DeviceBuffer::<u64>::zeroed(&self.stream, groups * n)?.wrap_elem::<DeviceAtomicU64>();
         let visit_energy = DeviceBuffer::<f64>::zeroed(&self.stream, n)?.wrap_elem::<DeviceAtomicF64>();
         let budget = (self.far_budget * cycles as f64).ceil() as u64 + 32;
-        // the FAR chain keeps a matching and its inverse: two arrays
-        let config = self.config(self.count, 2);
+        // the FAR chain keeps a matching and its inverse, and no list
+        let (config, staged) = self.config(self.count, 2 * n);
         self.far_seconds.calls += 1;
         self.far_seconds.setup += clock.elapsed().as_secs_f64();
         let clock = Instant::now();
@@ -1073,7 +1132,7 @@ impl Engine for Cuda<'_> {
                 &mut self.fixed_out,
                 n as u32,
                 self.count as u32,
-                self.staged as u32,
+                staged,
                 tables.anchor as u32,
                 groups as u32,
                 cycles,
@@ -1123,7 +1182,7 @@ impl Engine for Cuda<'_> {
         // Finish the late chains on the host, from where they stopped.
         let targets = DeviceBuffer::from_host(&self.stream, &late)?;
         let mut rows = DeviceBuffer::<u16>::zeroed(&self.stream, late.len() * n)?;
-        let config = self.config(late.len(), 0);
+        let (config, _) = self.config(late.len(), 0);
         // SAFETY: the arguments match the kernel; `rows` holds one row per
         // late chain and every target is below `count`.
         unsafe {
