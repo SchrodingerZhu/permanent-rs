@@ -35,22 +35,6 @@ impl Backend {
     const DEFAULT: Backend = Backend::Cuda;
     #[cfg(all(feature = "rayon", not(feature = "cuda")))]
     const DEFAULT: Backend = Backend::Rayon;
-
-    /// The engine of one run. Under MPI every rank builds its own.
-    #[cfg_attr(not(feature = "cuda"), expect(unused_variables))]
-    fn engine<'a>(self, scaled: &'a Scaled, cli: &Cli, comm: &dyn Comm) -> anyhow::Result<Box<dyn Engine + 'a>> {
-        match self {
-            #[cfg(feature = "rayon")]
-            Backend::Rayon => Ok(Box::new(permanent_rayon::Rayon::new(scaled))),
-            #[cfg(feature = "cuda")]
-            Backend::Cuda => {
-                let devices = permanent_cuda::Cuda::device_count()?;
-                anyhow::ensure!(devices > 0, "no CUDA device");
-                // one GPU per rank, wrapping around when there are fewer GPUs
-                Ok(Box::new(permanent_cuda::Cuda::new(scaled, (cli.device + comm.rank()) % devices)?))
-            }
-        }
-    }
 }
 
 /// Estimate the permanent of a nonnegative matrix to a requested accuracy.
@@ -193,12 +177,7 @@ fn init_logging(cli: &Cli, root: bool) -> anyhow::Result<()> {
 /// Minimum spacing of the progress lines in the log.
 const LOG_EVERY: Duration = Duration::from_secs(2);
 
-fn run(
-    cli: &Cli,
-    problem: &Problem,
-    comm: &dyn Comm,
-    reporter: &Reporter,
-) -> anyhow::Result<()> {
+fn run<C: Comm>(cli: &Cli, problem: &Problem, comm: &C, reporter: &Reporter) -> anyhow::Result<()> {
     let n = problem.n;
     say!(
         reporter,
@@ -243,7 +222,34 @@ fn run(
         islands: cli.islands,
         segments: cli.segments,
     };
-    let mut session = Session::new(&scaled, &config, cli.backend.engine(&scaled, cli, comm)?, comm)?;
+    // one engine per rank
+    match cli.backend {
+        #[cfg(feature = "rayon")]
+        Backend::Rayon => estimate(cli, &scaled, &config, exact, permanent_rayon::Rayon::new(&scaled), comm, reporter),
+        #[cfg(feature = "cuda")]
+        Backend::Cuda => {
+            let devices = permanent_cuda::Cuda::device_count()?;
+            anyhow::ensure!(devices > 0, "no CUDA device");
+            // one GPU per rank, wrapping around when there are fewer GPUs
+            let engine = permanent_cuda::Cuda::new(&scaled, (cli.device + comm.rank()) % devices)?;
+            estimate(cli, &scaled, &config, exact, engine, comm, reporter)
+        }
+    }
+}
+
+/// Run both phases on `engine` and report.
+fn estimate<E: Engine, C: Comm>(
+    cli: &Cli,
+    scaled: &Scaled,
+    config: &Config,
+    exact: Option<f64>,
+    engine: E,
+    comm: &C,
+    reporter: &Reporter,
+) -> anyhow::Result<()> {
+    let n = scaled.n;
+    let seed = config.seed;
+    let mut session = Session::new(scaled, config, engine, comm)?;
     let engine = session.engine_name();
     let ranks = comm.size();
     info!(n, seed, epsilon = cli.epsilon, delta = cli.delta, %engine, ranks, "starting");

@@ -362,11 +362,11 @@ impl SegmentRun {
     }
 }
 
-pub struct Session<'a> {
+pub struct Session<'a, E: Engine, C: Comm> {
     scaled: &'a Scaled,
     config: &'a Config,
-    engine: Box<dyn Engine + 'a>,
-    comm: &'a dyn Comm,
+    engine: E,
+    comm: &'a C,
     observer: Observer<'a>,
     pub stages: StageSchedule,
     anchor: usize,
@@ -379,13 +379,8 @@ pub struct Session<'a> {
     calls: u64,
 }
 
-impl<'a> Session<'a> {
-    pub fn new(
-        scaled: &'a Scaled,
-        config: &'a Config,
-        engine: Box<dyn Engine + 'a>,
-        comm: &'a dyn Comm,
-    ) -> anyhow::Result<Self> {
+impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
+    pub fn new(scaled: &'a Scaled, config: &'a Config, engine: E, comm: &'a C) -> anyhow::Result<Self> {
         anyhow::ensure!(config.epsilon > 0.0 && config.epsilon < 1.0, "epsilon must be in (0, 1)");
         anyhow::ensure!(config.delta > 0.0 && config.delta < 1.0, "delta must be in (0, 1)");
         anyhow::ensure!(config.mutation_time > 0.0, "the mutation time must be positive");

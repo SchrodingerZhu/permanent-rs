@@ -1211,15 +1211,7 @@ impl Engine for Cuda<'_> {
             })
             .collect();
         for (particle, stats) in finished {
-            let group = particle as usize % groups;
-            round.cycles[group] += stats.perfect_steps;
-            for v in 0..n {
-                round.visits[group][v] += stats.visits[v];
-                round.visit_energy[v] += stats.visit_energy[v];
-            }
-            round.perfect_energy += stats.perfect_energy;
-            round.steps += stats.steps;
-            round.capped += stats.capped as u64;
+            round.add(particle as usize % groups, &stats);
         }
         let words: Vec<u16> = host_rows.iter().map(|&v| v as u16).collect();
         let rows = DeviceBuffer::from_host(&self.stream, &words)?;

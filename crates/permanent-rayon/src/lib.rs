@@ -170,15 +170,7 @@ impl Engine for Rayon<'_> {
                     let seed = stream_seed(stream.seed, stream.phase, stream.level, first_id + particle as u64);
                     let mut rng = SmallRng::seed_from_u64(seed);
                     let stats = far::run(tables, &scaled.energy, row, cycles, max_steps, &mut rng);
-                    let group = particle % groups;
-                    local.cycles[group] += stats.perfect_steps;
-                    for v in 0..n {
-                        local.visits[group][v] += stats.visits[v];
-                        local.visit_energy[v] += stats.visit_energy[v];
-                    }
-                    local.perfect_energy += stats.perfect_energy;
-                    local.steps += stats.steps;
-                    local.capped += stats.capped as u64;
+                    local.add(particle % groups, &stats);
                     local
                 },
             )

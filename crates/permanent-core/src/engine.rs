@@ -9,6 +9,7 @@
 //! Particle p of a call draws from the stream (seed, phase, level,
 //! first id + p), so results do not depend on threads, batches or ranks.
 
+use crate::far::FarStats;
 use crate::sampler::{MutateCost, SampleCost, StageSchedule};
 use crate::tables::Tables;
 
@@ -45,6 +46,20 @@ impl FarRound {
             steps: 0,
             capped: 0,
         }
+    }
+
+    /// Add one chain's statistics, as a member of `group`.
+    pub fn add(&mut self, group: usize, stats: &FarStats) {
+        self.cycles[group] += stats.perfect_steps;
+        for (total, visits) in self.visits[group].iter_mut().zip(&stats.visits) {
+            *total += visits;
+        }
+        for (total, energy) in self.visit_energy.iter_mut().zip(&stats.visit_energy) {
+            *total += energy;
+        }
+        self.perfect_energy += stats.perfect_energy;
+        self.steps += stats.steps;
+        self.capped += stats.capped as u64;
     }
 
     pub fn merge(mut self, other: FarRound) -> FarRound {
