@@ -1,30 +1,29 @@
-[package]
-name = "permanent"
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+# permanent-cuda needs the CUDA toolkit and `cargo oxide`; it is built only
+# through the `cuda` feature of permanent-cli.
+default-members = ["crates/permanent-core", "crates/permanent-rayon", "crates/permanent-cli"]
+
+[workspace.package]
 version = "0.2.0"
 edition = "2024"
 
-[features]
-# Run one rank per GPU under MPI (`mpirun -n R permanent ...`). Needs an MPI
-# implementation at build time.
-mpi = ["dep:mpi"]
-
-[dependencies]
+[workspace.dependencies]
+permanent-core = { path = "crates/permanent-core" }
+permanent-rayon = { path = "crates/permanent-rayon" }
+permanent-cuda = { path = "crates/permanent-cuda" }
 anyhow = "1.0.104"
-clap = { version = "4.6.6", features = ["derive"] }
-rand = { version = "0.10.2" }
+rand = "0.10.2"
 rayon = "1.12.0"
-serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1"
-mimalloc = "0.1.52"
-ratatui = "0.30.2"
 tracing = "0.1.44"
-tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-mpi = { version = "0.8", optional = true }
-
-[lints.rust]
-# set by the GPU crate, which compiles src/philox.rs for the device
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(cuda_kernel)'] }
 
 [profile.release]
 lto = "thin"
 debug = true
+
+# For `cargo oxide build -- --profile cuda --features cuda`: the object that
+# carries the device code has no bitcode, so the link cannot use LTO.
+[profile.cuda]
+inherits = "release"
+lto = "off"

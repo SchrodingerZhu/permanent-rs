@@ -7,21 +7,21 @@
 
 Paths come from the environment: BENCH_DIR for the matrices and results
 (default ./bench), PERMANENT_DIR for the checkout holding the built
-binaries (default .). An engine whose binary is missing is skipped.
+binary (default .). A backend the binary was built without is skipped.
 """
 import json, os, re, subprocess, sys, time
 import numpy as np
+import scipy.io, scipy.sparse
 
 ROOT = os.environ.get("BENCH_DIR", "bench")
 PERM = os.environ.get("PERMANENT_DIR", ".")
-ENGINES = {
-    name: path
-    for name, path in {
-        "cpu": f"{PERM}/target/release/permanent",
-        "gpu": f"{PERM}/cuda/target/release/permanent-cuda",
-    }.items()
-    if os.path.exists(path)
-}
+BINARY = f"{PERM}/target/release/permanent"
+ENGINES = [
+    backend
+    for backend in ("rayon", "cuda")
+    if os.path.exists(BINARY)
+    and subprocess.run([BINARY, "--backend", backend, "--help"], capture_output=True).returncode == 0
+]
 SEEDS = 40
 
 def support(rng, n, density):
@@ -58,17 +58,17 @@ def matrices():
 def gen():
     os.makedirs(ROOT, exist_ok=True)
     for name, a in matrices().items():
-        json.dump({"matrix": a.tolist()}, open(f"{ROOT}/{name}.json", "w"))
+        scipy.io.mmwrite(f"{ROOT}/{name}.mtx", scipy.sparse.coo_matrix(a), field="real", precision=17, symmetry="general")
     for name in ["weighted-12", "weighted-16", "weighted-20"]:
-        subprocess.run(["cp", f"{PERM}/data/{name}.json", f"{ROOT}/data-{name}.json"], check=True)
+        subprocess.run(["cp", f"{PERM}/data/{name}.mtx", f"{ROOT}/data-{name}.mtx"], check=True)
     print(sorted(os.listdir(ROOT)))
 
 def run_one(engine, path, seed, exact):
-    cmd = [ENGINES[engine], path, "--seed", str(seed)] + (["--exact"] if exact else [])
+    cmd = [BINARY, path, "--backend", engine, "--seed", str(seed)] + (["--exact"] if exact else [])
     start = time.time()
     proc = subprocess.run(cmd, capture_output=True, text=True, env={**os.environ, "PERMANENT_LOG_LEVEL": "error"})
     text = proc.stdout
-    rec = {"engine": engine, "matrix": os.path.basename(path)[:-5], "seed": seed, "seconds": time.time() - start,
+    rec = {"engine": engine, "matrix": os.path.basename(path)[:-4], "seed": seed, "seconds": time.time() - start,
            "ok": proc.returncode == 0}
     m = re.search(r"ln\(permanent\) = ([-\d.]+) ± ([\d.]+)", text)
     if m:
@@ -88,13 +88,13 @@ def run_one(engine, path, seed, exact):
     return rec
 
 def run():
-    names = sorted(f[:-5] for f in os.listdir(ROOT) if f.endswith(".json"))
+    names = sorted(f[:-4] for f in os.listdir(ROOT) if f.endswith(".mtx"))
     with open(f"{ROOT}/results.jsonl", "w") as out:
         for name in names:
             big = name.startswith("big-")
             for engine in ENGINES:
                 for seed in range(1, (6 if big else SEEDS) + 1):
-                    rec = run_one(engine, f"{ROOT}/{name}.json", seed, not big)
+                    rec = run_one(engine, f"{ROOT}/{name}.mtx", seed, not big)
                     out.write(json.dumps(rec) + "\n")
                     out.flush()
     open(f"{ROOT}/DONE", "w").write("done")
@@ -102,7 +102,7 @@ def run():
 def summary():
     recs = [json.loads(line) for line in open(f"{ROOT}/results.jsonl")]
     keys = sorted({(r["matrix"], r["engine"]) for r in recs})
-    print(f"{'matrix':28} {'eng':3} {'runs':>4} {'fail':>4} {'mean z':>7} {'sd z':>6} {'max|z|':>6} {'|err|<10%':>9} "
+    print(f"{'matrix':28} {'eng':5} {'runs':>4} {'fail':>4} {'mean z':>7} {'sd z':>6} {'max|z|':>6} {'|err|<10%':>9} "
           f"{'in CI':>6} {'mean se':>8} {'ln mean':>10} {'ln sd':>7} {'E[g]':>6} {'bnd>3.5':>7} {'warn':>4} {'sec':>6}")
     for matrix, engine in keys:
         rs = [r for r in recs if r["matrix"] == matrix and r["engine"] == engine]
@@ -113,7 +113,7 @@ def summary():
         err = np.array([abs(r["relerr"]) for r in ok if "relerr" in r])
         def f(x, fmt):
             return format(x, fmt) if np.isfinite(x) else "-"
-        print(f"{matrix:28} {engine:3} {len(rs):4d} {len(rs) - len(ok):4d} "
+        print(f"{matrix:28} {engine:5} {len(rs):4d} {len(rs) - len(ok):4d} "
               f"{f(z.mean() if len(z) else np.nan, '7.2f')} {f(z.std(ddof=1) if len(z) > 1 else np.nan, '6.2f')} "
               f"{f(np.abs(z).max() if len(z) else np.nan, '6.2f')} {f((err <= 10).mean() if len(err) else np.nan, '9.2f')} "
               f"{f((np.abs(z) <= 2.241).mean() if len(z) else np.nan, '6.2f')} {f(se.mean() if len(se) else np.nan, '8.4f')} "

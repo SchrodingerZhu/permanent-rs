@@ -4,14 +4,17 @@ Estimates the permanent of a nonnegative matrix to a requested relative
 accuracy. You give the matrix, `--epsilon` and `--delta`; the temperatures,
 the population and the number of independent runs are derived.
 
-    cargo run --release -- data/weighted-16.json --exact
-    cargo run --release -- data/grid-8x8.json -e 0.05
-    cargo run --release -- data/cyc-64-m4.json --plan-only
-    cargo run --release -- data/cyc-64-m4.json --tui --log-file run.log
+    cargo run --release -- data/weighted-16.mtx --exact
+    cargo run --release -- data/dimer-8x8.mtx -e 0.05
+    cargo run --release -- data/dimer-16x16.mtx --plan-only
+    cargo run --release -- data/dimer-16x16.mtx --tui --log-file run.log
 
-Input is JSON in one of three forms: `{"matrix": [[...], ...]}` (dense),
-`{"size": n, "entries": [[row, col, weight], ...]}` (sparse), or the 0/1
-form `{"size": n, "edges": [[columns of row 0], ...]}`.
+Input is a square matrix in Matrix Market coordinate format (`.mtx`), read
+with `sprs`: `real` or `integer` entries, or `pattern` for a 0/1 matrix;
+entries given twice add up. `data/` holds weighted examples: random
+matrices small enough for `--exact`, and dimer models on square lattices
+(`misc/dimers.py`), whose exact value by Kasteleyn's formula is in the
+file's comment.
 
 The report goes to stdout. Progress is logged to stderr (`-v` for more,
 `PERMANENT_LOG_LEVEL` to filter, `--log-file` to redirect); `--tui` shows
@@ -24,6 +27,8 @@ FPRAS for the permanent" (arXiv:2609.20717). What differs is how samples
 are produced: the paper draws every sample from nothing; here a population
 of perfect matchings is carried from one temperature to the next, and the
 paper's sampler is what cuts that population into independent pieces.
+
+The modules named below are in `crates/permanent-core/src`.
 
 1. **Scaling** (`scaling.rs`). A maximum-product matching and its dual
    potentials turn A into a row-stochastic A' whose matched entries are row
@@ -83,17 +88,28 @@ against the exact 149.234, in 11 minutes on one GPU, and a 256 × 256 one is
 within 1.2 standard errors on each of six seeds, two minutes a run. The
 tables are in the theory note.
 
-## GPU
+## Backends
 
-`cuda/` is the same program with the population resident on an NVIDIA GPU.
-Its kernels are Rust, compiled with cuda-oxide
-(https://github.com/NVIDIA/cuda-rust), which needs its pinned toolchain,
-LLVM 21+ and CUDA 13+:
+The population lives in an engine, an implementation of the `Engine` trait
+of `permanent-core`. Each engine is a crate, built into the program by a
+feature of the same name and chosen at run time with `--backend`:
 
-    cd cuda
-    cargo oxide build
-    target/release/permanent-cuda ../data/cyc-64-m4.json
-    cargo oxide test -- --release      # needs a GPU
+| Backend | Crate | Population on |
+|---|---|---|
+| `rayon` (default feature) | `permanent-rayon` | the CPU thread pool |
+| `cuda` | `permanent-cuda` | an NVIDIA GPU |
+
+The kernels of the `cuda` backend are Rust, compiled with cuda-oxide
+(https://github.com/NVIDIA/cuda-rust), which needs the toolchain pinned in
+`rust-toolchain.toml`, LLVM 21+ and CUDA 13+. Build through `cargo oxide`
+with the `cuda` profile (release without LTO, which the object carrying the
+device code cannot take part in); a plain `cargo build --features cuda`
+produces no device code.
+
+    cargo oxide build -- --profile cuda --features cuda
+    target/cuda/permanent data/dimer-32x32.mtx                  # cuda is the default once built in
+    target/cuda/permanent data/dimer-32x32.mtx --backend rayon
+    cargo oxide test -- --profile cuda -p permanent-cuda        # needs a GPU
 
 Every population operation runs on the device. A particle's working state
 is its matching, the inverse and a short list of collisions, staged in
@@ -105,10 +121,10 @@ host threads.
 ## MPI
 
 Built with `--features mpi`, every rank runs the same driver on its own
-share of the work (and, in the GPU build, its own device):
+share of the work (and, with the `cuda` backend, its own device):
 
     cargo build --release --features mpi
-    mpirun -n 4 target/release/permanent data/cyc-64-m4.json
+    mpirun -n 4 target/release/permanent data/dimer-16x16.mtx
 
 Ranks split the segments and islands of Phase 2, which share nothing, and
 pool their learning statistics in Phase 1. Results do not depend on the
@@ -116,27 +132,32 @@ number of ranks beyond the split of the Phase 1 population.
 
 ## Nix
 
-    nix build              # the CPU program, tests included
+    nix build              # the program with the rayon backend, tests included
     nix build .#mpi        # with MPI
     nix develop            # cargo and rustc
     nix develop .#mpi      # plus an MPI and libclang for its bindings
-    nix develop .#cuda     # the GPU crate's pinned toolchain and CUDA 13
+    nix develop .#cuda     # the pinned toolchain and CUDA 13
 
-The GPU crate is built inside the `cuda` shell with `cargo oxide`, which
-the shell tells you how to install; the NVIDIA driver comes from the host.
+The `cuda` backend is built inside the `cuda` shell with `cargo oxide`,
+which the shell tells you how to install; the NVIDIA driver comes from the
+host.
 
 ## Layout
 
-    src/problem.rs    input formats
-    src/scaling.rs    Hungarian method, scaling, regularization
-    src/tables.rs     per-temperature B matrix and alias tables
-    src/sampler.rs    relaxed-assignment dynamics: annealing sampler, mutation
-    src/far.rs        FAR chain and cycle counting
-    src/engine.rs     population operations; the CPU engine
-    src/comm.rs       reductions across MPI ranks
-    src/estimator.rs  schedule, planning, segments, islands
-    src/philox.rs     Philox4x32-10, shared with the GPU kernels
-    src/cli.rs        command line, report, logging
-    src/tui.rs        dashboard
-    src/exact.rs      exact subset DP for n <= 26
-    cuda/             GPU engine and kernels
+    crates/permanent-core     the algorithm and the Engine trait
+        src/problem.rs        Matrix Market input
+        src/scaling.rs        Hungarian method, scaling, regularization
+        src/tables.rs         per-temperature B matrix and alias tables
+        src/sampler.rs        relaxed-assignment dynamics: annealing sampler, mutation
+        src/far.rs            FAR chain and cycle counting
+        src/engine.rs         the Engine trait: population operations
+        src/comm.rs           reductions across MPI ranks
+        src/estimator.rs      schedule, planning, segments, islands
+        src/exact.rs          exact subset DP for n <= 26
+    crates/permanent-rayon    engine on the CPU thread pool
+    crates/permanent-cuda     engine on a GPU
+        src/lib.rs            kernels and the host side
+        src/philox.rs         Philox4x32-10, the kernels' generator
+    crates/permanent-cli      the `permanent` program
+        src/cli.rs            command line, report, logging
+        src/tui.rs            dashboard

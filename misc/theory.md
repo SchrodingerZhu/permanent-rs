@@ -1,6 +1,6 @@
 # How the estimator is derived
 
-This note derives what `src/estimator.rs` does: which statements are
+This note derives what `crates/permanent-core/src/estimator.rs` does: which statements are
 theorems, which are bounds that only size the work, and which are measured.
 `misc/verify_variance.py` checks the statements of sections 1 to 3 by
 enumeration on small matrices; its output is quoted in section 9.
@@ -400,9 +400,9 @@ runs whose 97.5% interval contains the exact value.
 | two dense blocks coupled at 10⁻³ | 24 | −0.16 / 0.07 | 0.77 / 1.33 | 0.97 / 0.95 |
 | Poisson(1.2) counts plus identity | 20 | −0.14 / −0.03 | 0.86 / 0.72 | 1.00 / 1.00 |
 | rank one plus 0.1 · uniform | 20 | −0.11 / −0.11 | 1.12 / 1.12 | 0.97 / 0.97 |
-| `data/weighted-12.json` | 12 | 0.21 / 0.30 | 1.03 / 1.02 | 0.95 / 0.95 |
-| `data/weighted-16.json` | 16 | 0.18 / −0.22 | 1.09 / 1.14 | 0.95 / 0.97 |
-| `data/weighted-20.json` | 20 | 0.05 / 0.16 | 0.90 / 0.91 | 0.97 / 1.00 |
+| `data/weighted-12.mtx` | 12 | 0.21 / 0.30 | 1.03 / 1.02 | 0.95 / 0.95 |
+| `data/weighted-16.mtx` | 16 | 0.18 / −0.22 | 1.09 / 1.14 | 0.95 / 0.97 |
+| `data/weighted-20.mtx` | 20 | 0.05 / 0.16 | 0.90 / 0.91 | 0.97 / 1.00 |
 | 0/1, 30% dense (for comparison) | 20 | −0.06 / 0.05 | 1.02 / 1.05 | 0.97 / 0.97 |
 
 Over the 1040 runs the interval contained the exact value in 1015 (97.6%)

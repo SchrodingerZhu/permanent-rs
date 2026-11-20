@@ -15,20 +15,22 @@ closed form.
     python3 misc/dimers.py 3d-aniso   # layers coupled by weak bonds
 
 DIMER_DIR is where the inputs go (default ./dimers) and PERMANENT the
-program to run (default permanent-cuda, on PATH).
+program to run (default permanent, on PATH), with any arguments, e.g.
+PERMANENT="target/release/permanent --backend cuda".
 """
-import itertools, json, math, os, re, subprocess, sys, time
+import itertools, json, math, os, re, shlex, subprocess, sys, time
+import scipy.io, scipy.sparse
 
 OUT = os.environ.get("DIMER_DIR", "dimers")
-GPU = os.environ.get("PERMANENT", "permanent-cuda")
+PERMANENT = shlex.split(os.environ.get("PERMANENT", "permanent"))
 
 def lattice(dims, periodic, weights):
-    """Biadjacency entries of a hypercubic lattice; weights[d] is the bond weight along axis d."""
+    """Weighted biadjacency matrix of a hypercubic lattice; weights[d] is the bond weight along axis d."""
     sites = list(itertools.product(*[range(n) for n in dims]))
     even = [s for s in sites if sum(s) % 2 == 0]
     odd = {s: i for i, s in enumerate(s for s in sites if sum(s) % 2 == 1)}
     assert len(even) == len(odd)
-    entries = []
+    rows, cols, values = [], [], []
     for row, s in enumerate(even):
         for d, n in enumerate(dims):
             for step in (-1, 1):
@@ -38,8 +40,12 @@ def lattice(dims, periodic, weights):
                     t[d] %= n
                 elif not 0 <= t[d] < n:
                     continue
-                entries.append([row, odd[tuple(t)], weights[d]])
-    return {"size": len(even), "entries": entries}
+                rows.append(row); cols.append(odd[tuple(t)]); values.append(float(weights[d]))
+    # two bonds between the same sites (a period of 2 would give them) add up
+    return scipy.sparse.coo_matrix((values, (rows, cols)), shape=(len(even), len(even)))
+
+def write(path, matrix, comment=""):
+    scipy.io.mmwrite(path, matrix, comment=comment, field="real", precision=17, symmetry="general")
 
 def kasteleyn_open(m, n, a, b):
     """ln Z of the m x n open square lattice (m, n even): bonds along the side of length m weigh a, the others b."""
@@ -69,13 +75,13 @@ def count_open_cube(l):
 
 def run(name, problem, extra=()):
     os.makedirs(OUT, exist_ok=True)
-    path = f"{OUT}/{name}.json"
-    json.dump(problem, open(path, "w"))
+    path = f"{OUT}/{name}.mtx"
+    write(path, problem)
     start = time.time()
-    proc = subprocess.run([GPU, path, *extra], capture_output=True, text=True, env={**os.environ, "PERMANENT_LOG_LEVEL": "error"})
+    proc = subprocess.run([*PERMANENT, path, *extra], capture_output=True, text=True, env={**os.environ, "PERMANENT_LOG_LEVEL": "error"})
     text = proc.stdout
     m = re.search(r"ln\(permanent\) = ([-\d.]+) ± ([\d.]+)", text)
-    info = {"n": problem["size"], "seconds": time.time() - start}
+    info = {"n": problem.shape[0], "seconds": time.time() - start}
     if m:
         info["ln"], info["se"] = float(m.group(1)), float(m.group(2))
     info["temperatures"] = int(re.search(r"temperatures:\s+(\d+)", text).group(1)) if "temperatures:" in text else None
@@ -93,11 +99,9 @@ if __name__ == "__main__":
         assert round(math.exp(kasteleyn_open(8, 8, 1, 1))) == 12988816, "Kasteleyn formula"
         print("8x8 open, a=b=1: exp(formula) =", round(math.exp(kasteleyn_open(8, 8, 1, 1))))
         # orientation of a and b, against the program's own exact value on a small anisotropic lattice
-        json.dump(lattice((4, 6), False, (1.0, 0.5)), open(f"{OUT}/small.json", "w"))
-        out = subprocess.run([GPU, f"{OUT}/small.json", "--exact", "--plan-only"], capture_output=True, text=True, env={**os.environ, "PERMANENT_LOG_LEVEL": "error"}).stdout
         print("4x6 open, a=1 b=0.5: formula", math.exp(kasteleyn_open(4, 6, 1.0, 0.5)), "| the two orientations:", math.exp(kasteleyn_open(6, 4, 1.0, 0.5)))
-        json.dump(lattice((4, 6), False, (1.0, 0.5)), open(f"{OUT}/small.json", "w"))
-        out = subprocess.run([GPU, f"{OUT}/small.json", "--exact"], capture_output=True, text=True, env={**os.environ, "PERMANENT_LOG_LEVEL": "error"}).stdout
+        write(f"{OUT}/small.mtx", lattice((4, 6), False, (1.0, 0.5)))
+        out = subprocess.run([*PERMANENT, f"{OUT}/small.mtx", "--exact"], capture_output=True, text=True, env={**os.environ, "PERMANENT_LOG_LEVEL": "error"}).stdout
         print([l for l in out.splitlines() if "exact" in l])
         print("open 4x4x4 cube, exact count by DP:", count_open_cube(4), "| 2x2x2:", count_open_cube(2))
     elif which == "2d":

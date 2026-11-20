@@ -1,0 +1,18 @@
+[package]
+name = "permanent-core"
+description = "The permanent estimator: scaling, schedule, plan and the engine trait"
+version.workspace = true
+edition.workspace = true
+
+[features]
+# Reductions across MPI ranks. Needs an MPI implementation at build time.
+mpi = ["dep:mpi"]
+
+[dependencies]
+anyhow.workspace = true
+rand.workspace = true
+rayon.workspace = true
+tracing.workspace = true
+serde = { version = "1.0.229", features = ["derive"] }
+sprs = { version = "0.11.6", default-features = false }
+mpi = { version = "0.8", optional = true }

@@ -4,8 +4,8 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
-    # The GPU crate needs the exact toolchain of cuda/rust-toolchain.toml,
-    # with rustc-dev, which nixpkgs' rustc does not ship.
+    # The cuda backend needs the exact toolchain of rust-toolchain.toml, with
+    # rustc-dev, which nixpkgs' rustc does not ship.
     rust-overlay = {
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -61,7 +61,7 @@
         # cuda-oxide generates its driver bindings with bindgen.
         libclang = pkgs.llvmPackages_21.libclang;
 
-        cudaToolchain = pkgs.rust-bin.fromRustupToolchainFile ./cuda/rust-toolchain.toml;
+        cudaToolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
 
         rustDevPackages = with pkgs; [
           cargo
@@ -80,13 +80,13 @@
         driverLibPath = "/run/opengl-driver/lib";
         nixglhost = nix-gl-host.packages.${system}.default;
 
-        # The CPU program. `cuda/` is a crate of its own, built with
-        # cuda-oxide inside the cuda shell, and is left out of the source.
+        # The program with the rayon backend. The cuda backend is built with
+        # cuda-oxide inside the cuda shell.
         permanent =
           { withMpi }:
           pkgs.rustPlatform.buildRustPackage {
             pname = "permanent" + pkgs.lib.optionalString withMpi "-mpi";
-            version = (pkgs.lib.importTOML ./Cargo.toml).package.version;
+            version = (pkgs.lib.importTOML ./Cargo.toml).workspace.package.version;
             src = pkgs.lib.cleanSourceWith {
               src = self;
               filter =
@@ -99,11 +99,16 @@
                   "flake.nix"
                   "flake.lock"
                   ".cargo"
-                  "cuda"
+                  "rust-toolchain.toml"
                   "misc"
                 ]);
             };
-            cargoLock.lockFile = ./Cargo.lock;
+            cargoLock = {
+              lockFile = ./Cargo.lock;
+              # the optional cuda backend brings git dependencies into the lock
+              allowBuiltinFetchGit = true;
+            };
+            cargoBuildFlags = [ "--package" "permanent-cli" ];
             buildFeatures = pkgs.lib.optional withMpi "mpi";
             # the MPI bindings are generated with bindgen against mpi.h
             nativeBuildInputs = pkgs.lib.optionals withMpi [
@@ -131,11 +136,11 @@
           env.RUST_BACKTRACE = "1";
         };
 
-        # `nix develop .#cuda` — for the GPU crate: `cd cuda && cargo oxide
-        # build`. Everything but the driver comes from nixpkgs. cargo-oxide
-        # itself is not packaged: it fetches and builds its compiler backend
-        # on first use, so install it once inside this shell with the
-        # command the shell prints.
+        # `nix develop .#cuda` — for the cuda backend: `cargo oxide build --
+        # --profile cuda --features cuda`. Everything but the driver comes from
+        # nixpkgs. cargo-oxide itself is not packaged: it fetches and builds
+        # its compiler backend on first use, so install it once inside this
+        # shell with the command the shell prints.
         devShells.cuda = pkgs.mkShell {
           packages = [
             cudaToolchain

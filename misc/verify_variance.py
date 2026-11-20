@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check the statements of misc/theory.md by enumeration on a small matrix.
 
-    permanent small.json --segments 1 --save-schedule schedule.json
+    permanent small.mtx --segments 1 --save-schedule schedule.json
     python3 misc/verify_variance.py schedule.json
 
 Builds the relaxed-assignment generator at the top activity on all

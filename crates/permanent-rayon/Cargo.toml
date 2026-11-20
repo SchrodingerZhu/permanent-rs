@@ -1,0 +1,11 @@
+[package]
+name = "permanent-rayon"
+description = "Engine that keeps the population on the rayon thread pool"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+permanent-core.workspace = true
+anyhow.workspace = true
+rand.workspace = true
+rayon.workspace = true

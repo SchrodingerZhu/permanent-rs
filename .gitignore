@@ -3,4 +3,6 @@
 .vscode
 result
 .direnv
-cuda/target
+# device code left in the working directory by cuda-oxide
+/*.ll
+/*.ptx

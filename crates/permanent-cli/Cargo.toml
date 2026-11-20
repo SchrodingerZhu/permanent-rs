@@ -1,0 +1,32 @@
+[package]
+name = "permanent-cli"
+description = "Command line and terminal dashboard of the permanent estimator"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "permanent"
+path = "src/main.rs"
+
+[features]
+default = ["rayon"]
+# The engines to build in; --backend picks one at run time.
+rayon = ["dep:permanent-rayon"]
+# Build with `cargo oxide build -- --profile cuda --features cuda`.
+cuda = ["dep:permanent-cuda"]
+# One rank per GPU or node under `mpirun`.
+mpi = ["permanent-core/mpi"]
+
+[dependencies]
+permanent-core.workspace = true
+permanent-rayon = { workspace = true, optional = true }
+permanent-cuda = { workspace = true, optional = true }
+anyhow.workspace = true
+rand.workspace = true
+rayon.workspace = true
+tracing.workspace = true
+clap = { version = "4.6.6", features = ["derive"] }
+serde_json = "1"
+mimalloc = "0.1.52"
+ratatui = "0.30.2"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }

@@ -1,0 +1,23 @@
+[package]
+name = "permanent-cuda"
+description = "Engine that keeps the population on an NVIDIA GPU"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+# cuda-oxide writes a crate's device code to one set of files, so a test
+# build must not also compile the library for doctests.
+doctest = false
+
+# The kernels are Rust, compiled for the device by cuda-oxide
+# (https://github.com/NVIDIA/cuda-rust). Build through `cargo oxide`.
+[dependencies]
+permanent-core.workspace = true
+anyhow.workspace = true
+rand.workspace = true
+rayon.workspace = true
+tracing.workspace = true
+cuda-device = { git = "https://github.com/NVIDIA/cuda-rust.git" }
+cuda-host = { git = "https://github.com/NVIDIA/cuda-rust.git" }
+# Has to come from the same repository as cuda-host, which depends on it.
+cuda-core = { git = "https://github.com/NVIDIA/cuda-rust.git" }
