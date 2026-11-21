@@ -3,7 +3,7 @@
 //! per-temperature variance that sizes Phase 2, and the report as it is
 //! written.
 
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{Receiver, TryRecvError};
 use std::time::{Duration, Instant};
 
 use ratatui::Frame;
@@ -355,15 +355,30 @@ fn render_chart(frame: &mut Frame, area: Rect, title: &str, data: &[(f64, f64)],
     frame.render_widget(chart, area);
 }
 
+/// Apply the events received so far. A worker that is gone without having
+/// sent `Done` or `Failed` panicked, which fails the run.
+fn drain(app: &mut App, rx: &Receiver<TuiEvent>) {
+    loop {
+        match rx.try_recv() {
+            Ok(event) => app.update(event),
+            Err(TryRecvError::Empty) => return,
+            Err(TryRecvError::Disconnected) => {
+                if !matches!(app.phase, Phase::Done | Phase::Failed(_)) {
+                    app.update(TuiEvent::Failed("the run ended without a result".into()));
+                }
+                return;
+            }
+        }
+    }
+}
+
 /// Run the dashboard until the user quits. The run keeps going behind it;
 /// the caller decides what quitting early means.
 pub fn run(rx: Receiver<TuiEvent>) -> std::io::Result<Outcome> {
     let mut terminal = ratatui::init();
     let mut app = App::new();
     let result = loop {
-        while let Ok(event) = rx.try_recv() {
-            app.update(event);
-        }
+        drain(&mut app, &rx);
         if let Err(error) = terminal.draw(|frame| render(frame, &app)) {
             break Err(error);
         }
@@ -438,5 +453,23 @@ mod test {
         assert!(text.contains("3.01000 ± 0.04000"), "{text}");
         assert!(text.contains("rel error     +1.01%"), "{text}");
         assert!(text.contains("permanent ≈ 2.028740e+1"), "{text}");
+    }
+
+    #[test]
+    fn a_worker_that_vanishes_fails_the_run() {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        sender.send(TuiEvent::Init { n: 4, engine: "cpu".into(), exact: None }).unwrap();
+        drop(sender);
+        let mut app = App::new();
+        drain(&mut app, &receiver);
+        assert!(matches!(app.phase, Phase::Failed(_)));
+
+        // one that finished first is not affected
+        let (sender, receiver) = std::sync::mpsc::channel();
+        sender.send(TuiEvent::Done).unwrap();
+        drop(sender);
+        let mut app = App::new();
+        drain(&mut app, &receiver);
+        assert!(matches!(app.phase, Phase::Done));
     }
 }
