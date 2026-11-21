@@ -1,9 +1,10 @@
 //! Relaxed-assignment dynamics (arXiv:2609.20717, Section 4), used two ways:
-//! `sample_perfect` draws a perfect matching from nothing by annealing the
-//! activity, and `mutate` moves an existing one at the top activity.
+//! an annealing `trial` draws a perfect matching from nothing by annealing
+//! the activity, and `mutate` moves an existing one at the top activity.
 //!
-//! A state assigns every left vertex u either a right vertex or "unassigned". With cr = sum_v max(d_v - 1, 0) counting collisions and `un` the
-//! number of unassigned vertices, the target at activity a is
+//! A state assigns every left vertex u either a right vertex or
+//! "unassigned". With cr = sum_v max(d_v - 1, 0) counting collisions and
+//! `un` the number of unassigned vertices, the target at activity a is
 //!
 //!   nu_a(sigma) ∝ a^(n - un) (1 + J)^(-cr) prod_{u assigned} B(u, sigma_u).
 //!
@@ -29,11 +30,11 @@
 //!   mu K_t = mu,   ||K_t f - mu f||_2 <= exp(-t) ||f - mu f||_2
 //!
 //! for every f and any anchor weights. A population carried from one
-//! temperature to the next only needs `mutate`; `sample_perfect` is what
-//! starts a population at a temperature of its own (see `estimator.rs`).
+//! temperature to the next only needs `mutate`; trials are what start a
+//! population at a temperature of its own (see `estimator.rs`).
 //!
-//! The chains themselves are in `chain/dynamics.rs`; here are the activity
-//! schedule and the caps they run under.
+//! `trial` and `mutate` themselves are in `chain/dynamics.rs`; here are the
+//! activity schedule and the caps they run under.
 
 use num_traits::PrimInt;
 

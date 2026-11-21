@@ -171,9 +171,9 @@ pub trait Engine {
     /// Particle p becomes a copy of the former particle `ancestors[p]`.
     fn resample(&mut self, ancestors: &[u32]) -> anyhow::Result<()>;
 
-    /// Run every particle through `cycles` FAR cycles (`far.rs`), leaving
-    /// it on the perfect matching its chain stops on. Particle p reports
-    /// into group p % groups.
+    /// Run every particle through `cycles` FAR cycles (`chain/far.rs`),
+    /// leaving it on the perfect matching its chain stops on. Particle p
+    /// reports into group p % groups.
     fn far(
         &mut self,
         tables: &Tables<Self::Counter>,

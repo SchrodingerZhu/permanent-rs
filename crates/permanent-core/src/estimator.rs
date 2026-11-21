@@ -46,8 +46,8 @@
 //! islands; a disagreement means the sampler's run length is too short.
 //!
 //! Phase 1 fixes the schedule and learns the anchor weights with one
-//! population of its own: every particle runs a few FAR cycles (`far.rs`),
-//! which also move it.
+//! population of its own: every particle runs a few FAR cycles
+//! (`chain/far.rs`), which also move it.
 //!
 //! misc/theory.md derives all of this.
 
