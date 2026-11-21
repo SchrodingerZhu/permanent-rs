@@ -21,14 +21,16 @@ pub struct Lane {
 
 impl Lane {
     /// # Safety
-    /// `base` must be valid for `arrays * n` words at this stride for as
-    /// long as the lane is used, with `arrays` the number the chain needs.
+    /// `base` must be valid at this stride, for as long as the lane is used,
+    /// for the words the chain addresses: two arrays of n for FAR,
+    /// `matching::words(n)` for a relaxed assignment.
     #[inline(always)]
     pub unsafe fn new(base: *mut u16, stride: usize, n: usize) -> Self {
         Lane { base, stride, n }
     }
 
-    /// A lane on host memory holding `words.len() / n` arrays.
+    /// A lane on host memory. `words` must outlive its use and hold what
+    /// the chain addresses, as for [`Lane::new`].
     pub fn on(words: &mut [u16], n: usize) -> Self {
         assert!(n <= MAX_N && words.len() >= 2 * n);
         Lane { base: words.as_mut_ptr(), stride: 1, n }

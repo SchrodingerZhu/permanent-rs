@@ -41,7 +41,7 @@ use rand_core::Rng;
 use super::lane::{COL, Lane, NONE, ROW};
 use super::{Energy, below};
 
-/// The integer tables of one temperature (`Tables::far_tables`).
+/// The integer tables of one temperature (`Tables::far`).
 pub struct FarTables<'t, C> {
     /// Packed alias tables of the rows and of the columns of B.
     pub row_alias: &'t [C],
