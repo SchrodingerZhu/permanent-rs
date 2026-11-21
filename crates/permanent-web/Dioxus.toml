@@ -1,0 +1,5 @@
+[application]
+name = "permanent-web"
+
+[web.app]
+title = "Weighted Permanent Counting — permanent-rs"

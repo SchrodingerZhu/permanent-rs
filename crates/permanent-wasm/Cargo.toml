@@ -7,17 +7,27 @@ edition.workspace = true
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+default = ["engine"]
+# Full WebGPU estimation driver and browser cdylib exports. Disable when
+# importing only the shared serializable telemetry types into a UI crate.
+engine = ["dep:permanent-core", "dep:permanent-wgpu", "dep:anyhow", "dep:serde_json", "dep:talc"]
+
 [dependencies]
-permanent-core.workspace = true
 permanent-demo.workspace = true
-permanent-wgpu.workspace = true
-anyhow.workspace = true
+permanent-core = { workspace = true, optional = true }
+permanent-wgpu = { workspace = true, optional = true }
+anyhow = { workspace = true, optional = true }
 serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1", optional = true }
+
+[dev-dependencies]
 serde_json = "1"
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
 getrandom = { version = "0.4", features = ["wasm_js"] }
 js-sys = "0.3"
+talc = { version = "5", optional = true }
 wasm-bindgen = "=0.2.130"
 wasm-bindgen-futures = "0.4"
 web-sys = { version = "0.3", features = ["console"] }

@@ -15,6 +15,7 @@ permanent-demo = { path = "crates/permanent-demo" }
 permanent-rayon = { path = "crates/permanent-rayon" }
 permanent-cuda = { path = "crates/permanent-cuda" }
 permanent-wgpu = { path = "crates/permanent-wgpu" }
+permanent-wasm = { path = "crates/permanent-wasm" }
 anyhow = "1.0.104"
 # without the system generator, which wasm32-unknown-unknown lacks; the
 # command line, which draws seeds from it, turns it on
@@ -34,3 +35,13 @@ debug = true
 [profile.cuda]
 inherits = "release"
 lto = "off"
+
+# Full fat-LTO profile for production static WebAssembly bundles:
+# `./misc/build-web.sh --lto`
+[profile.wasm-release]
+inherits = "release"
+opt-level = 3
+lto = true
+codegen-units = 1
+debug = false
+strip = "symbols"

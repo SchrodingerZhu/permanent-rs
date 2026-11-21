@@ -18,38 +18,38 @@ pub fn build_bundled(name: &str) -> anyhow::Result<BuiltProblem> {
         }
         "weighted-8" => load_bundled_mtx(
             include_bytes!("../../../data/weighted-8.mtx"),
-            "data/weighted-8.mtx",
-            "8 × 8 weighted matrix with exact reference.",
+            "8 × 8 weighted matrix",
+            "8 × 8 weighted nonnegative matrix with exact reference.",
             None,
             None,
         ),
         "weighted-12" => load_bundled_mtx(
             include_bytes!("../../../data/weighted-12.mtx"),
-            "data/weighted-12.mtx",
-            "12 × 12 weighted matrix with exact reference.",
+            "12 × 12 weighted matrix",
+            "12 × 12 weighted nonnegative matrix with exact reference.",
             None,
             None,
         ),
         "weighted-16" => load_bundled_mtx(
             include_bytes!("../../../data/weighted-16.mtx"),
-            "data/weighted-16.mtx",
+            "16 × 16 weighted matrix",
             "16 × 16 weighted matrix with 106 nonzeros spanning 0.05 to 17.9.",
             None,
             None,
         ),
         "weighted-20" => load_bundled_mtx(
             include_bytes!("../../../data/weighted-20.mtx"),
-            "data/weighted-20.mtx",
+            "20 × 20 sparse weighted matrix",
             "20 × 20 sparse weighted matrix with exact reference.",
             None,
             None,
         ),
         "weighted-blocks-48" => load_bundled_mtx(
             include_bytes!("../../../data/weighted-blocks-48.mtx"),
-            "data/weighted-blocks-48.mtx",
+            "48 × 48 weakly coupled weighted blocks",
             "48 × 48 weakly coupled weighted blocks.",
             Some(113.25630197721398),
-            Some("bundled exact reference".into()),
+            Some("exact reference".into()),
         ),
         other => bail!("unknown bundled preset: {other}"),
     }
@@ -66,7 +66,7 @@ pub fn from_matrix_market(text: &str) -> anyhow::Result<BuiltProblem> {
     finalize(
         problem,
         ProblemMeta {
-            title: format!("Custom {n} × {n} Matrix Market"),
+            title: format!("Custom {n} × {n} matrix"),
             description: "User-supplied Matrix Market coordinate matrix.".into(),
             exact_ln,
             exact_source,

@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Specification for generating or loading a matrix problem.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ProblemSpec {
     /// Two-dimensional square/rectangular lattice dimer model.
@@ -89,7 +89,7 @@ pub enum RandomMatrixFamily {
 }
 
 /// Nonzero entry `(row, col, value)` in 0-based coordinates.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct MatrixEntry {
     pub row: u32,
     pub col: u32,
@@ -97,7 +97,7 @@ pub struct MatrixEntry {
 }
 
 /// A bond between an even-sublattice site (`row`) and an odd-sublattice site (`col`).
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct LatticeBond {
     pub row: u32,
     pub col: u32,
@@ -109,7 +109,7 @@ pub struct LatticeBond {
 }
 
 /// Visual layout metadata for 2D/3D model viewers.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ProblemGeometry {
     Lattice2d {
@@ -138,7 +138,7 @@ pub enum ProblemGeometry {
 }
 
 /// Complete generated problem descriptor returned to front ends for display.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GeneratedProblem {
     pub title: String,
     pub description: String,
@@ -161,7 +161,7 @@ pub struct GeneratedProblem {
 }
 
 /// Snapshot of a single matching (row `u` matched to column `matching[u]`).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SampleSnapshot {
     pub beta: f64,
     pub matching: Vec<u32>,
@@ -169,7 +169,7 @@ pub struct SampleSnapshot {
 }
 
 /// One entry in the curated demo catalog (frontend-agnostic).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DemoPreset {
     pub id: String,
     pub title: String,
