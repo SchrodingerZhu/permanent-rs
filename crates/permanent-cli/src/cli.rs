@@ -12,7 +12,7 @@ use permanent_core::estimator::{Config, Progress, Session, Verdict};
 use permanent_core::exact;
 use permanent_core::problem::Problem;
 use permanent_core::scaling::{Prepared, Scaled, prepare};
-use permanent_core::stats::scientific;
+use permanent_core::stats::{ln_factorial, scientific};
 use tracing::level_filters::LevelFilter;
 use tracing::{debug, info};
 use tracing_subscriber::EnvFilter;
@@ -316,11 +316,11 @@ fn estimate<E: Engine, C: Comm>(
                 log_w: level.log_w.clone(),
             });
         }
-        Progress::Sweep { round, done, total } => {
+        Progress::Sweep { round, done, total, partial } => {
             if due() {
                 info!(round = round + 1, done, total, "phase 2 temperature sweeps");
             }
-            reporter.send(|| TuiEvent::Sweep { round, done, total });
+            reporter.send(|| TuiEvent::Sweep { round, done, total, partial });
         }
         Progress::Round { index, estimate: e } => {
             info!(
@@ -397,6 +397,7 @@ fn estimate<E: Engine, C: Comm>(
             .map_err(|error| anyhow::anyhow!("writing {}: {error}", path.display()))?;
     }
     let plan = session.plan(&levels);
+    reporter.send(|| TuiEvent::Plan { segments: plan.segments.clone(), ln_scale: ln_factorial(n) - scaled.log_scale });
     say!(reporter, "plan:");
     say!(
         reporter,

@@ -213,10 +213,44 @@ pub enum Verdict {
 pub enum Progress<'a> {
     /// Phase 1 fixed one more temperature.
     Level { index: usize, level: &'a Level },
-    /// Phase 2 finished `done` of this rank's `total` temperature sweeps.
-    Sweep { round: usize, done: u64, total: u64 },
+    /// Phase 2 finished `done` of this rank's `total` temperature sweeps;
+    /// `partial` is where the sweep that just moved stands.
+    Sweep { round: usize, done: u64, total: u64, partial: Partial },
     /// One round of islands completed.
     Round { index: usize, estimate: &'a Estimate },
+}
+
+/// Where one sweep of a segment stands after a temperature: what its islands
+/// have multiplied up since the segment's start. It is not an estimate of
+/// anything until the sweep reaches the segment's end; it shows the ratio
+/// being built. The two moments are over the sweep's islands and are kept
+/// as logarithms, so that the sweeps of one segment can be pooled.
+#[derive(Debug, Clone, Copy)]
+pub struct Partial {
+    pub segment: usize,
+    /// The temperature the sweep has passed. The one at the segment's end
+    /// multiplies nothing in, except the factor g at the last of all.
+    pub level: usize,
+    pub islands: usize,
+    /// ln of the mean over the islands of their product so far.
+    pub ln_mean: f64,
+    /// ln of the mean of its square.
+    pub ln_mean_square: f64,
+}
+
+impl Partial {
+    fn of(segment: usize, level: usize, runs: &[SegmentRun]) -> Self {
+        let ln_islands = (runs.len() as f64).ln();
+        let first: Vec<f64> = runs.iter().map(|run| run.ln_ratio).collect();
+        let second: Vec<f64> = first.iter().map(|ln_ratio| 2.0 * ln_ratio).collect();
+        Partial {
+            segment,
+            level,
+            islands: runs.len(),
+            ln_mean: log_sum_exp(&first) - ln_islands,
+            ln_mean_square: log_sum_exp(&second) - ln_islands,
+        }
+    }
 }
 
 type Observer<'a> = Option<Box<dyn FnMut(Progress<'_>) + 'a>>;
@@ -412,13 +446,13 @@ struct Sweep {
 }
 
 /// Run islands `islands` of segment `segment` on `engine`. `tick` is called
-/// once per temperature.
+/// once per temperature, with where the sweep stands after it.
 fn run_segment<E: Engine>(
     ladder: &Ladder<'_>,
     engine: &mut E,
     segment: usize,
     islands: Range<u64>,
-    tick: &mut dyn FnMut(),
+    tick: &mut dyn FnMut(Partial),
 ) -> anyhow::Result<Sweep> {
     let Ladder { scaled, config, stages, anchor, levels, plan } = *ladder;
     let n = scaled.n;
@@ -454,7 +488,6 @@ fn run_segment<E: Engine>(
             let stream = Stream { seed, phase: PHASE_MUTATE, level: i as u64 };
             mutate.add(engine.mutate(&tables(level), config.mutation_time, stream)?);
         }
-        tick();
         if i == last {
             let gaps = engine.log_gaps()?;
             for (run, gaps) in runs.iter_mut().zip(gaps.chunks(particles)) {
@@ -462,6 +495,7 @@ fn run_segment<E: Engine>(
                 run.ln_ratio += mean.ln();
                 run.carried = mean;
             }
+            tick(Partial::of(segment, i, &runs));
             break;
         }
         let energies = engine.energies()?;
@@ -487,6 +521,7 @@ fn run_segment<E: Engine>(
         if i < end {
             engine.resample(&ancestors)?;
         }
+        tick(Partial::of(segment, i, &runs));
     }
     Ok(Sweep { runs, mutate, sampler })
 }
@@ -895,10 +930,10 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
         let lanes = self.engine.concurrency(largest * plan.particles).min(jobs.len());
         let mut swept = 0u64;
         let observer = &mut self.observer;
-        let mut tick = || {
+        let mut tick = |partial: Partial| {
             swept += 1;
             if let Some(observer) = observer.as_mut() {
-                observer(Progress::Sweep { round, done: swept, total });
+                observer(Progress::Sweep { round, done: swept, total, partial });
             }
         };
         if lanes <= 1 {
@@ -909,7 +944,7 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
         }
         let mut forks = (1..lanes).map(|_| self.engine.fork()).collect::<anyhow::Result<Vec<E>>>()?;
         let next = AtomicUsize::new(0);
-        let (ticks, ticked) = mpsc::channel::<()>();
+        let (ticks, ticked) = mpsc::channel::<Partial>();
         let mut sweeps: Vec<Option<Sweep>> = jobs.iter().map(|_| None).collect();
         thread::scope(|scope| {
             let workers: Vec<_> = std::iter::once(&mut self.engine)
@@ -923,8 +958,8 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
                             let Some((segment, islands)) = jobs.get(job) else {
                                 break;
                             };
-                            let mut tick = || {
-                                let _ = ticks.send(());
+                            let mut tick = |partial: Partial| {
+                                let _ = ticks.send(partial);
                             };
                             done.push((job, run_segment(ladder, engine, *segment, islands.clone(), &mut tick)?));
                         }
@@ -933,8 +968,8 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
                 })
                 .collect();
             drop(ticks);
-            for () in ticked {
-                tick();
+            for partial in ticked {
+                tick(partial);
             }
             for worker in workers {
                 for (job, sweep) in worker.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic))? {
