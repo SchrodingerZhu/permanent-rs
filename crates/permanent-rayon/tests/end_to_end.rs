@@ -99,6 +99,6 @@ fn learning_does_not_repeat_passes_that_measure_noise() {
     let config = Config { seed: 4, ..Default::default() };
     let mut session = Session::new(&scaled, &config, Rayon::<f64, SmallRng>::new(&scaled), &Solo).unwrap();
     let levels = session.learn_schedule().unwrap();
-    let passes = session.diagnostics.learn_iterations as usize;
+    let passes = session.diagnostics().learn_iterations as usize;
     assert!(passes <= levels.len() + levels.len() / 4, "{passes} passes for {} temperatures", levels.len());
 }

@@ -316,6 +316,7 @@ fn estimate<E: Engine, C: Comm>(
                 log_w: level.log_w.clone(),
             });
         }
+        Progress::Sample { .. } => {}
         Progress::Sweep { round, done, total, partial } => {
             if due() {
                 info!(round = round + 1, done, total, "phase 2 temperature sweeps");
@@ -351,7 +352,7 @@ fn estimate<E: Engine, C: Comm>(
     });
 
     let levels = session.learn_schedule()?;
-    let d = session.diagnostics.clone();
+    let d = session.diagnostics().clone();
     debug!(?d, "phase 1 diagnostics");
     let t = cli.mutation_time;
     say!(reporter, "phase 1 (learn weights, build schedule): {:.1} s", d.phase1_seconds);
@@ -412,7 +413,7 @@ fn estimate<E: Engine, C: Comm>(
         plan.relvar_sum,
         plan.mixing_factor
     );
-    say!(reporter, "  target std error of ln(per): {:.4} (interval z = {:.3})", session.sigma_target, session.z);
+    say!(reporter, "  target std error of ln(per): {:.4} (interval z = {:.3})", session.sigma_target(), session.z());
     say!(reporter, "  sampler stage time:          {:.4}", plan.stage_time);
     if plan.predicted_events > 0.0 {
         say!(reporter, "  predicted:                   ~{:.3e} mutation events", plan.predicted_events);
@@ -450,7 +451,7 @@ fn estimate<E: Engine, C: Comm>(
         );
     }
     say!(reporter, "  regularization factor E[g]:  {:.4}", estimate.mean_gap);
-    let half = session.z * estimate.std_error;
+    let half = session.z() * estimate.std_error;
     say!(reporter, "permanent ≈ {}", scientific(estimate.ln_permanent));
     say!(reporter, "  ln(permanent) = {:.6} ± {:.6} (std error)", estimate.ln_permanent, estimate.std_error);
     say!(

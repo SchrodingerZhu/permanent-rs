@@ -269,4 +269,9 @@ where
             .reduce(|| FarRound::new(n, groups), FarRound::merge);
         Ok(round)
     }
+
+    fn head(&mut self, count: usize) -> anyhow::Result<Vec<u32>> {
+        let words = count.saturating_mul(self.scaled.n).min(self.sigma.len());
+        Ok(self.sigma[..words].iter().map(|&v| v as u32).collect())
+    }
 }

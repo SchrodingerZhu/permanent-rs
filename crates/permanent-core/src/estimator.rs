@@ -56,14 +56,18 @@ use rand::seq::SliceRandom;
 use rand::{RngExt, SeedableRng};
 use rayon::prelude::*;
 use std::ops::Range;
-use std::sync::atomic::{AtomicUsize, Ordering};
+#[cfg(not(target_family = "wasm"))]
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(not(target_family = "wasm"))]
 use std::sync::mpsc;
+#[cfg(not(target_family = "wasm"))]
 use std::thread;
-use std::time::Instant;
 use tracing::{debug, warn};
+use web_time::Instant;
 
 use crate::comm::Comm;
-use crate::engine::{Engine, Stream};
+use crate::engine::{AsyncEngine, Blocking, Engine, Stream};
 use crate::sampler::{MutateCost, SampleCost, StageSchedule};
 use crate::scaling::Scaled;
 use crate::stats::{ln_factorial, log_sum_exp, normal_quantile, stream_seed};
@@ -209,10 +213,47 @@ pub enum Verdict {
     Unchecked,
 }
 
-/// What the driver reports while it runs (see `Session::observe`).
+/// Returned when a caller cancels an in-flight run via its cancellation flag.
+///
+/// After cancellation the engine holds a mid-run population and the session's
+/// internal stream counter has advanced; drop the session rather than reusing
+/// it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Cancelled;
+
+impl std::fmt::Display for Cancelled {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("run cancelled")
+    }
+}
+
+impl std::error::Error for Cancelled {}
+
+fn check_cancelled(cancel: Option<&AtomicBool>) -> anyhow::Result<()> {
+    if cancel.is_some_and(|flag| flag.load(Ordering::Relaxed)) {
+        return Err(anyhow::Error::new(Cancelled));
+    }
+    Ok(())
+}
+
+/// Poll a future known to resolve immediately (every `.await` returns `Ready`).
+fn poll_ready<F: Future>(future: F) -> F::Output {
+    let mut future = std::pin::pin!(future);
+    let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+    match future.as_mut().poll(&mut cx) {
+        std::task::Poll::Ready(output) => output,
+        std::task::Poll::Pending => unreachable!("synchronous engine returned Pending"),
+    }
+}
+
+/// What the driver reports while it runs (see `AsyncSession::observe`).
 pub enum Progress<'a> {
     /// Phase 1 fixed one more temperature.
     Level { index: usize, level: &'a Level },
+    /// The first particle of the active population at `beta` (exchangeable
+    /// with the rest of its island), emitted when sample capture is enabled;
+    /// `valid` is true when it avoids every zero entry of A.
+    Sample { beta: f64, matching: &'a [u32], valid: bool },
     /// Phase 2 finished `done` of this rank's `total` temperature sweeps;
     /// `partial` is where the sweep that just moved stands.
     Sweep { round: usize, done: u64, total: u64, partial: Partial },
@@ -443,17 +484,21 @@ struct Sweep {
     runs: Vec<SegmentRun>,
     mutate: MutateCost,
     sampler: SampleCost,
+    sample: Option<Vec<u32>>,
 }
 
 /// Run islands `islands` of segment `segment` on `engine`. `tick` is called
 /// once per temperature, with where the sweep stands after it.
-fn run_segment<E: Engine>(
+async fn run_segment<E: AsyncEngine>(
     ladder: &Ladder<'_>,
     engine: &mut E,
     segment: usize,
     islands: Range<u64>,
+    cancel: Option<&AtomicBool>,
+    capture_sample: bool,
     tick: &mut dyn FnMut(Partial),
 ) -> anyhow::Result<Sweep> {
+    check_cancelled(cancel)?;
     let Ladder { scaled, config, stages, anchor, levels, plan } = *ladder;
     let n = scaled.n;
     let seed = config.seed;
@@ -465,40 +510,50 @@ fn run_segment<E: Engine>(
     let tables = |level: &Level| Tables::<E::Counter>::build(scaled, level.beta, &level.log_w, anchor);
     let mut mutate = MutateCost::default();
     let mut sampler = SampleCost::default();
+    let mut sample = None;
 
     if first == 0 {
         engine.load(&uniform_permutations(n, count * particles, seed, PHASE_INIT, first_id), first_id)?;
     } else {
         let stream = Stream { seed, phase: PHASE_ANNEAL, level: first as u64 };
-        sampler = engine.anneal(
-            &tables(&levels[first]),
-            stages,
-            plan.stage_time,
-            SAMPLER_TRIALS,
-            count * particles,
-            first_id,
-            stream,
-        )?;
+        sampler = engine
+            .anneal(
+                &tables(&levels[first]),
+                stages,
+                plan.stage_time,
+                SAMPLER_TRIALS,
+                count * particles,
+                first_id,
+                stream,
+            )
+            .await?;
     }
     let mut runs = vec![SegmentRun { segment, ln_ratio: 0.0, fresh: f64::NAN, carried: f64::NAN }; count];
     let mut weights = vec![0.0f64; particles];
     let mut ancestors = Vec::with_capacity(count * particles);
     for (i, level) in levels.iter().enumerate().take(end + 1).skip(first) {
+        check_cancelled(cancel)?;
         if i > first {
             let stream = Stream { seed, phase: PHASE_MUTATE, level: i as u64 };
-            mutate.add(engine.mutate(&tables(level), config.mutation_time, stream)?);
+            mutate.add(engine.mutate(&tables(level), config.mutation_time, stream).await?);
         }
         if i == last {
-            let gaps = engine.log_gaps()?;
+            let gaps = engine.log_gaps().await?;
             for (run, gaps) in runs.iter_mut().zip(gaps.chunks(particles)) {
                 let mean = gaps.iter().map(|g| g.exp()).sum::<f64>() / particles as f64;
                 run.ln_ratio += mean.ln();
                 run.carried = mean;
             }
+            if capture_sample {
+                let head = engine.head(1).await?;
+                if head.len() >= n {
+                    sample = Some(head[..n].to_vec());
+                }
+            }
             tick(Partial::of(segment, i, &runs));
             break;
         }
-        let energies = engine.energies()?;
+        let energies = engine.energies().await?;
         ancestors.clear();
         for (island, (run, energies)) in runs.iter_mut().zip(energies.chunks(particles)).enumerate() {
             for (w, h) in weights.iter_mut().zip(energies) {
@@ -523,15 +578,175 @@ fn run_segment<E: Engine>(
         }
         tick(Partial::of(segment, i, &runs));
     }
-    Ok(Sweep { runs, mutate, sampler })
+    Ok(Sweep { runs, mutate, sampler, sample })
 }
 
-pub struct Session<'a, E: Engine, C: Comm> {
+async fn sweep_sequential<E: AsyncEngine>(
+    engine: &mut E,
+    ladder: &Ladder<'_>,
+    jobs: &[(usize, Range<u64>)],
+    round: usize,
+    cancel: Option<&AtomicBool>,
+    capture_samples: bool,
+    observer: &mut Observer<'_>,
+) -> anyhow::Result<Vec<Sweep>> {
+    let total: u64 = jobs.iter().map(|(segment, _)| ladder.plan.segments[*segment].len() as u64 + 1).sum();
+    let mut swept = 0u64;
+    let mut tick = |partial: Partial| {
+        swept += 1;
+        if let Some(observer) = observer.as_mut() {
+            observer(Progress::Sweep { round, done: swept, total, partial });
+        }
+    };
+    let mut sweeps = Vec::with_capacity(jobs.len());
+    for (segment, islands) in jobs {
+        sweeps.push(run_segment(ladder, engine, *segment, islands.clone(), cancel, capture_samples, &mut tick).await?);
+    }
+    Ok(sweeps)
+}
+
+#[cfg(not(target_family = "wasm"))]
+fn sweep_sync<E: Engine>(
+    engine: &mut Blocking<E>,
+    ladder: &Ladder<'_>,
+    jobs: &[(usize, Range<u64>)],
+    round: usize,
+    cancel: Option<&AtomicBool>,
+    capture_samples: bool,
+    observer: &mut Observer<'_>,
+) -> anyhow::Result<Vec<Sweep>> {
+    let largest = jobs.iter().map(|(_, islands)| islands.end - islands.start).max().unwrap_or(0) as usize;
+    let lanes = engine.0.concurrency(largest * ladder.plan.particles).min(jobs.len());
+    if lanes <= 1 {
+        return poll_ready(sweep_sequential(engine, ladder, jobs, round, cancel, capture_samples, observer));
+    }
+    let total: u64 = jobs.iter().map(|(segment, _)| ladder.plan.segments[*segment].len() as u64 + 1).sum();
+    let mut swept = 0u64;
+    let mut tick = |partial: Partial| {
+        swept += 1;
+        if let Some(observer) = observer.as_mut() {
+            observer(Progress::Sweep { round, done: swept, total, partial });
+        }
+    };
+    let mut forks = (1..lanes).map(|_| engine.0.fork().map(Blocking)).collect::<anyhow::Result<Vec<Blocking<E>>>>()?;
+    let next = AtomicUsize::new(0);
+    let (ticks, ticked) = mpsc::channel::<Partial>();
+    let mut sweeps: Vec<Option<Sweep>> = jobs.iter().map(|_| None).collect();
+    thread::scope(|scope| {
+        let workers: Vec<_> = std::iter::once(engine)
+            .chain(&mut forks)
+            .map(|engine| {
+                let (next, ticks) = (&next, ticks.clone());
+                scope.spawn(move || {
+                    let mut done = Vec::new();
+                    loop {
+                        let job = next.fetch_add(1, Ordering::Relaxed);
+                        let Some((segment, islands)) = jobs.get(job) else {
+                            break;
+                        };
+                        let mut tick = |partial: Partial| {
+                            let _ = ticks.send(partial);
+                        };
+                        let sweep = poll_ready(run_segment(
+                            ladder,
+                            engine,
+                            *segment,
+                            islands.clone(),
+                            cancel,
+                            capture_samples,
+                            &mut tick,
+                        ))?;
+                        done.push((job, sweep));
+                    }
+                    anyhow::Ok(done)
+                })
+            })
+            .collect();
+        drop(ticks);
+        for partial in ticked {
+            tick(partial);
+        }
+        for worker in workers {
+            for (job, sweep) in worker.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic))? {
+                sweeps[job] = Some(sweep);
+            }
+        }
+        anyhow::Ok(())
+    })?;
+    Ok(sweeps.into_iter().map(|sweep| sweep.expect("every job is swept once")).collect())
+}
+
+#[cfg(target_family = "wasm")]
+fn sweep_sync<E: Engine>(
+    engine: &mut Blocking<E>,
+    ladder: &Ladder<'_>,
+    jobs: &[(usize, Range<u64>)],
+    round: usize,
+    cancel: Option<&AtomicBool>,
+    capture_samples: bool,
+    observer: &mut Observer<'_>,
+) -> anyhow::Result<Vec<Sweep>> {
+    poll_ready(sweep_sequential(engine, ladder, jobs, round, cancel, capture_samples, observer))
+}
+
+trait Sweeper<'a, E: AsyncEngine> {
+    #[allow(clippy::too_many_arguments)]
+    fn sweep<'s>(
+        &mut self,
+        engine: &'s mut E,
+        ladder: &'s Ladder<'s>,
+        jobs: &'s [(usize, Range<u64>)],
+        round: usize,
+        cancel: Option<&'s AtomicBool>,
+        capture_samples: bool,
+        observer: &'s mut Observer<'a>,
+    ) -> impl Future<Output = anyhow::Result<Vec<Sweep>>> + use<'s, 'a, Self, E>;
+}
+
+struct SequentialSweeper;
+
+impl<'a, E: AsyncEngine> Sweeper<'a, E> for SequentialSweeper {
+    fn sweep<'s>(
+        &mut self,
+        engine: &'s mut E,
+        ladder: &'s Ladder<'s>,
+        jobs: &'s [(usize, Range<u64>)],
+        round: usize,
+        cancel: Option<&'s AtomicBool>,
+        capture_samples: bool,
+        observer: &'s mut Observer<'a>,
+    ) -> impl Future<Output = anyhow::Result<Vec<Sweep>>> + use<'s, 'a, E> {
+        sweep_sequential(engine, ladder, jobs, round, cancel, capture_samples, observer)
+    }
+}
+
+struct SyncSweeper;
+
+impl<'a, E: Engine> Sweeper<'a, Blocking<E>> for SyncSweeper {
+    fn sweep<'s>(
+        &mut self,
+        engine: &'s mut Blocking<E>,
+        ladder: &'s Ladder<'s>,
+        jobs: &'s [(usize, Range<u64>)],
+        round: usize,
+        cancel: Option<&'s AtomicBool>,
+        capture_samples: bool,
+        observer: &'s mut Observer<'a>,
+    ) -> impl Future<Output = anyhow::Result<Vec<Sweep>>> + use<'s, 'a, E> {
+        core::future::ready(sweep_sync(engine, ladder, jobs, round, cancel, capture_samples, observer))
+    }
+}
+
+/// Asynchronous driver over any [`AsyncEngine`] (for WebGPU in a browser and
+/// async runtimes). Synchronous engines use [`Session`], which wraps this.
+pub struct AsyncSession<'a, E: AsyncEngine, C: Comm> {
     scaled: &'a Scaled,
     config: &'a Config,
     engine: E,
     comm: &'a C,
     observer: Observer<'a>,
+    cancel: Option<&'a AtomicBool>,
+    capture_samples: bool,
     pub stages: StageSchedule,
     anchor: usize,
     pub diagnostics: Diagnostics,
@@ -554,7 +769,7 @@ struct LearnSeconds {
     resample: f64,
 }
 
-impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
+impl<'a, E: AsyncEngine, C: Comm> AsyncSession<'a, E, C> {
     pub fn new(scaled: &'a Scaled, config: &'a Config, engine: E, comm: &'a C) -> anyhow::Result<Self> {
         anyhow::ensure!(config.epsilon > 0.0 && config.epsilon < 1.0, "epsilon must be in (0, 1)");
         anyhow::ensure!(config.delta > 0.0 && config.delta < 1.0, "delta must be in (0, 1)");
@@ -563,12 +778,14 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
         // half of delta covers statistical error; the rest is left for the
         // segment starts (their tolerance in rigorous mode, the check otherwise)
         let z = normal_quantile(1.0 - config.delta / 4.0);
-        Ok(Session {
+        Ok(AsyncSession {
             scaled,
             config,
             engine,
             comm,
             observer: None,
+            cancel: None,
+            capture_samples: false,
             stages: StageSchedule::new(scaled.n, config.density),
             anchor: 0,
             diagnostics: Diagnostics { check_min: f64::INFINITY, check_max: 0.0, ..Default::default() },
@@ -584,13 +801,51 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
         self.observer = Some(Box::new(observer));
     }
 
+    /// Stop cooperatively with [`Cancelled`] once `flag` becomes `true`.
+    ///
+    /// Once cancelled, the engine holds a mid-run population and the internal
+    /// stream counter has advanced; drop the session rather than calling
+    /// `learn_schedule` or `estimate` again.
+    pub fn cancel_flag(&mut self, flag: &'a AtomicBool) {
+        self.cancel = Some(flag);
+    }
+
+    /// When enabled, emit `Progress::Sample` with the first particle of the
+    /// active population during Phase 1 and at the end of Phase 2.
+    pub fn capture_samples(&mut self, enabled: bool) {
+        self.capture_samples = enabled;
+    }
+
     pub fn engine_name(&self) -> String {
         self.engine.name()
+    }
+
+    pub fn engine(&self) -> &E {
+        &self.engine
+    }
+
+    pub fn engine_mut(&mut self) -> &mut E {
+        &mut self.engine
     }
 
     fn learn_stream(&mut self) -> Stream {
         self.calls += 1;
         Stream { seed: self.config.seed, phase: PHASE_LEARN, level: self.calls }
+    }
+
+    async fn emit_sample(&mut self, beta: f64) -> anyhow::Result<()> {
+        if self.capture_samples {
+            let head = self.engine.head(1).await?;
+            let n = self.scaled.n;
+            if head.len() >= n {
+                let matching = &head[..n];
+                let valid = self.scaled.log_gap_of(matching).is_finite();
+                if let Some(observer) = self.observer.as_mut() {
+                    observer(Progress::Sample { beta, matching, valid });
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Learn the anchor weights at `beta`, starting from the guess `log_w`.
@@ -611,7 +866,7 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
     /// `LEARN_ACCEPT` by more than z rse_v, with z the normal quantile
     /// that all n classes together pass with probability
     /// 1 - `LEARN_FALSE_ALARM` when none is beyond it.
-    fn learn(&mut self, level: usize, beta: f64, mut log_w: Vec<f64>, exact: bool) -> anyhow::Result<Learned> {
+    async fn learn(&mut self, level: usize, beta: f64, mut log_w: Vec<f64>, exact: bool) -> anyhow::Result<Learned> {
         let scaled = self.scaled;
         let n = scaled.n;
         let anchor = self.anchor;
@@ -621,6 +876,7 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
         let significant = normal_quantile(1.0 - LEARN_FALSE_ALARM / n as f64);
         let mut drift = vec![0.0; n];
         for iteration in 0..LEARN_MAX_ITERATIONS {
+            check_cancelled(self.cancel)?;
             self.diagnostics.learn_iterations += 1;
             let clock = Instant::now();
             let tables = Tables::<E::Counter>::build(scaled, beta, &log_w, anchor);
@@ -629,7 +885,7 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
             // made; after that the FAR runs themselves move the particles.
             if iteration == 0 && !exact && self.config.learn_mutation_time > 0.0 {
                 let stream = self.learn_stream();
-                let cost = self.engine.mutate(&tables, self.config.learn_mutation_time, stream)?;
+                let cost = self.engine.mutate(&tables, self.config.learn_mutation_time, stream).await?;
                 self.diagnostics.mutate.add(cost);
                 self.diagnostics.mutations += local as u64;
             }
@@ -644,9 +900,10 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
             let mut rse = vec![f64::INFINITY; n];
             let mut worst_rse = f64::INFINITY;
             for _round in 0..LEARN_MAX_ROUNDS {
+                check_cancelled(self.cancel)?;
                 let stream = self.learn_stream();
                 let clock = Instant::now();
-                let far = self.engine.far(&tables, cycles, 256 * cycles + 100_000, groups, stream)?;
+                let far = self.engine.far(&tables, cycles, 256 * cycles + 100_000, groups, stream).await?;
                 self.seconds.far += clock.elapsed().as_secs_f64();
                 self.diagnostics.far_steps += far.steps;
                 self.diagnostics.learn_capped_chains += far.capped;
@@ -742,7 +999,8 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
 
     /// Phase 1: build the temperature schedule and learn weights along it,
     /// with one population carried from beta = 0 to 1.
-    pub fn learn_schedule(&mut self) -> anyhow::Result<Vec<Level>> {
+    pub async fn learn_schedule(&mut self) -> anyhow::Result<Vec<Level>> {
+        check_cancelled(self.cancel)?;
         let scaled = self.scaled;
         let n = scaled.n;
         let seed = self.config.seed;
@@ -766,14 +1024,15 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
         let mut guess = vec![(n as f64).ln(); n];
         let mut previous_step: Option<f64> = None;
         loop {
-            let learned = self.learn(levels.len(), beta, guess, levels.is_empty())?;
+            check_cancelled(self.cancel)?;
+            let learned = self.learn(levels.len(), beta, guess, levels.is_empty()).await?;
             let clock = Instant::now();
-            let energies = self.engine.energies()?;
+            let energies = self.engine.energies().await?;
             self.seconds.energies += clock.elapsed().as_secs_f64();
             let pilot = self.comm.gather_f64(&energies);
             let shift = pilot.iter().sum::<f64>() / pilot.len() as f64;
             if beta >= 1.0 {
-                let gaps = self.comm.gather_f64(&self.engine.log_gaps()?);
+                let gaps = self.comm.gather_f64(&self.engine.log_gaps().await?);
                 let (mut m1, mut m2) = (0.0, 0.0);
                 for gap in &gaps {
                     let g = gap.exp();
@@ -786,6 +1045,7 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
                     if m1 > 0.0 { ((m2 / k) / ((m1 / k) * (m1 / k)) - 1.0).min(0.5) } else { 0.5 };
                 levels.push(Level { beta, log_w: learned.log_w, step: 0.0, shift, relvar: 0.0, weight_max: 1.0 });
                 self.notify_level(&levels);
+                self.emit_sample(beta).await?;
                 break;
             }
             let clock = Instant::now();
@@ -815,6 +1075,7 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
             guess = (0..n).map(|v| learned.log_w[v] + step * learned.drift[v]).collect();
             levels.push(Level { beta, log_w: learned.log_w, step, shift, relvar, weight_max });
             self.notify_level(&levels);
+            self.emit_sample(beta).await?;
             // carry this rank's particles to the next temperature
             let clock = Instant::now();
             let weights: Vec<f64> = energies.iter().map(|h| (-step * (h - shift)).exp()).collect();
@@ -906,84 +1167,18 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
         }
     }
 
-    /// Sweep `jobs` (a segment and a batch of its islands each) and return
-    /// their sweeps in the order of the jobs. As many run at the same time
-    /// as the engine says it can move at once, each on an engine of its
-    /// own; a job's result does not depend on what runs beside it.
-    fn sweep(
+    /// Phase 2: run islands of every segment until the measured standard
+    /// error meets the target. Each round is reported as `Progress::Round`.
+    pub async fn estimate(&mut self, levels: &[Level], plan: &Plan) -> anyhow::Result<Estimate> {
+        self.estimate_with(levels, plan, SequentialSweeper).await
+    }
+
+    async fn estimate_with<S: Sweeper<'a, E>>(
         &mut self,
         levels: &[Level],
         plan: &Plan,
-        jobs: &[(usize, Range<u64>)],
-        round: usize,
-    ) -> anyhow::Result<Vec<Sweep>> {
-        let ladder = Ladder {
-            scaled: self.scaled,
-            config: self.config,
-            stages: &self.stages,
-            anchor: self.anchor,
-            levels,
-            plan,
-        };
-        let total: u64 = jobs.iter().map(|(segment, _)| plan.segments[*segment].len() as u64 + 1).sum();
-        let largest = jobs.iter().map(|(_, islands)| islands.end - islands.start).max().unwrap_or(0) as usize;
-        let lanes = self.engine.concurrency(largest * plan.particles).min(jobs.len());
-        let mut swept = 0u64;
-        let observer = &mut self.observer;
-        let mut tick = |partial: Partial| {
-            swept += 1;
-            if let Some(observer) = observer.as_mut() {
-                observer(Progress::Sweep { round, done: swept, total, partial });
-            }
-        };
-        if lanes <= 1 {
-            return jobs
-                .iter()
-                .map(|(segment, islands)| run_segment(&ladder, &mut self.engine, *segment, islands.clone(), &mut tick))
-                .collect();
-        }
-        let mut forks = (1..lanes).map(|_| self.engine.fork()).collect::<anyhow::Result<Vec<E>>>()?;
-        let next = AtomicUsize::new(0);
-        let (ticks, ticked) = mpsc::channel::<Partial>();
-        let mut sweeps: Vec<Option<Sweep>> = jobs.iter().map(|_| None).collect();
-        thread::scope(|scope| {
-            let workers: Vec<_> = std::iter::once(&mut self.engine)
-                .chain(&mut forks)
-                .map(|engine| {
-                    let (ladder, next, ticks) = (&ladder, &next, ticks.clone());
-                    scope.spawn(move || {
-                        let mut done = Vec::new();
-                        loop {
-                            let job = next.fetch_add(1, Ordering::Relaxed);
-                            let Some((segment, islands)) = jobs.get(job) else {
-                                break;
-                            };
-                            let mut tick = |partial: Partial| {
-                                let _ = ticks.send(partial);
-                            };
-                            done.push((job, run_segment(ladder, engine, *segment, islands.clone(), &mut tick)?));
-                        }
-                        anyhow::Ok(done)
-                    })
-                })
-                .collect();
-            drop(ticks);
-            for partial in ticked {
-                tick(partial);
-            }
-            for worker in workers {
-                for (job, sweep) in worker.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic))? {
-                    sweeps[job] = Some(sweep);
-                }
-            }
-            anyhow::Ok(())
-        })?;
-        Ok(sweeps.into_iter().map(|sweep| sweep.expect("every job is swept once")).collect())
-    }
-
-    /// Phase 2: run islands of every segment until the measured standard
-    /// error meets the target. Each round is reported as `Progress::Round`.
-    pub fn estimate(&mut self, levels: &[Level], plan: &Plan) -> anyhow::Result<Estimate> {
+        mut sweeper: S,
+    ) -> anyhow::Result<Estimate> {
         let start = Instant::now();
         let mut plan = plan.clone();
         let scaled = self.scaled;
@@ -1001,6 +1196,7 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
         let mut want = plan.islands as u64;
         let mut estimate = None;
         for round in 0..MAX_TOPUP_ROUNDS {
+            check_cancelled(self.cancel)?;
             let capacity = (self.engine.capacity() / plan.particles).max(1) as u64;
             let mine = rank_share(segments, done..want, rank, ranks);
             let jobs: Vec<(usize, Range<u64>)> = mine
@@ -1011,12 +1207,33 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
                         .map(move |from| (s, from..(from + capacity).min(islands.end)))
                 })
                 .collect();
-            for sweep in self.sweep(levels, &plan, &jobs, round)? {
+            let ladder = Ladder {
+                scaled: self.scaled,
+                config: self.config,
+                stages: &self.stages,
+                anchor: self.anchor,
+                levels,
+                plan: &plan,
+            };
+            let sweeps = sweeper
+                .sweep(&mut self.engine, &ladder, &jobs, round, self.cancel, self.capture_samples, &mut self.observer)
+                .await?;
+            let mut round_sample = None;
+            for sweep in sweeps {
                 mutate.add(sweep.mutate);
                 sampler.add(sweep.sampler);
+                if let Some(sample) = sweep.sample {
+                    round_sample = Some(sample);
+                }
                 for run in sweep.runs {
                     run.pack(&mut packed);
                 }
+            }
+            if let Some(matching) = round_sample
+                && let Some(observer) = self.observer.as_mut()
+            {
+                let valid = scaled.log_gap_of(&matching).is_finite();
+                observer(Progress::Sample { beta: 1.0, matching: &matching, valid });
             }
             done = want;
 
@@ -1146,6 +1363,79 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
             want = first + needed.max(used + used / 10 + 1);
         }
         Ok(estimate.unwrap())
+    }
+}
+
+/// Synchronous driver over any [`Engine`]. Delegates to [`AsyncSession`] with
+/// zero-overhead polling, and uses threaded multi-lane sweeping when the
+/// engine reports `concurrency() > 1`.
+pub struct Session<'a, E: Engine, C: Comm> {
+    inner: AsyncSession<'a, Blocking<E>, C>,
+}
+
+impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
+    pub fn new(scaled: &'a Scaled, config: &'a Config, engine: E, comm: &'a C) -> anyhow::Result<Self> {
+        Ok(Session { inner: AsyncSession::new(scaled, config, Blocking(engine), comm)? })
+    }
+
+    pub fn observe(&mut self, observer: impl FnMut(Progress<'_>) + 'a) {
+        self.inner.observe(observer);
+    }
+
+    /// See [`AsyncSession::cancel_flag`].
+    pub fn cancel_flag(&mut self, flag: &'a AtomicBool) {
+        self.inner.cancel_flag(flag);
+    }
+
+    /// See [`AsyncSession::capture_samples`].
+    pub fn capture_samples(&mut self, enabled: bool) {
+        self.inner.capture_samples(enabled);
+    }
+
+    pub fn engine_name(&self) -> String {
+        self.inner.engine_name()
+    }
+
+    pub fn engine(&self) -> &E {
+        &self.inner.engine.0
+    }
+
+    pub fn engine_mut(&mut self) -> &mut E {
+        &mut self.inner.engine.0
+    }
+
+    pub fn stages(&self) -> &StageSchedule {
+        &self.inner.stages
+    }
+
+    pub fn diagnostics(&self) -> &Diagnostics {
+        &self.inner.diagnostics
+    }
+
+    /// Target standard error of ln(estimate).
+    pub fn sigma_target(&self) -> f64 {
+        self.inner.sigma_target
+    }
+
+    /// Normal quantile of the reported interval.
+    pub fn z(&self) -> f64 {
+        self.inner.z
+    }
+
+    /// Phase 1: build the temperature schedule and learn weights along it.
+    pub fn learn_schedule(&mut self) -> anyhow::Result<Vec<Level>> {
+        poll_ready(self.inner.learn_schedule())
+    }
+
+    /// Segments, particles and islands for Phase 2.
+    pub fn plan(&self, levels: &[Level]) -> Plan {
+        self.inner.plan(levels)
+    }
+
+    /// Phase 2: run islands of every segment until the measured standard
+    /// error meets the target.
+    pub fn estimate(&mut self, levels: &[Level], plan: &Plan) -> anyhow::Result<Estimate> {
+        poll_ready(self.inner.estimate_with(levels, plan, SyncSweeper))
     }
 }
 
