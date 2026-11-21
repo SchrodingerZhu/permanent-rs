@@ -349,6 +349,22 @@ const SHARED_LIMIT: usize = 48 * 1024;
 fn fits_shared(words: usize) -> bool {
     BLOCK as usize * words * size_of::<u16>() <= SHARED_LIMIT
 }
+
+/// The share of its warps' time a launch left idle, taking a particle's
+/// time as its event count: a warp runs as long as its longest particle,
+/// and the lanes of the others wait for it. `events` is per particle in
+/// launch order, with `flags` set aside.
+fn warp_idle(events: &[u64], flags: u64) -> f64 {
+    let mut used = 0u64;
+    let mut held = 0u64;
+    for warp in events.chunks(BLOCK as usize) {
+        let longest = warp.iter().map(|&e| e & !flags).max().unwrap_or(0);
+        used += warp.iter().map(|&e| e & !flags).sum::<u64>();
+        held += longest * BLOCK as u64;
+    }
+    if held == 0 { 0.0 } else { 1.0 - used as f64 / held as f64 }
+}
+
 /// Most particles resident at once, and the device memory they may take.
 const MAX_PARTICLES: usize = 1 << 20;
 const MEMORY_BUDGET: usize = 8 << 30;
@@ -602,6 +618,7 @@ where
             if pending.is_empty() {
                 break;
             }
+            let clock = Instant::now();
             let seeds: Vec<u64> = pending
                 .iter()
                 .map(|&p| {
@@ -634,7 +651,19 @@ where
                     event_cap,
                 )
             }?;
-            let outcomes = self.events.to_host_vec(&self.stream)?;
+            let setup = clock.elapsed().as_secs_f64();
+            self.stream.synchronize()?;
+            let launched = clock.elapsed().as_secs_f64();
+            let mut outcomes = self.events.to_host_vec(&self.stream)?;
+            outcomes.truncate(pending.len());
+            debug!(
+                trials = pending.len(),
+                setup,
+                kernel = launched - setup,
+                readback = clock.elapsed().as_secs_f64() - launched,
+                warp_idle = warp_idle(&outcomes, OVER_BUDGET | PERFECT),
+                "CUDA sampler launch"
+            );
             let mut missing = Vec::new();
             for (&particle, outcome) in pending.iter().zip(outcomes) {
                 cost.trials += 1;
@@ -658,6 +687,7 @@ where
 
     fn mutate(&mut self, tables: &Tables<u64>, perfect_time: f64, stream: Stream) -> Result<MutateCost> {
         let n = self.scaled.n;
+        let clock = Instant::now();
         self.sync_row(tables)?;
         let seeds: Vec<u64> = (0..self.count as u64)
             .map(|p| stream_seed(stream.seed, stream.phase, stream.level, self.first_id + p))
@@ -688,6 +718,9 @@ where
                 mutate_event_cap(n, perfect_time),
             )
         }?;
+        let setup = clock.elapsed().as_secs_f64();
+        self.stream.synchronize()?;
+        let launched = clock.elapsed().as_secs_f64();
         let events = self.events.to_host_vec(&self.stream)?;
         let time = self.time.to_host_vec(&self.stream)?;
         let mut cost = MutateCost::default();
@@ -696,6 +729,16 @@ where
             cost.over_budget += (events & OVER_BUDGET != 0) as u64;
             cost.time += time.to_f64().unwrap();
         }
+        debug!(
+            particles = self.count,
+            events = cost.events,
+            longest = events.iter().map(|&e| e & !OVER_BUDGET).max().unwrap_or(0),
+            setup,
+            kernel = launched - setup,
+            readback = clock.elapsed().as_secs_f64() - launched,
+            warp_idle = warp_idle(&events, OVER_BUDGET),
+            "CUDA mutation call"
+        );
         Ok(cost)
     }
 
