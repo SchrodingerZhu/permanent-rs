@@ -39,7 +39,7 @@ use rand::distr::{Distribution, StandardUniform};
 use rand_core::Rng;
 
 use super::lane::{COL, Lane, NONE, ROW};
-use super::{Energy, below};
+use super::{Energy, below, mul_high};
 
 /// The integer tables of one temperature (`Tables::far`).
 pub struct FarTables<'t, C> {
@@ -79,6 +79,11 @@ pub trait Tally {
 /// Draw from line `line` of a packed alias table: the counter's bits above
 /// the low 16 are a cell's keep threshold, the low 16 its alias.
 ///
+/// One 64-bit number makes both choices. The high word of its product with
+/// n is the cell, and the low word is uniform within the cell (it takes
+/// every n-th value), so it is compared with the keep threshold. A cell's
+/// probability is 1/n to within 2^-64.
+///
 /// # Safety
 /// `table` must hold n lines of n entries.
 #[inline(always)]
@@ -86,11 +91,13 @@ pub unsafe fn alias_draw<C, R>(table: &[C], line: u32, n: u32, rng: &mut R) -> u
 where
     C: PrimInt + Unsigned + AsPrimitive<u32>,
     R: Rng,
-    StandardUniform: Distribution<C>,
+    u64: AsPrimitive<C>,
 {
-    let i = below(rng.next_u32(), n);
+    let bits = rng.next_u64();
+    let i = mul_high(bits, n as u64) as u32;
+    let within: C = (bits.wrapping_mul(n as u64) >> (64 - 8 * core::mem::size_of::<C>())).as_();
     let entry = unsafe { *table.get_unchecked(line as usize * n as usize + i as usize) };
-    if rng.random::<C>() >> 16 < entry >> 16 { i } else { entry.as_() & 0xFFFF }
+    if within >> 16 < entry >> 16 { i } else { entry.as_() & 0xFFFF }
 }
 
 /// Bits of the energy of entry (u, v).
@@ -172,6 +179,7 @@ pub unsafe fn run<C, R, V>(
     R: Rng,
     V: Tally,
     StandardUniform: Distribution<C>,
+    u64: AsPrimitive<C>,
 {
     let size = lane.n;
     let n = size as u32;

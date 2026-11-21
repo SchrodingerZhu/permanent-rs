@@ -14,7 +14,7 @@ use rand::RngExt;
 use rand::distr::{Distribution, StandardUniform};
 use rand_core::Rng;
 
-use super::below;
+use super::{below, mul_high};
 use super::far::alias_draw;
 use super::matching::Matching;
 
@@ -28,17 +28,6 @@ pub const MOVE_TICKS: u64 = 1 << 40;
 pub fn exponential<T: Float>(bits: u32) -> T {
     // (bits + 1/2) 2^-32 is uniform on (0, 1)
     -((T::from(bits).unwrap() + T::from(0.5).unwrap()) * T::from(2.328_306_436_538_696_3e-10).unwrap()).ln()
-}
-
-/// High 64 bits of the 64 x 64 product, by 32-bit limbs.
-#[inline(always)]
-pub fn mul_high(a: u64, b: u64) -> u64 {
-    let (a0, a1) = (a & 0xFFFF_FFFF, a >> 32);
-    let (b0, b1) = (b & 0xFFFF_FFFF, b >> 32);
-    let p01 = a0 * b1;
-    let p10 = a1 * b0;
-    let middle = ((a0 * b0) >> 32) + (p01 & 0xFFFF_FFFF) + (p10 & 0xFFFF_FFFF);
-    a1 * b1 + (p01 >> 32) + (p10 >> 32) + (middle >> 32)
 }
 
 /// One ring: pick the row whose clock rang, unmatch it, and redraw it from
@@ -60,6 +49,7 @@ unsafe fn ring<C, R>(
     C: PrimInt + Unsigned + AsPrimitive<u32>,
     R: Rng,
     StandardUniform: Distribution<C>,
+    u64: AsPrimitive<C>,
 {
     let conflicted = mul_high(rng.next_u64(), rate) < conflicted_rate;
     unsafe {
@@ -119,6 +109,7 @@ where
     T: Float + AsPrimitive<u64>,
     R: Rng,
     StandardUniform: Distribution<C>,
+    u64: AsPrimitive<C>,
 {
     let ticks_per_time = T::from(MOVE_TICKS).unwrap() / perfect_time;
     let mut remaining = MOVE_TICKS;
@@ -184,6 +175,7 @@ where
     T: Float + AsPrimitive<u64>,
     R: Rng,
     StandardUniform: Distribution<C>,
+    u64: AsPrimitive<C>,
 {
     unsafe { matching.clear() };
     // One flat loop over events and stage changes, so the threads of a

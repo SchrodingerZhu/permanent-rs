@@ -23,3 +23,14 @@ pub type EnergySum = fixed::types::I104F24;
 pub fn below(bits: u32, bound: u32) -> u32 {
     ((bits as u64 * bound as u64) >> 32) as u32
 }
+
+/// High 64 bits of the 64 x 64 product, by 32-bit limbs.
+#[inline(always)]
+pub fn mul_high(a: u64, b: u64) -> u64 {
+    let (a0, a1) = (a & 0xFFFF_FFFF, a >> 32);
+    let (b0, b1) = (b & 0xFFFF_FFFF, b >> 32);
+    let p01 = a0 * b1;
+    let p10 = a1 * b0;
+    let middle = ((a0 * b0) >> 32) + (p01 & 0xFFFF_FFFF) + (p10 & 0xFFFF_FFFF);
+    a1 * b1 + (p01 >> 32) + (p10 >> 32) + (middle >> 32)
+}
