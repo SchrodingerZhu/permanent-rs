@@ -12,30 +12,27 @@ use cubecl::prelude::*;
 pub const NONE: u32 = 0xFFFF;
 
 /// Words of a chain's state: its stream, then what the chain itself keeps.
-pub const STATE: usize = 24;
-// words 0..9 are the stream: key, blocks generated, the last block, and
-// how many of its outputs are left
+pub const STATE: usize = 28;
+// The stream: the key, the blocks generated so far, three blocks of words
+// and the position of the next word among them.
+pub const BLOCKS: usize = 2;
+pub const POSITION: usize = 16;
+/// Words a stream keeps ahead; at this position it is empty.
+pub const AHEAD: u32 = 12;
 /// Set once a chain has started, when it is over, and if it ran out of steps.
-pub const FLAGS: usize = 9;
+pub const FLAGS: usize = 17;
 pub const STARTED: u32 = 1;
 pub const OVER: u32 = 2;
 pub const CAPPED: u32 = 4;
 /// An annealing trial ended on a perfect matching.
 pub const PERFECT: u32 = 8;
-// the FAR chain
-pub const HOLE_U: usize = 10;
-pub const HOLE_V: usize = 11;
-pub const CYCLES: usize = 12;
-pub const STEPS: usize = 13;
-pub const ENERGY: usize = 14;
-pub const PERFECT_ENERGY: usize = 16;
 // the relaxed-assignment chains
-pub const CONFLICTED: usize = 10;
-pub const UNASSIGNED: usize = 11;
-pub const EVENTS: usize = 12;
+pub const CONFLICTED: usize = 18;
+pub const UNASSIGNED: usize = 19;
+pub const EVENTS: usize = 20;
 /// The annealing trial's stage and its 64-bit tick clock.
-pub const STAGE: usize = 14;
-pub const TICKS: usize = 15;
+pub const STAGE: usize = 22;
+pub const TICKS: usize = 23;
 
 /// In the column array: two or more rows are on this column.
 pub const MULTI: u32 = NONE - 1;
@@ -53,9 +50,18 @@ const M1: u32 = 0xCD9E_8D57;
 const W0: u32 = 0x9E37_79B9;
 const W1: u32 = 0xBB67_AE85;
 
-/// The next block of Philox4x32-10 into `rng`, laid out as a chain's state.
+/// Drop the oldest block of `rng`'s words and generate the next block of
+/// Philox4x32-10 behind the others. `rng` is laid out as a chain's state.
 #[cube]
 fn refill(rng: &mut Array<u32>) {
+    rng[4] = rng[8];
+    rng[5] = rng[9];
+    rng[6] = rng[10];
+    rng[7] = rng[11];
+    rng[8] = rng[12];
+    rng[9] = rng[13];
+    rng[10] = rng[14];
+    rng[11] = rng[15];
     let mut c0 = rng[2];
     let mut c1 = rng[3];
     let mut c2 = 0u32;
@@ -76,75 +82,100 @@ fn refill(rng: &mut Array<u32>) {
         k1 += W1;
         round += 1;
     }
-    rng[4] = c0;
-    rng[5] = c1;
-    rng[6] = c2;
-    rng[7] = c3;
-    rng[8] = 4;
+    rng[12] = c0;
+    rng[13] = c1;
+    rng[14] = c2;
+    rng[15] = c3;
     let low = rng[2] + 1;
     rng[2] = low;
     if low == 0 {
         rng[3] += 1;
     }
+    rng[16] -= 4;
 }
 
+/// Bring `rng` to at least nine words ahead. A step of a chain calls this
+/// once, at one place. The threads of a group run in lockstep, so a block
+/// generated where each word is drawn would cost the whole group a block
+/// for every word.
 #[cube]
-fn next_u32(rng: &mut Array<u32>) -> u32 {
-    if rng[8] == 0 {
+fn top_up(rng: &mut Array<u32>) {
+    while rng[16] >= 4 {
         refill(rng);
     }
-    let left = rng[8] - 1;
-    rng[8] = left;
-    // fixed indices only: a compiler keeps such an array in registers
-    let mut out = rng[7];
-    if left == 3 {
-        out = rng[4];
-    } else if left == 2 {
-        out = rng[5];
-    } else if left == 1 {
-        out = rng[6];
+}
+
+/// The next word of the stream.
+#[cube]
+fn next_u32(rng: &mut Array<u32>) -> u32 {
+    // only a step that draws more than nine words gets here
+    if rng[16] == AHEAD {
+        refill(rng);
     }
-    out
+    let position = rng[16];
+    rng[16] = position + 1;
+    rng[(4 + position) as usize]
+}
+
+/// A stream that has drawn nothing, keyed by (low, high).
+#[cube]
+fn new_stream(rng: &mut Array<u32>, low: u32, high: u32) {
+    rng[0] = low;
+    rng[1] = high;
+    rng[2] = 0;
+    rng[3] = 0;
+    rng[16] = AHEAD;
 }
 
 /// Read a chain's stream from its state.
 #[cube]
 fn load_stream(state: &mut [u32], at: usize, rng: &mut Array<u32>) {
-    rng[0] = state[at];
-    rng[1] = state[at + 1];
-    rng[2] = state[at + 2];
-    rng[3] = state[at + 3];
-    rng[4] = state[at + 4];
-    rng[5] = state[at + 5];
-    rng[6] = state[at + 6];
-    rng[7] = state[at + 7];
-    rng[8] = state[at + 8];
+    let mut i = 0usize;
+    while i < 17 {
+        rng[i] = state[at + i];
+        i += 1;
+    }
 }
 
 /// Write a chain's stream to its state.
 #[cube]
 fn store_stream(state: &mut [u32], at: usize, rng: &mut Array<u32>) {
-    state[at] = rng[0];
-    state[at + 1] = rng[1];
-    state[at + 2] = rng[2];
-    state[at + 3] = rng[3];
-    state[at + 4] = rng[4];
-    state[at + 5] = rng[5];
-    state[at + 6] = rng[6];
-    state[at + 7] = rng[7];
-    state[at + 8] = rng[8];
+    let mut i = 0usize;
+    while i < 17 {
+        state[at + i] = rng[i];
+        i += 1;
+    }
 }
 
-// The FAR tally: chains still running, chains that ran out of steps, the
-// 64-bit totals of steps and of perfect energy over the chains that ended,
-// then for each column the 64-bit energy sum of the visits to its hole
-// class, the visits of each group to each class, the cycles of each
-// group's chains that ended, and the particles still running.
+// The FAR tally: chains handed to the host, chains that ran out of steps,
+// the 64-bit totals of steps and of perfect energy over the chains that
+// ended, then for each column the 64-bit energy sum of the visits to its
+// hole class, the visits of each group to each class, and the cycles of
+// each group's chains that ended.
 pub const LATE: usize = 0;
 pub const CAPPED_CHAINS: usize = 1;
 pub const STEPS_TOTAL: usize = 2;
 pub const ENERGY_TOTAL: usize = 4;
 pub const CLASSES: usize = 6;
+
+// What the FAR kernel leaves the host of a chain it hands over: the
+// particle, its stream (key, blocks generated, position), its holes, its
+// perfect steps, its steps, its 64-bit perfect-energy sum, then its matching.
+pub const HANDED_PARTICLE: usize = 0;
+pub const HANDED_KEY: usize = 1;
+pub const HANDED_BLOCKS: usize = 3;
+pub const HANDED_POSITION: usize = 5;
+pub const HANDED_HOLE_U: usize = 6;
+pub const HANDED_HOLE_V: usize = 7;
+pub const HANDED_CYCLES: usize = 8;
+pub const HANDED_STEPS: usize = 9;
+pub const HANDED_ENERGY: usize = 10;
+pub const HANDED_ROW: usize = 12;
+
+/// Words of the record of a handed-over chain.
+pub const fn handed(n: usize) -> usize {
+    HANDED_ROW + n
+}
 
 /// Add the 64-bit (low, high) to the two words of `tally` at `at`. The sum
 /// is exact once every thread is done: the previous low word tells a
@@ -192,22 +223,26 @@ fn alias_draw(tables: &[u32], table: usize, line: u32, n: u32, rng: &mut Array<u
     out
 }
 
-/// The FAR chain (`permanent_core::chain::far`) on every particle that is
-/// not over, for at most `budget` steps of this dispatch. With `fresh`,
-/// every particle starts a chain on the stream keyed by its two `seeds`.
+/// The FAR chain (`permanent_core::chain::far`) on the `count` particles
+/// from `first`, each on the stream keyed by its two `seeds`.
+///
+/// A chain runs to its end, unless it has taken `budget` steps and one of
+/// the `capacity` records of `chains` is free: then it stops there and
+/// leaves the host what it needs to continue it. A dispatch lasts as long
+/// as its longest chain, and FAR chains have a long tail.
 ///
 /// `tables`: the packed row alias table, the column one, the move
 /// thresholds and the entry energies, each entry 64 bits. `scratch`: the
-/// matching and its inverse, 2 n words a particle. `tally`: see `LATE`;
-/// its list holds at most `listed` of the particles still running.
+/// matching and its inverse, 2 n words for each particle of the batch.
+/// `tally`: see `LATE`.
 #[cube(launch_unchecked)]
 pub fn far(
     tables: &[u32],
     sigma: &mut [u32],
     scratch: &mut [u32],
-    state: &mut [u32],
     tally: &[Atomic<u32>],
     seeds: &[u32],
+    chains: &mut [u32],
     n: u32,
     count: u32,
     anchor: u32,
@@ -215,32 +250,20 @@ pub fn far(
     cycles: u32,
     budget: u32,
     max_steps: u32,
-    fresh: u32,
-    listed: u32,
+    capacity: u32,
+    first: u32,
 ) {
-    let particle = ABSOLUTE_POS;
+    let slot = ABSOLUTE_POS;
     let size = n as usize;
-    let at = particle * STATE;
-    let mut active = false;
-    if particle < count as usize {
-        active = fresh != 0 || (state[at + FLAGS] & OVER) == 0;
-    }
-    if active {
-        let rows = particle * 2 * size;
+    if slot < count as usize {
+        let particle = first as usize + slot;
+        let rows = slot * 2 * size;
         let cols = rows + size;
         let col_alias = 2 * size * size;
         let moves = 4 * size * size;
         let energies = 8 * size * size;
-        let mut rng = Array::<u32>::new(9usize);
-        if fresh != 0 {
-            rng[0] = seeds[2 * particle];
-            rng[1] = seeds[2 * particle + 1];
-            rng[2] = 0;
-            rng[3] = 0;
-            rng[8] = 0;
-        } else {
-            load_stream(state, at, &mut rng);
-        }
+        let mut rng = Array::<u32>::new(17usize);
+        new_stream(&mut rng, seeds[2 * particle], seeds[2 * particle + 1]);
         let mut hole_u = NONE.runtime();
         let mut hole_v = 0u32;
         let mut done = 0u32;
@@ -249,75 +272,72 @@ pub fn far(
         let mut h_high = 0u32;
         let mut sum_low = 0u32;
         let mut sum_high = 0u32;
-        if fresh != 0 {
-            let mut v = 0usize;
-            while v < size {
-                scratch[cols + v] = NONE;
-                v += 1;
+        // The matching writes every entry of the inverse, but in scattered
+        // order; writing it once in order first measured a fifth faster.
+        let mut v = 0usize;
+        while v < size {
+            scratch[cols + v] = NONE;
+            v += 1;
+        }
+        let mut u = 0usize;
+        while u < size {
+            let v = sigma[particle * size + u];
+            scratch[rows + u] = v;
+            scratch[cols + v as usize] = u as u32;
+            let cell = energies + 2 * (u * size + v as usize);
+            let low = h_low + tables[cell];
+            let mut carry = 0u32;
+            if low < h_low {
+                carry = 1;
             }
-            let mut u = 0usize;
-            while u < size {
-                let v = sigma[particle * size + u];
-                scratch[rows + u] = v;
-                scratch[cols + v as usize] = u as u32;
-                let cell = energies + 2 * (u * size + v as usize);
-                let low = h_low + tables[cell];
-                let mut carry = 0u32;
-                if low < h_low {
-                    carry = 1;
-                }
-                h_low = low;
-                h_high = h_high + tables[cell + 1] + carry;
-                u += 1;
-            }
-        } else {
-            hole_u = state[at + HOLE_U];
-            hole_v = state[at + HOLE_V];
-            done = state[at + CYCLES];
-            steps = state[at + STEPS];
-            h_low = state[at + ENERGY];
-            h_high = state[at + ENERGY + 1];
-            sum_low = state[at + PERFECT_ENERGY];
-            sum_high = state[at + PERFECT_ENERGY + 1];
+            h_low = low;
+            h_high = h_high + tables[cell + 1] + carry;
+            u += 1;
         }
         let group = (particle as u32) % groups;
         let visits = CLASSES + 2 * size + group as usize * size;
         let ended = CLASSES + 2 * size + groups as usize * size;
-        let mut taken = 0u32;
+        // the record this chain was given, if it is handed over; whether it
+        // asked for one and found none
+        let mut record = capacity;
+        let mut unbounded = false;
         let mut running = true;
         while running {
-            if taken >= budget || steps >= max_steps {
+            top_up(&mut rng);
+            if steps >= max_steps || (hole_u == NONE && done == cycles) {
                 running = false;
-            } else if hole_u == NONE {
-                if done == cycles {
+            } else if steps >= budget && !unbounded {
+                record = tally[LATE].fetch_add(1);
+                if record < capacity {
                     running = false;
                 } else {
-                    done += 1;
-                    let low = sum_low + h_low;
-                    let mut carry = 0u32;
-                    if low < sum_low {
-                        carry = 1;
+                    unbounded = true;
+                }
+            } else if hole_u == NONE {
+                done += 1;
+                let low = sum_low + h_low;
+                let mut carry = 0u32;
+                if low < sum_low {
+                    carry = 1;
+                }
+                sum_low = low;
+                sum_high = sum_high + h_high + carry;
+                steps += 1;
+                if (next_u32(&mut rng) & 1) == 0 {
+                    let u = u32::mul_hi(next_u32(&mut rng), n);
+                    let v = scratch[rows + u as usize];
+                    scratch[rows + u as usize] = NONE;
+                    scratch[cols + v as usize] = NONE;
+                    let cell = energies + 2 * (u as usize * size + v as usize);
+                    let e_low = tables[cell];
+                    let mut borrow = 0u32;
+                    if h_low < e_low {
+                        borrow = 1;
                     }
-                    sum_low = low;
-                    sum_high = sum_high + h_high + carry;
-                    steps += 1;
-                    taken += 1;
-                    if (next_u32(&mut rng) & 1) == 0 {
-                        let u = u32::mul_hi(next_u32(&mut rng), n);
-                        let v = scratch[rows + u as usize];
-                        scratch[rows + u as usize] = NONE;
-                        scratch[cols + v as usize] = NONE;
-                        let cell = energies + 2 * (u as usize * size + v as usize);
-                        let e_low = tables[cell];
-                        let mut borrow = 0u32;
-                        if h_low < e_low {
-                            borrow = 1;
-                        }
-                        h_low -= e_low;
-                        h_high = h_high - tables[cell + 1] - borrow;
-                        hole_u = u;
-                        hole_v = v;
-                    }
+                    h_low -= e_low;
+                    h_high = h_high - tables[cell + 1] - borrow;
+                    hole_u = u;
+                    hole_v = v;
                 }
             } else {
                 if hole_u == anchor {
@@ -325,7 +345,6 @@ pub fn far(
                     add64(tally, CLASSES + 2 * hole_v as usize, h_low, h_high);
                 }
                 steps += 1;
-                taken += 1;
                 let cell = hole_u as usize * size + hole_v as usize;
                 let add_low = tables[moves + 4 * cell];
                 let add_high = tables[moves + 4 * cell + 1];
@@ -412,40 +431,42 @@ pub fn far(
                 }
             }
         }
-        let mut flags = STARTED.runtime();
-        if hole_u == NONE && done == cycles {
-            // complete: the particle takes the matching the chain stopped on
+        if record < capacity {
+            // handed over: the host continues the chain from here
+            let at = record as usize * (HANDED_ROW + size);
+            chains[at + HANDED_PARTICLE] = particle as u32;
+            chains[at + HANDED_KEY] = rng[0];
+            chains[at + HANDED_KEY + 1] = rng[1];
+            chains[at + HANDED_BLOCKS] = rng[2];
+            chains[at + HANDED_BLOCKS + 1] = rng[3];
+            chains[at + HANDED_POSITION] = rng[16];
+            chains[at + HANDED_HOLE_U] = hole_u;
+            chains[at + HANDED_HOLE_V] = hole_v;
+            chains[at + HANDED_CYCLES] = done;
+            chains[at + HANDED_STEPS] = steps;
+            chains[at + HANDED_ENERGY] = sum_low;
+            chains[at + HANDED_ENERGY + 1] = sum_high;
             let mut u = 0usize;
             while u < size {
-                sigma[particle * size + u] = scratch[rows + u];
+                chains[at + HANDED_ROW + u] = scratch[rows + u];
                 u += 1;
             }
-            flags = STARTED | OVER;
-        } else if steps >= max_steps {
-            // out of steps: the particle stays where it was
-            flags = STARTED | OVER | CAPPED;
-            tally[CAPPED_CHAINS].fetch_add(1);
-        }
-        if (flags & OVER) != 0 {
+        } else {
+            if hole_u == NONE && done == cycles {
+                // complete: the particle takes the matching the chain stopped on
+                let mut u = 0usize;
+                while u < size {
+                    sigma[particle * size + u] = scratch[rows + u];
+                    u += 1;
+                }
+            } else {
+                // out of steps: the particle stays where it was
+                tally[CAPPED_CHAINS].fetch_add(1);
+            }
             tally[ended + group as usize].fetch_add(done);
             add64(tally, STEPS_TOTAL, steps, 0u32);
             add64(tally, ENERGY_TOTAL, sum_low, sum_high);
-        } else {
-            let slot = tally[LATE].fetch_add(1);
-            if slot < listed {
-                tally[ended + groups as usize + slot as usize].store(particle as u32);
-            }
         }
-        store_stream(state, at, &mut rng);
-        state[at + FLAGS] = flags;
-        state[at + HOLE_U] = hole_u;
-        state[at + HOLE_V] = hole_v;
-        state[at + CYCLES] = done;
-        state[at + STEPS] = steps;
-        state[at + ENERGY] = h_low;
-        state[at + ENERGY + 1] = h_high;
-        state[at + PERFECT_ENERGY] = sum_low;
-        state[at + PERFECT_ENERGY + 1] = sum_high;
     }
 }
 
@@ -671,7 +692,7 @@ pub fn mutate(
     }
     if active {
         let rows = particle * (2 * size + CONFLICTS);
-        let mut rng = Array::<u32>::new(9usize);
+        let mut rng = Array::<u32>::new(17usize);
         load_stream(state, at, &mut rng);
         let mut counts = Array::<u32>::new(3usize);
         counts[0] = 0;
@@ -701,6 +722,7 @@ pub fn mutate(
         let mut taken = 0u32;
         let mut running = true;
         while running {
+            top_up(&mut rng);
             if taken >= budget {
                 running = false;
             } else {
@@ -802,7 +824,7 @@ pub fn anneal(
     if active {
         let rows = particle * (2 * size + CONFLICTS);
         let thresholds = 2 * size * size;
-        let mut rng = Array::<u32>::new(9usize);
+        let mut rng = Array::<u32>::new(17usize);
         load_stream(state, at, &mut rng);
         let mut counts = Array::<u32>::new(3usize);
         counts[0] = 0;
@@ -833,6 +855,7 @@ pub fn anneal(
         let mut taken = 0u32;
         let mut running = true;
         while running {
+            top_up(&mut rng);
             if taken >= budget {
                 running = false;
             } else {
@@ -975,33 +998,6 @@ pub fn gather(sigma: &[u32], ancestors: &[u32], next: &mut [u32], n: u32, count:
         let mut u = 0usize;
         while u < size {
             next[particle * size + u] = sigma[from + u];
-            u += 1;
-        }
-    }
-}
-
-/// Words `collect` writes for a chain: its state, then its matching.
-pub const fn collected(n: usize) -> usize {
-    STATE + n
-}
-
-/// Copy the state and the matching of the FAR chains of `targets` to `out`,
-/// so the host can continue them.
-#[cube(launch_unchecked)]
-pub fn collect(targets: &[u32], scratch: &[u32], state: &[u32], out: &mut [u32], n: u32, count: u32) {
-    let slot = ABSOLUTE_POS;
-    let size = n as usize;
-    if slot < count as usize {
-        let particle = targets[slot] as usize;
-        let to = slot * (STATE + size);
-        let mut i = 0usize;
-        while i < STATE {
-            out[to + i] = state[particle * STATE + i];
-            i += 1;
-        }
-        let mut u = 0usize;
-        while u < size {
-            out[to + STATE + u] = scratch[particle * 2 * size + u];
             u += 1;
         }
     }
