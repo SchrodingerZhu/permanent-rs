@@ -325,10 +325,15 @@ fn multinomial(weights: &[f64], base: usize, rng: &mut SmallRng, ancestors: &mut
         total += w;
         cumulative.push(total);
     }
-    for _ in 0..weights.len() {
-        let x = rng.random::<f64>() * total;
-        let index = cumulative.partition_point(|&c| c <= x).min(weights.len() - 1);
-        ancestors.push((base + index) as u32);
+    let ancestor = |x: f64| (base + cumulative.partition_point(|&c| c <= x).min(weights.len() - 1)) as u32;
+    // The draws are taken in the generator's order either way; a large
+    // population then looks them up on the pool, which a small one is not
+    // worth waking for.
+    if weights.len() < 1 << 14 {
+        ancestors.extend((0..weights.len()).map(|_| ancestor(rng.random::<f64>() * total)));
+    } else {
+        let draws: Vec<f64> = (0..weights.len()).map(|_| rng.random::<f64>() * total).collect();
+        ancestors.par_extend(draws.par_iter().map(|&x| ancestor(x)));
     }
 }
 
