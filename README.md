@@ -173,8 +173,8 @@ Two builds, for two kinds of runtime:
 
 A WASI runtime such as wasmer has no GPU interface, so the wgpu engine does
 not run there. In wasm its operations are `async fn`s, because a browser
-cannot wait for the device; the estimator, which calls an engine
-synchronously, is not yet driven from wasm.
+cannot wait for the device; `Wgpu` implements `AsyncEngine` on all targets,
+so `AsyncSession` drives the full estimator from wasm as well.
 
 ## MPI
 

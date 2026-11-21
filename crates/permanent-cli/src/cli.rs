@@ -316,6 +316,7 @@ fn estimate<E: Engine, C: Comm>(
                 log_w: level.log_w.clone(),
             });
         }
+        Progress::Sample { .. } => {}
         Progress::Sweep { round, done, total, partial } => {
             if due() {
                 info!(round = round + 1, done, total, "phase 2 temperature sweeps");

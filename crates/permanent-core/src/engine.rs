@@ -190,4 +190,158 @@ pub trait Engine: Send {
         groups: usize,
         stream: Stream,
     ) -> anyhow::Result<FarRound>;
+
+    /// One matching from the current population, for live inspection.
+    fn sample_particle(&mut self) -> anyhow::Result<Option<Vec<u32>>> {
+        Ok(None)
+    }
+}
+
+/// Asynchronous counterpart of [`Engine`], for backends such as WebGPU in a
+/// browser where device readbacks cannot block.
+///
+/// Any synchronous [`Engine`] adapts via [`Blocking`]. Returned futures are not
+/// required to be `Send`, since browser WebGPU promises live on a single thread.
+pub trait AsyncEngine {
+    /// Type of the waiting times in the move and the annealing sampler.
+    type Data: Float;
+    /// Type of the random thresholds the chains compare against.
+    type Counter: PrimInt + Unsigned + Send + Sync;
+
+    fn name(&self) -> String;
+
+    /// Most particles the engine can hold.
+    fn capacity(&self) -> usize;
+
+    /// The Phase 1 population this engine handles well: FAR learning needs
+    /// a fixed total of cycles, so more particles mean fewer cycles each.
+    fn learn_particles(&self) -> usize {
+        4096
+    }
+
+    /// Replace the population by the perfect matchings in `perms` (rows of
+    /// n); `first_id` is the global id of the first one.
+    fn load(&mut self, perms: &[u32], first_id: u64) -> anyhow::Result<()>;
+
+    /// Replace the population by `count` perfect matchings drawn from
+    /// nothing with the annealing sampler of `sampler.rs`.
+    #[allow(clippy::too_many_arguments)]
+    fn anneal(
+        &mut self,
+        tables: &Tables<Self::Counter>,
+        stages: &StageSchedule,
+        stage_time: f64,
+        max_trials: u64,
+        count: usize,
+        first_id: u64,
+        stream: Stream,
+    ) -> impl Future<Output = anyhow::Result<SampleCost>>;
+
+    /// Apply the mutation kernel K_t of `sampler.rs` to every particle.
+    fn mutate(
+        &mut self,
+        tables: &Tables<Self::Counter>,
+        perfect_time: f64,
+        stream: Stream,
+    ) -> impl Future<Output = anyhow::Result<MutateCost>>;
+
+    /// Energy of every particle.
+    fn energies(&mut self) -> impl Future<Output = anyhow::Result<Vec<f64>>>;
+
+    /// Regularization log-gap of every particle.
+    fn log_gaps(&mut self) -> impl Future<Output = anyhow::Result<Vec<f64>>>;
+
+    /// Particle p becomes a copy of the former particle `ancestors[p]`.
+    fn resample(&mut self, ancestors: &[u32]) -> anyhow::Result<()>;
+
+    /// Run every particle through `cycles` FAR cycles (`chain/far.rs`),
+    /// leaving it on the perfect matching its chain stops on. Particle p
+    /// reports into group p % groups.
+    fn far(
+        &mut self,
+        tables: &Tables<Self::Counter>,
+        cycles: u64,
+        max_steps: u64,
+        groups: usize,
+        stream: Stream,
+    ) -> impl Future<Output = anyhow::Result<FarRound>>;
+
+    /// One matching from the current population, for live inspection.
+    fn sample_particle(&mut self) -> impl Future<Output = anyhow::Result<Option<Vec<u32>>>> {
+        core::future::ready(Ok(None))
+    }
+}
+
+/// Adapts a synchronous [`Engine`] to [`AsyncEngine`] using immediately ready
+/// futures.
+pub struct Blocking<E>(pub E);
+
+impl<E: Engine> AsyncEngine for Blocking<E> {
+    type Data = E::Data;
+    type Counter = E::Counter;
+
+    fn name(&self) -> String {
+        self.0.name()
+    }
+
+    fn capacity(&self) -> usize {
+        self.0.capacity()
+    }
+
+    fn learn_particles(&self) -> usize {
+        self.0.learn_particles()
+    }
+
+    fn load(&mut self, perms: &[u32], first_id: u64) -> anyhow::Result<()> {
+        self.0.load(perms, first_id)
+    }
+
+    fn anneal(
+        &mut self,
+        tables: &Tables<Self::Counter>,
+        stages: &StageSchedule,
+        stage_time: f64,
+        max_trials: u64,
+        count: usize,
+        first_id: u64,
+        stream: Stream,
+    ) -> impl Future<Output = anyhow::Result<SampleCost>> {
+        core::future::ready(self.0.anneal(tables, stages, stage_time, max_trials, count, first_id, stream))
+    }
+
+    fn mutate(
+        &mut self,
+        tables: &Tables<Self::Counter>,
+        perfect_time: f64,
+        stream: Stream,
+    ) -> impl Future<Output = anyhow::Result<MutateCost>> {
+        core::future::ready(self.0.mutate(tables, perfect_time, stream))
+    }
+
+    fn energies(&mut self) -> impl Future<Output = anyhow::Result<Vec<f64>>> {
+        core::future::ready(self.0.energies())
+    }
+
+    fn log_gaps(&mut self) -> impl Future<Output = anyhow::Result<Vec<f64>>> {
+        core::future::ready(self.0.log_gaps())
+    }
+
+    fn resample(&mut self, ancestors: &[u32]) -> anyhow::Result<()> {
+        self.0.resample(ancestors)
+    }
+
+    fn far(
+        &mut self,
+        tables: &Tables<Self::Counter>,
+        cycles: u64,
+        max_steps: u64,
+        groups: usize,
+        stream: Stream,
+    ) -> impl Future<Output = anyhow::Result<FarRound>> {
+        core::future::ready(self.0.far(tables, cycles, max_steps, groups, stream))
+    }
+
+    fn sample_particle(&mut self) -> impl Future<Output = anyhow::Result<Option<Vec<u32>>>> {
+        core::future::ready(self.0.sample_particle())
+    }
 }

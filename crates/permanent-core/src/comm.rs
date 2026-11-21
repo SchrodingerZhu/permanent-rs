@@ -40,6 +40,9 @@ impl Comm for Solo {
         values.to_vec()
     }
     fn abort(&self) -> ! {
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        panic!("aborted");
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
         std::process::exit(1)
     }
 }

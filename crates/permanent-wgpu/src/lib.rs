@@ -12,7 +12,9 @@
 //! depends on a dispatch finishing its chains.
 //!
 //! Every operation is an `async fn`, because a browser cannot wait for the
-//! device. On other targets the [`Engine`] implementation waits for them.
+//! device, and [`Wgpu`] implements [`permanent_core::engine::AsyncEngine`] on
+//! all targets. On native targets the [`permanent_core::engine::Engine`]
+//! implementation waits for them.
 
 pub mod kernels;
 
@@ -142,13 +144,16 @@ impl<'a> Wgpu<'a> {
     pub async fn new(scaled: &'a Scaled) -> Result<Self> {
         use cubecl::Device;
         use cubecl::device::WgpuDeviceKind;
-        use cubecl::wgpu::{WebGpu, WgpuDevice, init_setup_async};
+        use cubecl::wgpu::{WebGpu, WgpuDevice, try_init_setup_async};
         use std::sync::atomic::{AtomicBool, Ordering};
         // A browser hands out its adapter asynchronously, and CubeCL takes
         // one setup per device; once it is done, the client below finds it.
         static SET_UP: AtomicBool = AtomicBool::new(false);
-        if !SET_UP.swap(true, Ordering::Relaxed) {
-            init_setup_async::<WebGpu>(&WgpuDevice::default(), Default::default()).await;
+        if !SET_UP.load(Ordering::Acquire) {
+            try_init_setup_async::<WebGpu>(&WgpuDevice::default(), Default::default())
+                .await
+                .map_err(|error| anyhow!("no WebGPU device: {error}"))?;
+            SET_UP.store(true, Ordering::Release);
         }
         let device = Device::wgpu(WgpuDeviceKind::default()).map_err(|error| anyhow!("no WebGPU device: {error:?}"))?;
         Self::on(scaled, device.client())
@@ -298,6 +303,29 @@ impl<'a> Wgpu<'a> {
     /// The particles, as rows of n.
     pub async fn particles(&self) -> Result<Vec<u32>> {
         self.read(&self.sigma).await
+    }
+
+    /// One matching from the current population, preferring one supported on
+    /// the matrix's nonzero entries. Reads only a small prefix from the device.
+    pub async fn sample_particle(&self) -> Result<Option<Vec<u32>>> {
+        let n = self.scaled.n;
+        if self.count == 0 {
+            return Ok(None);
+        }
+        let take = self.count.min(16);
+        let unused = ((self.count - take) * n * size_of::<u32>()) as u64;
+        let head = if unused > 0 { self.sigma.clone().offset_end(unused) } else { self.sigma.clone() };
+        let words = self.read(&head).await?;
+        let mut fallback = None;
+        for perm in words.chunks_exact(n) {
+            if self.scaled.log_gap_of(perm).is_finite() {
+                return Ok(Some(perm.to_vec()));
+            }
+            if fallback.is_none() {
+                fallback = Some(perm.to_vec());
+            }
+        }
+        Ok(fallback)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -741,6 +769,78 @@ impl<'a> Wgpu<'a> {
     }
 }
 
+impl permanent_core::engine::AsyncEngine for Wgpu<'_> {
+    type Data = f32;
+    type Counter = u64;
+
+    fn name(&self) -> String {
+        Wgpu::name(self)
+    }
+
+    fn capacity(&self) -> usize {
+        Wgpu::capacity(self)
+    }
+
+    fn learn_particles(&self) -> usize {
+        Wgpu::learn_particles(self)
+    }
+
+    fn load(&mut self, perms: &[u32], first_id: u64) -> Result<()> {
+        Wgpu::load(self, perms, first_id);
+        Ok(())
+    }
+
+    fn anneal(
+        &mut self,
+        tables: &Tables<u64>,
+        stages: &StageSchedule,
+        stage_time: f64,
+        max_trials: u64,
+        count: usize,
+        first_id: u64,
+        stream: Stream,
+    ) -> impl Future<Output = Result<SampleCost>> {
+        Wgpu::anneal(self, tables, stages, stage_time, max_trials, count, first_id, stream)
+    }
+
+    fn mutate(
+        &mut self,
+        tables: &Tables<u64>,
+        perfect_time: f64,
+        stream: Stream,
+    ) -> impl Future<Output = Result<MutateCost>> {
+        Wgpu::mutate(self, tables, perfect_time, stream)
+    }
+
+    fn energies(&mut self) -> impl Future<Output = Result<Vec<f64>>> {
+        Wgpu::energies(self)
+    }
+
+    fn log_gaps(&mut self) -> impl Future<Output = Result<Vec<f64>>> {
+        Wgpu::log_gaps(self)
+    }
+
+    fn resample(&mut self, ancestors: &[u32]) -> Result<()> {
+        Wgpu::resample(self, ancestors);
+        Ok(())
+    }
+
+    fn far(
+        &mut self,
+        tables: &Tables<u64>,
+        cycles: u64,
+        max_steps: u64,
+        groups: usize,
+        stream: Stream,
+    ) -> impl Future<Output = Result<FarRound>> {
+        Wgpu::far(self, tables, cycles, max_steps, groups, stream)
+    }
+
+    fn sample_particle(&mut self) -> impl Future<Output = Result<Option<Vec<u32>>>> {
+        Wgpu::sample_particle(self)
+    }
+}
+
 #[cfg(not(target_family = "wasm"))]
 mod blocking {
     use super::*;
@@ -811,6 +911,10 @@ mod blocking {
             stream: Stream,
         ) -> Result<FarRound> {
             block_on(Wgpu::far(self, tables, cycles, max_steps, groups, stream))
+        }
+
+        fn sample_particle(&mut self) -> Result<Option<Vec<u32>>> {
+            block_on(Wgpu::sample_particle(self))
         }
     }
 }
@@ -1040,6 +1144,58 @@ mod test {
                     assert!((measured - exact).abs() < 1e-6, "{measured} against {exact}");
                 }
             }
+        }
+    );
+
+    on_both!(
+        /// The full asynchronous estimator runs end-to-end on the wgpu engine
+        /// (including under WebGPU in wasm) and reproduces the exact permanent.
+        async_session_estimates_the_permanent,
+        async {
+            use permanent_core::comm::Solo;
+            use permanent_core::estimator::{AsyncSession, Config, Progress, Verdict};
+            use permanent_core::exact;
+
+            let problem = Problem {
+                n: 4,
+                a: vec![
+                    3.0, 1.0, 0.0, 0.5, //
+                    0.2, 2.0, 1.0, 0.0, //
+                    0.0, 0.7, 4.0, 1.0, //
+                    1.0, 0.0, 0.3, 2.5,
+                ],
+            };
+            let exact = exact::ln_permanent(&problem).unwrap();
+            let Prepared::Scaled(scaled) = prepare(&problem) else { unreachable!() };
+            let config = Config {
+                epsilon: 0.25,
+                delta: 0.05,
+                seed: 1,
+                learn_particles: Some(256),
+                particles: Some(64),
+                islands: Some(32),
+                segments: Some(2),
+                ..Default::default()
+            };
+            let wgpu = engine(&scaled).await;
+            let mut samples = 0usize;
+            let mut session = AsyncSession::new(&scaled, &config, wgpu, &Solo).unwrap();
+            session.capture_samples(true);
+            session.observe(|progress| {
+                if let Progress::Sample { matching, .. } = progress {
+                    assert_eq!(matching.len(), scaled.n);
+                    samples += 1;
+                }
+            });
+            let levels = session.learn_schedule().await.unwrap();
+            let plan = session.plan(&levels);
+            let estimate = session.estimate(&levels, &plan).await.unwrap();
+            drop(session);
+            assert!(matches!(estimate.verdict, Verdict::Consistent(_)), "{:?}", estimate.verdict);
+            assert!(estimate.met_target);
+            assert!(samples > 0);
+            let z = (estimate.ln_permanent - exact) / estimate.std_error;
+            assert!(z.abs() < 4.0, "estimate {} vs exact {exact} ({z:+.2} se)", estimate.ln_permanent);
         }
     );
 }

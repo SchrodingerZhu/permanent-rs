@@ -9,7 +9,7 @@ permanent-core.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
 fixed.workspace = true
-web-time = "1.1"
+web-time.workspace = true
 rayon.workspace = true
 # The WGSL path only: what a browser runs too. Minor versions of CubeCL
 # change its interfaces, so the version is exact.

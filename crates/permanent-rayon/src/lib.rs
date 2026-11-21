@@ -269,4 +269,23 @@ where
             .reduce(|| FarRound::new(n, groups), FarRound::merge);
         Ok(round)
     }
+
+    fn sample_particle(&mut self) -> anyhow::Result<Option<Vec<u32>>> {
+        let n = self.scaled.n;
+        if self.sigma.len() < n {
+            return Ok(None);
+        }
+        let take = (self.sigma.len() / n).min(16);
+        let mut fallback = None;
+        for p in 0..take {
+            let perm: Vec<u32> = self.sigma[p * n..(p + 1) * n].iter().map(|&v| v as u32).collect();
+            if self.scaled.log_gap_of(&perm).is_finite() {
+                return Ok(Some(perm));
+            }
+            if fallback.is_none() {
+                fallback = Some(perm);
+            }
+        }
+        Ok(fallback)
+    }
 }
