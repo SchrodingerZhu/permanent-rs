@@ -1,10 +1,11 @@
 //! The population resident on an NVIDIA GPU.
 //!
 //! The kernels are Rust, compiled for the device by cuda-oxide. One GPU
-//! thread owns one particle. Between launches only the particles' matchings
-//! (n 16-bit words each) stay in global memory; a launch stages each
-//! particle's working state in the block's shared memory, so the event
-//! loop touches global memory for the alias table alone.
+//! thread works on one particle at a time. Between launches only the
+//! particles' matchings (n 16-bit words each) stay in global memory; a
+//! launch stages each particle's working state in the block's shared
+//! memory, so the event loop touches global memory for the alias table
+//! alone.
 //!
 //! How many particles a multiprocessor runs at once is set by how much
 //! shared memory each needs, so the working state is kept to the matching,
@@ -12,9 +13,10 @@
 //! penalty J keeps collisions rare at every activity, which is what makes a
 //! short list enough; a particle that overflows it is treated like one that
 //! hit its event cap. Once a warp's worth of state no longer fits shared
-//! memory (n above about 370), the state lives in global memory instead:
-//! it is small enough to sit in the device's cache, and that measures
-//! faster than staging fewer particles per block.
+//! memory (n above about 370), the state lives in global memory instead,
+//! which measures faster than staging fewer particles per block as long as
+//! the state of the threads running at once sits in the device's cache; a
+//! mutation launch then runs fewer threads than particles to keep it there.
 //!
 //! The chains are those of `permanent_core::chain`, the same code the rayon
 //! engine runs, compiled here for the device: every probability decision
@@ -99,13 +101,19 @@ mod kernels {
     /// on every particle: relaxed-assignment dynamics at activity J until
     /// `perfect_time` has been spent in perfect matchings.
     ///
+    /// A thread is not bound to one particle: it takes the next unmoved one
+    /// from `cursor` until none is left, so a launch may have fewer threads
+    /// than particles. A particle's move depends on its seed alone, not on
+    /// the thread that makes it.
+    ///
     /// alias: the packed row alias table. unassign_below: P(unassign) 2^64.
-    /// fast: 1 + J.
+    /// fast: 1 + J. cursor: one counter, zero at launch.
     #[kernel(unchecked_indexing)]
     #[allow(clippy::too_many_arguments)]
     pub fn mutate<T: Float>(
         alias: &[u64],
         seeds: &[u64],
+        cursor: &[DeviceAtomicU64],
         mut sigma: DisjointSlice<u16>,
         mut scratch: DisjointSlice<u16>,
         mut events_out: DisjointSlice<u64>,
@@ -118,39 +126,42 @@ mod kernels {
         unassign_below: u64,
         event_cap: u64,
     ) {
-        let index = thread::index_1d();
-        let slot = index.get();
-        if slot >= count as usize {
+        let thread = thread::index_1d().get();
+        if thread >= count as usize {
             return;
         }
         let size = n as usize;
-        let mut rng = Stream32::new(seeds[slot]);
-        // SAFETY: `sigma` holds `count` perfect matchings on n rows, the
-        // lane a relaxed assignment, and the table is n x n.
-        let moved = unsafe {
-            let row = sigma.as_mut_ptr().add(slot * size);
-            let mut matching = Matching::new(lane(scratch.as_mut_ptr(), slot, size, staged));
-            matching.load(row);
-            let moved = dynamics::mutate::<u64, T, _>(
-                &mut matching,
-                n,
-                alias,
-                perfect_time,
-                fast,
-                unassign_below,
-                event_cap,
-                &mut rng,
-            );
-            if !moved.over_budget {
-                matching.store(row);
+        // SAFETY: the lane is this thread's own.
+        let mut matching = unsafe { Matching::new(lane(scratch.as_mut_ptr(), thread, size, staged)) };
+        loop {
+            let slot = cursor[0].fetch_add(1, AtomicOrdering::Relaxed) as usize;
+            if slot >= count as usize {
+                break;
             }
-            moved
-        };
-        if let Some(out) = events_out.get_mut(index) {
-            *out = if moved.over_budget { moved.events | OVER_BUDGET } else { moved.events };
-        }
-        if let Some(out) = time_out.get_mut(thread::index_1d()) {
-            *out = moved.time;
+            let mut rng = Stream32::new(seeds[slot]);
+            // SAFETY: `sigma` holds `count` perfect matchings on n rows, the
+            // lane a relaxed assignment, the table is n x n, and the cursor
+            // gives each slot to one thread.
+            unsafe {
+                let row = sigma.as_mut_ptr().add(slot * size);
+                matching.load(row);
+                let moved = dynamics::mutate::<u64, T, _>(
+                    &mut matching,
+                    n,
+                    alias,
+                    perfect_time,
+                    fast,
+                    unassign_below,
+                    event_cap,
+                    &mut rng,
+                );
+                if !moved.over_budget {
+                    matching.store(row);
+                }
+                *events_out.as_mut_ptr().add(slot) =
+                    if moved.over_budget { moved.events | OVER_BUDGET } else { moved.events };
+                *time_out.as_mut_ptr().add(slot) = moved.time;
+            }
         }
     }
 
@@ -365,6 +376,11 @@ fn warp_idle(events: &[u64], flags: u64) -> f64 {
     if held == 0 { 0.0 } else { 1.0 - used as f64 / held as f64 }
 }
 
+/// Most threads of a mutation launch whose working state is in global
+/// memory. With more, the state of the threads running at once outgrows the
+/// device's cache: at n = 512 a GH200 moves 2^18 particles 1.7 times slower
+/// with a thread each than 2^16 particles.
+const UNSTAGED_THREADS: usize = 1 << 16;
 /// Most particles resident at once, and the device memory they may take.
 const MAX_PARTICLES: usize = 1 << 20;
 const MEMORY_BUDGET: usize = 8 << 30;
@@ -693,9 +709,11 @@ where
             .map(|p| stream_seed(stream.seed, stream.phase, stream.level, self.first_id + p))
             .collect();
         let seeds = DeviceBuffer::from_host(&self.stream, &seeds)?;
+        let cursor = DeviceBuffer::<u64>::zeroed(&self.stream, 1)?.wrap_elem::<DeviceAtomicU64>();
         let penalty = penalty(n);
         let unassign_below: u64 = fraction(1.0 / (1.0 + penalty));
-        let (config, staged) = self.config(self.count, lane_words(n));
+        let threads = if self.needs_scratch() { self.count.min(UNSTAGED_THREADS) } else { self.count };
+        let (config, staged) = self.config(threads, lane_words(n));
         // SAFETY: the arguments match the kernel; `sigma` holds count rows
         // of n, `scratch` the working state when it is not staged, and the
         // dynamic shared memory the block's working state when it is.
@@ -705,6 +723,7 @@ where
                 config,
                 &self.row_alias,
                 &seeds,
+                &cursor,
                 &mut self.sigma,
                 &mut self.scratch,
                 &mut self.events,
@@ -736,7 +755,6 @@ where
             setup,
             kernel = launched - setup,
             readback = clock.elapsed().as_secs_f64() - launched,
-            warp_idle = warp_idle(&events, OVER_BUDGET),
             "CUDA mutation call"
         );
         Ok(cost)
