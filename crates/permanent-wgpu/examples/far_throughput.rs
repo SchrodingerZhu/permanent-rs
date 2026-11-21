@@ -22,6 +22,8 @@ fn main() -> anyhow::Result<()> {
     let path = args.next().expect("a matrix in Matrix Market format");
     let particles: usize = args.next().map_or(32768, |x| x.parse().unwrap());
     let cycles: u64 = args.next().map_or(512, |x| x.parse().unwrap());
+    let working_mb: Option<usize> = args.next().map(|x| x.parse().unwrap());
+    let calls: u64 = args.next().map_or(6, |x| x.parse().unwrap());
     let Prepared::Scaled(scaled) = prepare(&Problem::load(&path)?) else { anyhow::bail!("the permanent is zero") };
     let n = scaled.n;
     // at temperature zero the hole weights are n exactly
@@ -29,8 +31,16 @@ fn main() -> anyhow::Result<()> {
     let identity: Vec<u32> = (0..particles).flat_map(|_| 0..n as u32).collect();
     let mut engine = Wgpu::new(&scaled)?;
     engine.load(&identity, 0);
-    println!("{} on {}: {particles} particles, {cycles} cycles a call", path, Engine::name(&engine));
-    for call in 0..6 {
+    if let Some(mb) = working_mb {
+        engine.working_set = mb << 20;
+    }
+    println!(
+        "{} on {}: {particles} particles, {cycles} cycles a call, working set {} MB",
+        path,
+        Engine::name(&engine),
+        engine.working_set >> 20
+    );
+    for call in 0..calls {
         let clock = Instant::now();
         let round =
             Engine::far(&mut engine, &tables, cycles, u64::MAX >> 1, 64, Stream { seed: 1, phase: 1, level: call })?;

@@ -233,6 +233,21 @@ fn alias_draw(tables: &[u32], table: usize, line: u32, n: u32, rng: &mut Array<u
     out
 }
 
+/// Entry `i` of a matching kept two 16-bit entries to a word from `base`.
+/// Half the memory of a word an entry measured twice the FAR throughput.
+#[cube]
+fn lane_get(scratch: &mut [u32], base: usize, i: usize) -> u32 {
+    let shift = (i as u32 & 1) * 16;
+    (scratch[base + i / 2] >> shift) & 0xFFFF
+}
+
+#[cube]
+fn lane_set(scratch: &mut [u32], base: usize, i: usize, value: u32) {
+    let shift = (i as u32 & 1) * 16;
+    let at = base + i / 2;
+    scratch[at] = (scratch[at] & (0xFFFF_0000u32 >> shift)) | (value << shift);
+}
+
 /// The FAR chain (`permanent_core::chain::far`) on the `count` particles
 /// from `first`, each on the stream keyed by its two `seeds`.
 ///
@@ -243,7 +258,8 @@ fn alias_draw(tables: &[u32], table: usize, line: u32, n: u32, rng: &mut Array<u
 ///
 /// `tables`: the packed row alias table, the column one, the move
 /// thresholds and the entry energies, each entry 64 bits. `scratch`: the
-/// matching and its inverse, 2 n words for each particle of the batch.
+/// matching and then its inverse, n words for each particle of the batch
+/// (`lane_get`).
 /// `tally`: see `LATE`.
 #[cube(launch_unchecked)]
 pub fn far(
@@ -267,8 +283,7 @@ pub fn far(
     let size = n as usize;
     if slot < count as usize {
         let particle = first as usize + slot;
-        let rows = slot * 2 * size;
-        let cols = rows + size;
+        let rows = slot * size;
         let col_alias = 2 * size * size;
         let moves = 4 * size * size;
         let energies = 8 * size * size;
@@ -286,14 +301,14 @@ pub fn far(
         // order; writing it once in order first measured a fifth faster.
         let mut v = 0usize;
         while v < size {
-            scratch[cols + v] = NONE;
+            lane_set(scratch, rows, size + v, NONE);
             v += 1;
         }
         let mut u = 0usize;
         while u < size {
             let v = sigma[particle * size + u];
-            scratch[rows + u] = v;
-            scratch[cols + v as usize] = u as u32;
+            lane_set(scratch, rows, u, v);
+            lane_set(scratch, rows, size + v as usize, u as u32);
             let cell = energies + 2 * (u * size + v as usize);
             let low = h_low + tables[cell];
             let mut carry = 0u32;
@@ -335,9 +350,9 @@ pub fn far(
                 steps += 1;
                 if (next_u32(&mut rng) & 1) == 0 {
                     let u = u32::mul_hi(next_u32(&mut rng), n);
-                    let v = scratch[rows + u as usize];
-                    scratch[rows + u as usize] = NONE;
-                    scratch[cols + v as usize] = NONE;
+                    let v = lane_get(scratch, rows, u as usize);
+                    lane_set(scratch, rows, u as usize, NONE);
+                    lane_set(scratch, rows, size + v as usize, NONE);
                     let cell = energies + 2 * (u as usize * size + v as usize);
                     let e_low = tables[cell];
                     let mut borrow = 0u32;
@@ -363,8 +378,8 @@ pub fn far(
                 let x_high = next_u32(&mut rng);
                 let x_low = next_u32(&mut rng);
                 if below64(x_high, x_low, add_high, add_low) {
-                    scratch[rows + hole_u as usize] = hole_v;
-                    scratch[cols + hole_v as usize] = hole_u;
+                    lane_set(scratch, rows, hole_u as usize, hole_v);
+                    lane_set(scratch, rows, size + hole_v as usize, hole_u);
                     let e = energies + 2 * cell;
                     let low = h_low + tables[e];
                     let mut carry = 0u32;
@@ -378,10 +393,10 @@ pub fn far(
                     // the row hole takes over a matched column
                     let z = alias_draw(tables, 0usize, hole_u, n, &mut rng);
                     if z != hole_v {
-                        let y = scratch[cols + z as usize];
-                        scratch[rows + y as usize] = NONE;
-                        scratch[rows + hole_u as usize] = z;
-                        scratch[cols + z as usize] = hole_u;
+                        let y = lane_get(scratch, rows, size + z as usize);
+                        lane_set(scratch, rows, y as usize, NONE);
+                        lane_set(scratch, rows, hole_u as usize, z);
+                        lane_set(scratch, rows, size + z as usize, hole_u);
                         let plus = energies + 2 * (hole_u as usize * size + z as usize);
                         let minus = energies + 2 * (y as usize * size + z as usize);
                         let low = h_low + tables[plus];
@@ -416,10 +431,10 @@ pub fn far(
                     if below64(d_high, d_low, w_high, w_low) {
                         let y = alias_draw(tables, col_alias, hole_v, n, &mut rng);
                         if y != hole_u {
-                            let z = scratch[rows + y as usize];
-                            scratch[rows + y as usize] = hole_v;
-                            scratch[cols + hole_v as usize] = y;
-                            scratch[cols + z as usize] = NONE;
+                            let z = lane_get(scratch, rows, y as usize);
+                            lane_set(scratch, rows, y as usize, hole_v);
+                            lane_set(scratch, rows, size + hole_v as usize, y);
+                            lane_set(scratch, rows, size + z as usize, NONE);
                             let plus = energies + 2 * (y as usize * size + hole_v as usize);
                             let minus = energies + 2 * (y as usize * size + z as usize);
                             let low = h_low + tables[plus];
@@ -458,7 +473,7 @@ pub fn far(
             chains[at + HANDED_ENERGY + 1] = sum_high;
             let mut u = 0usize;
             while u < size {
-                chains[at + HANDED_ROW + u] = scratch[rows + u];
+                chains[at + HANDED_ROW + u] = lane_get(scratch, rows, u);
                 u += 1;
             }
         } else {
@@ -466,7 +481,7 @@ pub fn far(
                 // complete: the particle takes the matching the chain stopped on
                 let mut u = 0usize;
                 while u < size {
-                    sigma[particle * size + u] = scratch[rows + u];
+                    sigma[particle * size + u] = lane_get(scratch, rows, u);
                     u += 1;
                 }
             } else {

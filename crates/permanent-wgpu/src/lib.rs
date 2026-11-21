@@ -21,9 +21,10 @@ use anyhow::{Context, Result, anyhow, ensure};
 use cubecl::prelude::*;
 use cubecl::server::Handle;
 use fixed::types::I32F32;
-use permanent_core::chain::dynamics::STAGE_TICKS;
+use permanent_core::chain::dynamics::{self, STAGE_TICKS};
 use permanent_core::chain::far::{self as far_chain, FarChain};
 use permanent_core::chain::lane::{Lane, MAX_N, NONE};
+use permanent_core::chain::matching::{Matching, words};
 use permanent_core::chain::stream::Stream as Philox;
 use permanent_core::chain::{Energy, EnergySum};
 use permanent_core::engine::{ChainTally, FarRound, Stream};
@@ -47,6 +48,9 @@ const GROUP: u32 = 64;
 const MAX_PARTICLES: usize = 1 << 20;
 /// Most chains a FAR call hands to the host.
 const HANDED_MAX: usize = 1 << 14;
+/// Particles still without a perfect matching that the host takes over
+/// from the device's sampler.
+const HOST_TRIALS: usize = 512;
 
 /// The population on one wgpu device.
 pub struct Wgpu<'a> {
@@ -72,8 +76,8 @@ pub struct Wgpu<'a> {
     pub budget: u32,
     /// Bytes of working memory a dispatch may touch. Past the size of the
     /// device's cache, more chains at once make all of them slower: on an
-    /// RTX 4090 throughput peaks near 64 MB and is less than half of that
-    /// at 1 GB.
+    /// RTX 4090 throughput peaks between 32 and 80 MB and falls by a fifth
+    /// at 128 MB.
     pub working_set: usize,
     /// Steps per cycle a FAR dispatch allows before a chain is handed to
     /// the host; tuned so that about half a percent of the chains overrun.
@@ -163,7 +167,7 @@ impl<'a> Wgpu<'a> {
             far: (0, placeholder.clone()),
             scratch: (0, placeholder),
             far_budget: 64.0,
-            working_set: 64 << 20,
+            working_set: 48 << 20,
             far_seconds: FarSeconds::default(),
             // long enough that most chains finish in one dispatch, short
             // enough that a dispatch stays well under a second
@@ -198,6 +202,30 @@ impl<'a> Wgpu<'a> {
     /// Particles a dispatch runs when each takes `words` of working memory.
     fn batch(&self, words: usize) -> usize {
         (self.working_set / (words * size_of::<u32>())).clamp(GROUP as usize, self.count.max(GROUP as usize))
+    }
+
+    /// Replace the particles `targets` by `rows`, one row of n for each.
+    fn scatter(&self, rows: &[u32], targets: &[u32]) {
+        if targets.is_empty() {
+            return;
+        }
+        let n = self.scaled.n;
+        let device_rows = self.client.create_from_slice(u32::as_bytes(rows));
+        let device_targets = self.client.create_from_slice(u32::as_bytes(targets));
+        // SAFETY: `rows` holds one row per target, and the targets are
+        // distinct particles.
+        unsafe {
+            kernels::scatter::launch_unchecked(
+                &self.client,
+                CubeCount::Static((targets.len() as u32).div_ceil(GROUP), 1, 1),
+                CubeDim::new_1d(GROUP),
+                buffer(&device_rows, rows.len()),
+                buffer(&device_targets, targets.len()),
+                buffer(&self.sigma, self.count * n),
+                n as u32,
+                targets.len() as u32,
+            );
+        }
     }
 
     /// `words` of working memory, grown when more are needed.
@@ -323,6 +351,64 @@ impl<'a> Wgpu<'a> {
                 } else {
                     cost.over_budget += (state[FLAGS] & CAPPED != 0) as u64;
                 }
+            }
+            // A trial lasts as long on the device for a few particles as
+            // for all of them, so the last ones are finished on the host.
+            let left: Vec<(usize, u64)> = (0..count)
+                .filter(|&particle| pending[particle])
+                .map(|particle| (particle, self.seed(stream, particle)))
+                .collect();
+            if left.len() <= HOST_TRIALS {
+                let unassign = stages.unassign::<u64>();
+                let (fast, cap) = (stages.fast(), stages.event_cap(n, stage_time));
+                let finished: Vec<(SampleCost, Option<Vec<u32>>)> = left
+                    .par_iter()
+                    .map_init(
+                        || (vec![0u16; words(n)], vec![0u16; n]),
+                        |(memory, row), &(_, seed)| {
+                            let mut matching = Matching::new(Lane::on(memory, n));
+                            let mut cost = SampleCost::default();
+                            for trial in trial + 1..max_trials {
+                                let mut rng = Philox::new(mix(seed.wrapping_add(trial)));
+                                // SAFETY: the lane holds words(n) words and the tables are n x n
+                                let outcome = unsafe {
+                                    dynamics::trial::<u64, f32, _>(
+                                        &mut matching,
+                                        n as u32,
+                                        &tables.packed_rows,
+                                        &unassign,
+                                        ticks_per_time,
+                                        fast,
+                                        cap,
+                                        &mut rng,
+                                    )
+                                };
+                                cost.trials += 1;
+                                cost.events += outcome.events;
+                                if !outcome.over_budget && matching.is_perfect() {
+                                    cost.accepted += 1;
+                                    // SAFETY: `row` holds n words
+                                    unsafe { matching.store(row.as_mut_ptr()) };
+                                    return (cost, Some(row.iter().map(|&v| v as u32).collect()));
+                                }
+                                cost.over_budget += outcome.over_budget as u64;
+                            }
+                            (cost, None)
+                        },
+                    )
+                    .collect();
+                let mut moved: Vec<u32> = Vec::new();
+                let mut rows: Vec<u32> = Vec::new();
+                for (&(particle, _), (trials, row)) in left.iter().zip(finished) {
+                    cost.add(trials);
+                    if let Some(row) = row {
+                        pending[particle] = false;
+                        moved.push(particle as u32);
+                        rows.extend(row);
+                    }
+                }
+                self.scatter(&rows, &moved);
+                break;
             }
         }
         let missing = pending.iter().filter(|&&pending| pending).count();
@@ -464,13 +550,14 @@ impl<'a> Wgpu<'a> {
             entries.extend_from_slice(&tables.packed_cols);
             entries.extend_from_slice(&tables.far_moves);
             entries.extend(self.energy_bits.iter().map(|&bits| bits as u64));
-            self.far = (tables.id, self.client.create_from_slice(u64::as_bytes(&entries)));
+            // handing the vector over saves a copy of 40 n^2 bytes
+            self.far = (tables.id, self.client.create(cubecl::bytes::Bytes::from_elems(entries)));
         }
         let seeds: Vec<u64> = (0..count).map(|particle| self.seed(stream, particle)).collect();
         let device_seeds = self.client.create_from_slice(u64::as_bytes(&seeds));
         // the chains run a batch at a time, in one working buffer
-        let batch = self.batch(2 * n);
-        let scratch = self.working(batch * 2 * n);
+        let batch = self.batch(n);
+        let scratch = self.working(batch * n);
         // Chains stop at a budget and the few that overran are continued on
         // the host. A group's visits to a class are counted in a word.
         let budget = ((self.far_budget * cycles as f64).ceil() as u64 + 32)
@@ -500,7 +587,7 @@ impl<'a> Wgpu<'a> {
                     CubeDim::new_1d(GROUP),
                     buffer(&self.far.1, 10 * n * n),
                     buffer(&self.sigma, count * n),
-                    buffer(&scratch, batch * 2 * n),
+                    buffer(&scratch, batch * n),
                     buffer(&tally, tally_len),
                     buffer(&device_seeds, 2 * count),
                     buffer(&chains, capacity * record),
@@ -609,24 +696,7 @@ impl<'a> Wgpu<'a> {
                 rows.extend_from_slice(row);
             }
         }
-        if !moved.is_empty() {
-            let device_rows = self.client.create_from_slice(u32::as_bytes(&rows));
-            let targets = self.client.create_from_slice(u32::as_bytes(&moved));
-            // SAFETY: `device_rows` holds one row per target, and the
-            // targets are distinct particles.
-            unsafe {
-                kernels::scatter::launch_unchecked(
-                    &self.client,
-                    CubeCount::Static((moved.len() as u32).div_ceil(GROUP), 1, 1),
-                    CubeDim::new_1d(GROUP),
-                    buffer(&device_rows, rows.len()),
-                    buffer(&targets, moved.len()),
-                    buffer(&self.sigma, count * n),
-                    n as u32,
-                    moved.len() as u32,
-                );
-            }
-        }
+        self.scatter(&rows, &moved);
         self.far_seconds.host_chains += clock.elapsed().as_secs_f64();
         Ok(round)
     }
