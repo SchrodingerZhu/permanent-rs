@@ -3743,7 +3743,10 @@ dependencies = [
  "getrandom 0.4.3",
  "permanent-core",
  "permanent-rayon",
+ "rayon",
+ "tracing",
  "wasm-bindgen-test",
+ "web-time",
 ]
 
 [[package]]

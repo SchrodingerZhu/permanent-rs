@@ -97,9 +97,10 @@ feature of the same name and chosen at run time with `--backend`:
 | Backend | Crate | Population on |
 |---|---|---|
 | `rayon` (default feature) | `permanent-rayon` | the CPU thread pool |
+| `wgpu` (default feature) | `permanent-wgpu` | a GPU through wgpu: Vulkan, Metal, DirectX, or WebGPU in a browser |
 | `cuda` | `permanent-cuda` | an NVIDIA GPU |
 
-Both engines run the same chains, written once in
+The rayon and cuda engines run the same chains, written once in
 `crates/permanent-core/src/chain` and compiled for the host and for the
 device.
 Every probability decision is a comparison of random bits with an integer
@@ -139,6 +140,35 @@ shared memory the segments of one rank are swept at the same time, each by
 an engine on a CUDA stream of its own, as many as fill the device's
 multiprocessors; the result is the same as sweeping them one after another.
 
+The wgpu engine has its own kernels, written with CubeCL and compiled to
+WGSL, because a browser's shading language has only 32-bit integers and
+`f32`: 64-bit quantities are two words there. They follow the generic
+chains draw for draw, so its FAR chain returns the same counts as the other
+engines for the same seeds, which its tests check. A dispatch runs a
+bounded number of steps and the host dispatches again until every chain is
+over, since a browser resets a device whose dispatch runs too long.
+
+    cargo run --release -- data/dimer-16x16.mtx --backend wgpu
+
+On an RTX 4090 through Vulkan it is about as fast as the cuda engine on the
+128 x 128 dimer matrix and about 2.2 times slower on the 512 x 512 one.
+
+## WebAssembly
+
+Two builds, for two kinds of runtime:
+
+    # the program for WASI, on one thread, with the rayon engine
+    cargo build --release --target wasm32-wasip1 -p permanent-cli --no-default-features --features rayon
+    wasmer run --mapdir /data:"$PWD/data" target/wasm32-wasip1/release/permanent.wasm -- /data/weighted-16.mtx --exact
+
+    # the wgpu engine for a browser, tested in a runtime that has WebGPU
+    nix develop .#ci --command cargo test --release -p permanent-wgpu --target wasm32-unknown-unknown
+
+A WASI runtime such as wasmer has no GPU interface, so the wgpu engine does
+not run there. In wasm its operations are `async fn`s, because a browser
+cannot wait for the device; the estimator, which calls an engine
+synchronously, is not yet driven from wasm.
+
 ## MPI
 
 Built with `--features mpi`, every rank runs the same driver on its own
@@ -162,6 +192,7 @@ fails stops the whole run.
     nix develop            # cargo and rustc
     nix develop .#mpi      # plus an MPI and libclang for its bindings
     nix develop .#cuda     # the pinned toolchain and CUDA 13
+    nix develop .#ci       # what CI runs in: wasm targets, wasmer, Deno, a software Vulkan driver
 
 The `cuda` backend is built inside the `cuda` shell with `cargo oxide`,
 which the shell tells you how to install; the NVIDIA driver comes from the
@@ -182,7 +213,10 @@ host.
         src/exact.rs          exact subset DP for n <= 26
         src/stats.rs          ln n!, normal quantile, seeds of the random streams
     crates/permanent-rayon    engine on the CPU thread pool
-    crates/permanent-cuda     engine on a GPU
+    crates/permanent-wgpu     engine on a GPU through wgpu
+        src/kernels.rs        the chains as CubeCL kernels
+        src/lib.rs            the host side, asynchronous
+    crates/permanent-cuda     engine on an NVIDIA GPU
         src/lib.rs            kernels (wrappers over the chains) and the host side
     crates/permanent-cli      the `permanent` program
         src/cli.rs            command line, report, logging
