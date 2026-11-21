@@ -238,8 +238,12 @@ const LEARN_MAX_ITERATIONS: usize = 8;
 const LEARN_MAX_ROUNDS: usize = 7;
 /// Target relative standard error of each anchor weight.
 const LEARN_RSE: f64 = 0.15;
-/// A learning pass whose corrections are all below this is accepted.
+/// A learning pass is accepted when it shows no weight to have been further
+/// than this from the value it measured (see `Session::learn`).
 const LEARN_ACCEPT: f64 = 0.2624; // ln 1.3
+/// Probability that sampling error alone makes a pass ask for another one
+/// although no weight was further than `LEARN_ACCEPT` from its value.
+const LEARN_FALSE_ALARM: f64 = 0.05;
 /// Relative variance aimed for when choosing a temperature step.
 const STEP_RELVAR: f64 = 0.25;
 /// Relative variance one island is sized for.
@@ -557,6 +561,21 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
     /// Learn the anchor weights at `beta`, starting from the guess `log_w`.
     /// The population is at mu_beta on entry (exactly, when `exact`) and on
     /// exit.
+    ///
+    /// A pass runs FAR chains under the current weights until every class
+    /// of holes has been visited often enough for a relative standard error
+    /// of `LEARN_RSE`, and replaces the weights by what the visits say. That
+    /// measurement is consistent whatever weights the chains ran under, so
+    /// its result carries the pass's own sampling error and nothing of the
+    /// guess. A further pass is of use only if the weights were far enough
+    /// off to make the chains visit some class rarely, which shows as a
+    /// correction above `LEARN_ACCEPT`. The measured correction of class v
+    /// is the true one plus a sampling error of standard deviation rse_v,
+    /// so the largest of n corrections lies well above the true one. A pass
+    /// therefore asks for another only when some correction exceeds
+    /// `LEARN_ACCEPT` by more than z rse_v, with z the normal quantile
+    /// that all n classes together pass with probability
+    /// 1 - `LEARN_FALSE_ALARM` when none is beyond it.
     fn learn(&mut self, level: usize, beta: f64, mut log_w: Vec<f64>, exact: bool) -> anyhow::Result<Learned> {
         let scaled = self.scaled;
         let n = scaled.n;
@@ -564,6 +583,7 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
         let local = self.diagnostics.learn_particles;
         let total = (local * self.comm.size()) as u64;
         let groups = local.min(LEARN_GROUPS);
+        let significant = normal_quantile(1.0 - LEARN_FALSE_ALARM / n as f64);
         let mut drift = vec![0.0; n];
         for iteration in 0..LEARN_MAX_ITERATIONS {
             self.diagnostics.learn_iterations += 1;
@@ -585,6 +605,9 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
             let mut energy_sums = vec![0.0; n + 1];
             let mut totals = vec![0u64; n];
             let mut total_cycles = 0u64;
+            // relative standard error of each class's visit count
+            let mut rse = vec![f64::INFINITY; n];
+            let mut worst_rse = f64::INFINITY;
             for _round in 0..LEARN_MAX_ROUNDS {
                 let stream = self.learn_stream();
                 let clock = Instant::now();
@@ -624,18 +647,17 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
                 total_cycles = counts[0];
                 let chains = counts[1] as f64;
                 totals.copy_from_slice(&counts[2..]);
-                let mut worst: f64 = 0.0;
                 for v in 0..n {
-                    if totals[v] == 0 {
-                        worst = f64::INFINITY;
-                        break;
-                    }
-                    let rate = totals[v] as f64 / total_cycles as f64;
-                    let ss = moments[1 + v] - 2.0 * rate * moments[1 + n + v] + rate * rate * moments[0];
-                    let rse = (ss.max(0.0) * chains / (chains - 1.0)).sqrt() / totals[v] as f64;
-                    worst = worst.max(rse);
+                    rse[v] = if totals[v] == 0 {
+                        f64::INFINITY
+                    } else {
+                        let rate = totals[v] as f64 / total_cycles as f64;
+                        let ss = moments[1 + v] - 2.0 * rate * moments[1 + n + v] + rate * rate * moments[0];
+                        (ss.max(0.0) * chains / (chains - 1.0)).sqrt() / totals[v] as f64
+                    };
                 }
-                if worst <= LEARN_RSE {
+                worst_rse = rse.iter().copied().fold(0.0, f64::max);
+                if worst_rse <= LEARN_RSE {
                     break;
                 }
                 cycles *= 2;
@@ -651,10 +673,13 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
             }
             let norm = log_sum_exp(&terms);
             let mut worst_correction: f64 = 0.0;
+            // a class not measured to the target leaves the pass open too
+            let mut settled = worst_rse <= LEARN_RSE;
             for v in 0..n {
                 let previous = log_w[v] + tables.log_anchor_norm;
                 let correction = (updated[v] + norm - previous).clamp(-8f64.ln(), 8f64.ln());
                 worst_correction = worst_correction.max(correction.abs());
+                settled &= correction.abs() <= LEARN_ACCEPT + significant * rse[v];
                 log_w[v] = previous + correction;
             }
             // Unnormalized check: (n^2 / k) sum_z B(r,z) visits_z / W(r,z) = 1.
@@ -672,8 +697,8 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
             for v in 0..n {
                 drift[v] = if totals[v] > 0 { energy_sums[v] / totals[v] as f64 - mean_perfect } else { 0.0 };
             }
-            debug!(level, iteration, worst_correction, check, total_cycles, "learning pass");
-            if worst_correction <= LEARN_ACCEPT {
+            debug!(level, iteration, worst_correction, worst_rse, check, total_cycles, "learning pass");
+            if settled {
                 break;
             }
         }

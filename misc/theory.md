@@ -295,6 +295,35 @@ program therefore runs every particle of a Phase 1 population for
 ⌈64 n²/W⌉ cycles per round, and estimates the error from the spread
 between groups of particles.
 
+**Passes.** A pass runs the chains under the current weights w, doubling
+the cycles until the visit count of every class N(r, v) has a relative
+standard error s_v ≤ 0.15, and replaces w by the weights w̃ those counts
+give. Kac's formula holds for the chain of any positive w, so w̃ is a
+consistent measurement of the ideal weights whatever w was; w only decides
+how often each class is visited, and a class whose weight is far too small
+is visited rarely. A pass is therefore repeated, at most 8 times, while it
+shows that w was far off.
+
+What a pass shows is the correction c_v = ln(w̃(v)/w(v)), the true
+distance of w(v) from the ideal weight plus the sampling error of the visit
+count, whose standard deviation is s_v. The largest of n such corrections
+is of order s √(2 ln 2n) when w is ideal: 0.3 to 0.5 at n = 128, where s is
+typically 0.09. Comparing it with a fixed tolerance of ln 1.3 = 0.26 asks
+for pass after pass that only draw the sampling error again. The test is
+instead made class by class, against the hypothesis that w(v) was within
+the tolerance: a pass asks for another only if
+
+    |c_v| > ln 1.3 + z s_v   for some v,   z = Φ⁻¹(1 − 0.05/n),
+
+so that when no weight was beyond the tolerance all n classes pass
+together with probability at least 95%, or if some class missed the
+precision s_v ≤ 0.15. With every pass forced to run at n = 128, none of the
+511 second and later passes exceeded the tolerance by more than 3.0 s_v
+(z = 3.36), while two of the 73 first passes did, by 3.5 and 7.8 s_v: the
+steps whose first-order prediction of the weights was off by factors 1.8
+and 2.6. The weights a temperature ends on have the same error either way,
+that of its last pass.
+
 The matching a chain stops on is again μ-distributed (the chain watched on
 perfect matchings is μ-reversible), so a FAR run also moves its particle.
 Phase 1 uses that as its only move between temperatures: resampled copies

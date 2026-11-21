@@ -86,3 +86,19 @@ fn tiny_populations_are_unbiased() {
     // unbiasedness and not of the variance bound
     assert!(estimate.island_relvar > 0.01);
 }
+
+/// Once the weights predicted from the previous temperature are within
+/// sampling error of what a pass measures, further passes would only draw
+/// that error again: nearly every temperature must be learned in one.
+#[test]
+fn learning_does_not_repeat_passes_that_measure_noise() {
+    let n = 20;
+    let a = (0..n * n).map(|i| ((((i / n) * 7 + (i % n) * 11) % 13) as f64 / 3.0 - 2.0).exp()).collect();
+    let problem = Problem { n, a };
+    let Prepared::Scaled(scaled) = prepare(&problem) else { panic!("permanent is zero") };
+    let config = Config { seed: 4, ..Default::default() };
+    let mut session = Session::new(&scaled, &config, Rayon::<f64, SmallRng>::new(&scaled), &Solo).unwrap();
+    let levels = session.learn_schedule().unwrap();
+    let passes = session.diagnostics.learn_iterations as usize;
+    assert!(passes <= levels.len() + levels.len() / 4, "{passes} passes for {} temperatures", levels.len());
+}
