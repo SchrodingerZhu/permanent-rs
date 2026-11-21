@@ -418,6 +418,12 @@ const UNSTAGED_THREADS: usize = 1 << 16;
 /// Most particles resident at once, and the device memory they may take.
 const MAX_PARTICLES: usize = 1 << 20;
 const MEMORY_BUDGET: usize = 8 << 30;
+/// Populations swept at once even when one of them fills the device. A
+/// launch ends with its longest particle, which runs several times as long
+/// as the mean one, so for the later part of every launch most of the
+/// threads a population occupied are free; that is a property of the
+/// chains, not of the device.
+const PAIRED: usize = 2;
 /// Particles a sampler launch that retries may expect to leave missing.
 /// It weighs one more launch against trials that are not needed, both in
 /// units of one trial's duration, so it does not depend on the device.
@@ -772,17 +778,18 @@ where
     }
 
     fn concurrency(&self, particles: usize) -> usize {
-        // A state that large leaves the sampler in global memory and the
-        // mutation kernel with shared memory for fewer threads than a
-        // population has particles, so populations moved at once would
-        // share the device, not fill it.
-        if self.needs_scratch() {
-            return 1;
-        }
-        // Otherwise as many populations as fill the device. The last may
-        // fit only in part: some of its blocks then wait, which still
-        // costs less than sweeping it after the others.
-        self.threads_at_once(lane_words(self.scaled.n)).div_ceil(particles.max(1)).max(1)
+        // As many populations as fill the device with mutation threads.
+        // The last may fit only in part: some of its blocks then wait,
+        // which still costs less than sweeping it after the others.
+        let resident = match self.mutation {
+            Some(staged) => self.multiprocessors.count * staged.resident as usize,
+            None => self.threads_at_once(lane_words(self.scaled.n)),
+        };
+        let filling = resident.div_ceil(particles.max(1));
+        // A population that already fills the device still gains from a
+        // second one beside it, as long as the engine may hold both.
+        let paired = if PAIRED * particles <= self.capacity() { PAIRED } else { 1 };
+        filling.max(paired)
     }
 
     fn fork(&self) -> Result<Self> {
