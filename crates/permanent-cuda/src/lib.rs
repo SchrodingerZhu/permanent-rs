@@ -384,6 +384,12 @@ const UNSTAGED_THREADS: usize = 1 << 16;
 /// Most particles resident at once, and the device memory they may take.
 const MAX_PARTICLES: usize = 1 << 20;
 const MEMORY_BUDGET: usize = 8 << 30;
+/// Trials a sampler launch aims for when it holds fewer particles than
+/// that: about as many as run at once without waiting for one another, so
+/// the extra trials of a particle hardly lengthen the launch. At n = 128 a
+/// GH200 takes 0.51 s for 12,740 trials, 0.58 s for twice and 1.17 s for
+/// five times as many.
+const SAMPLER_TRIALS: usize = 1 << 15;
 
 /// Number of CUDA devices on this host.
 pub fn device_count() -> Result<usize> {
@@ -627,27 +633,35 @@ where
         let ticks_per_time = T::from(STAGE_TICKS as f64 / stage_time).unwrap();
         let event_cap = stages.event_cap(n, stage_time);
         let mut cost = SampleCost::default();
-        // A trial that misses is run again on a stream of its own; only the
-        // particles still missing are relaunched.
+        // A trial that misses is run again on a stream of its own. A launch
+        // lasts as long as one trial however few it holds, so it runs the
+        // next few trials of every particle still missing at once, each
+        // into a row of its own, and a particle takes its first hit: the
+        // sample it would get from running its trials one at a time.
         let mut pending: Vec<u32> = (0..count as u32).collect();
-        for trial in 0..max_trials {
-            if pending.is_empty() {
-                break;
-            }
+        let mut tried = 0u64;
+        while !pending.is_empty() && tried < max_trials {
             let clock = Instant::now();
+            let attempts = ((SAMPLER_TRIALS / pending.len()) as u64).clamp(1, max_trials - tried);
+            let slots = pending.len() * attempts as usize;
             let seeds: Vec<u64> = pending
                 .iter()
-                .map(|&p| {
+                .flat_map(|&p| {
                     let sample = stream_seed(stream.seed, stream.phase, stream.level, first_id + p as u64);
-                    mix(sample.wrapping_add(trial))
+                    (tried..tried + attempts).map(move |trial| mix(sample.wrapping_add(trial)))
                 })
                 .collect();
             let seeds = DeviceBuffer::from_host(&self.stream, &seeds)?;
-            let targets = DeviceBuffer::from_host(&self.stream, &pending)?;
-            let (config, staged) = self.config(pending.len(), lane_words(n));
-            // SAFETY: the arguments match the kernel; the targets are
-            // distinct particles below `count`, and every per-slot buffer
-            // holds at least `pending.len()` entries.
+            let own_row: Vec<u32> = (0..slots as u32).collect();
+            let own_row = DeviceBuffer::from_host(&self.stream, &own_row)?;
+            let mut rows = DeviceBuffer::<u16>::zeroed(&self.stream, slots * n)?;
+            let scratch = if self.needs_scratch() { slots * lane_words(n) } else { 1 };
+            let mut scratch = DeviceBuffer::<u16>::zeroed(&self.stream, scratch)?;
+            let mut events = DeviceBuffer::<u64>::zeroed(&self.stream, slots)?;
+            let (config, staged) = self.config(slots, lane_words(n));
+            // SAFETY: the arguments match the kernel; every slot writes its
+            // own row of `rows`, and every per-slot buffer holds `slots`
+            // entries.
             unsafe {
                 self.module.anneal::<T>(
                     self.stream.as_ref(),
@@ -655,12 +669,12 @@ where
                     &self.row_alias,
                     &unassign,
                     &seeds,
-                    &targets,
-                    &mut self.sigma,
-                    &mut self.scratch,
-                    &mut self.events,
+                    &own_row,
+                    &mut rows,
+                    &mut scratch,
+                    &mut events,
                     n as u32,
-                    pending.len() as u32,
+                    slots as u32,
                     staged,
                     ticks_per_time,
                     stages.fast(),
@@ -670,28 +684,70 @@ where
             let setup = clock.elapsed().as_secs_f64();
             self.stream.synchronize()?;
             let launched = clock.elapsed().as_secs_f64();
-            let mut outcomes = self.events.to_host_vec(&self.stream)?;
-            outcomes.truncate(pending.len());
+            let outcomes = events.to_host_vec(&self.stream)?;
             debug!(
-                trials = pending.len(),
+                particles = pending.len(),
+                trials = slots,
                 setup,
                 kernel = launched - setup,
                 readback = clock.elapsed().as_secs_f64() - launched,
                 warp_idle = warp_idle(&outcomes, OVER_BUDGET | PERFECT),
                 "CUDA sampler launch"
             );
+            // trials after a particle's first hit never happened
             let mut missing = Vec::new();
-            for (&particle, outcome) in pending.iter().zip(outcomes) {
-                cost.trials += 1;
-                cost.events += outcome & !(OVER_BUDGET | PERFECT);
-                if outcome & PERFECT != 0 {
-                    cost.accepted += 1;
-                } else {
+            let mut hit_rows: Vec<u32> = Vec::new();
+            let mut hit_particles: Vec<u32> = Vec::new();
+            for ((index, &particle), outcomes) in pending.iter().enumerate().zip(outcomes.chunks(attempts as usize)) {
+                let mut hit = false;
+                for (attempt, outcome) in outcomes.iter().enumerate() {
+                    cost.trials += 1;
+                    cost.events += outcome & !(OVER_BUDGET | PERFECT);
                     cost.over_budget += (outcome & OVER_BUDGET != 0) as u64;
+                    if outcome & PERFECT != 0 {
+                        cost.accepted += 1;
+                        hit_rows.push((index * attempts as usize + attempt) as u32);
+                        hit_particles.push(particle);
+                        hit = true;
+                        break;
+                    }
+                }
+                if !hit {
                     missing.push(particle);
                 }
             }
+            if !hit_rows.is_empty() {
+                let hits = hit_rows.len();
+                let hit_rows = DeviceBuffer::from_host(&self.stream, &hit_rows)?;
+                let hit_particles = DeviceBuffer::from_host(&self.stream, &hit_particles)?;
+                let mut samples = DeviceBuffer::<u16>::zeroed(&self.stream, hits * n)?;
+                let (config, _) = self.config(hits, 0);
+                // SAFETY: the arguments match the kernels; `samples` holds
+                // one row per hit, the hit rows are below `slots`, and the
+                // particles are distinct and below `count`.
+                unsafe {
+                    self.module.gather(
+                        self.stream.as_ref(),
+                        config,
+                        &rows,
+                        &hit_rows,
+                        &mut samples,
+                        n as u32,
+                        hits as u32,
+                    )?;
+                    self.module.scatter(
+                        self.stream.as_ref(),
+                        config,
+                        &samples,
+                        &hit_particles,
+                        &mut self.sigma,
+                        n as u32,
+                        hits as u32,
+                    )?;
+                }
+            }
             pending = missing;
+            tried += attempts;
         }
         ensure!(
             pending.is_empty(),
