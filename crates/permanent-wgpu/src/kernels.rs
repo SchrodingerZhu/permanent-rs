@@ -198,26 +198,36 @@ fn below64(ah: u32, al: u32, bh: u32, bl: u32) -> bool {
 }
 
 /// Draw from line `line` of the packed alias table at `table` in `tables`.
-/// One 64-bit number makes both choices, as in the generic chain: the high
-/// 64 bits of its product with n are the cell, and the low 64 bits are
-/// compared with the cell's keep threshold.
+/// As in the generic chain, a 64-bit number u makes both choices: the high
+/// 64 bits of u n are the cell and the low 64 bits are compared with the
+/// cell's keep threshold. Its low word is drawn only when the high word
+/// does not settle both.
 #[cube]
 fn alias_draw(tables: &[u32], table: usize, line: u32, n: u32, rng: &mut Array<u32>) -> u32 {
     let first = next_u32(rng);
-    let second = next_u32(rng);
-    // (first 2^32 + second) n, as three words
-    let within_low = second * n;
-    let within_high = first * n + u32::mul_hi(second, n);
+    let line_at = table + 2 * (line as usize * n as usize);
+    // first n 2^32 is the least u n can be; the low word adds less than n 2^32
+    let least = first * n;
+    let most = least + (n - 1);
     let mut i = u32::mul_hi(first, n);
-    if within_high < first * n {
-        i += 1;
-    }
-    let entry = table + 2 * (line as usize * n as usize + i as usize);
-    let low = tables[entry];
-    let high = tables[entry + 1];
+    let mut low = tables[line_at + 2 * i as usize];
+    let mut high = tables[line_at + 2 * i as usize + 1];
     // 48 bits against the 48-bit threshold above the alias
+    let mut keep = least < high || (least == high && (low >> 16) > 0);
+    if most < least || keep != (most < high) {
+        let second = next_u32(rng);
+        let within_low = second * n;
+        let within_high = least + u32::mul_hi(second, n);
+        i = u32::mul_hi(first, n);
+        if within_high < least {
+            i += 1;
+        }
+        low = tables[line_at + 2 * i as usize];
+        high = tables[line_at + 2 * i as usize + 1];
+        keep = within_high < high || (within_high == high && (within_low >> 16) < (low >> 16));
+    }
     let mut out = low & 0xFFFF;
-    if within_high < high || (within_high == high && (within_low >> 16) < (low >> 16)) {
+    if keep {
         out = i;
     }
     out

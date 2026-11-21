@@ -654,6 +654,10 @@ mod blocking {
             Wgpu::learn_particles(self)
         }
 
+        fn fork(&self) -> Result<Self> {
+            Wgpu::on(self.scaled, self.client.clone())
+        }
+
         fn load(&mut self, perms: &[u32], first_id: u64) -> Result<()> {
             Wgpu::load(self, perms, first_id);
             Ok(())
