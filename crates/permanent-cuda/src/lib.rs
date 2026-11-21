@@ -384,11 +384,13 @@ const UNSTAGED_THREADS: usize = 1 << 16;
 /// Most particles resident at once, and the device memory they may take.
 const MAX_PARTICLES: usize = 1 << 20;
 const MEMORY_BUDGET: usize = 8 << 30;
-/// Trials a sampler launch aims for when it holds fewer particles than
-/// that: about as many as run at once without waiting for one another, so
-/// the extra trials of a particle hardly lengthen the launch. At n = 128 a
-/// GH200 takes 0.51 s for 12,740 trials, 0.58 s for twice and 1.17 s for
-/// five times as many.
+/// Particle threads of all the engines of a device that may run at the
+/// same time when their working state is in shared memory.
+const CONCURRENT_THREADS: usize = 1 << 16;
+/// Most trials of a sampler launch that retries a few particles: about as
+/// many as run at once without waiting for one another. At n = 128 a GH200
+/// takes 0.51 s for 12,740 trials, 0.58 s for twice and 1.17 s for five
+/// times as many.
 const SAMPLER_TRIALS: usize = 1 << 15;
 
 /// Number of CUDA devices on this host.
@@ -400,6 +402,9 @@ pub fn device_count() -> Result<usize> {
 pub struct Cuda<'a, T: DeviceCopy> {
     scaled: &'a Scaled,
     name: String,
+    context: Arc<CudaContext>,
+    /// A stream of this engine's own, so that engines of one context run
+    /// their launches at the same time.
     stream: Arc<CudaStream>,
     module: kernels::LoadedModule,
     first_id: u64,
@@ -460,16 +465,22 @@ where
     /// The engine on device `ordinal`.
     pub fn new(scaled: &'a Scaled, ordinal: usize) -> Result<Self> {
         let n = scaled.n;
-        let energy_bits = scaled.fixed_energy();
         ensure!(n <= MAX_N, "the CUDA engine supports n up to {MAX_N}");
-        let ctx = CudaContext::new(ordinal).with_context(|| format!("opening CUDA device {ordinal}"))?;
-        let stream = ctx.default_stream();
-        let module = kernels::load(&ctx).context("loading the kernels; device code is built by `cargo oxide`")?;
-        let device = ctx.device_name()?;
+        let context = CudaContext::new(ordinal).with_context(|| format!("opening CUDA device {ordinal}"))?;
+        let device = context.device_name()?;
         info!(%device, staged = fits_shared(lane_words(n)), far_staged = fits_shared(2 * n), "CUDA engine ready");
+        Self::on(scaled, context, format!("cuda:{ordinal} ({device}, {})", std::any::type_name::<T>()))
+    }
+
+    /// An engine with no particles in `context`.
+    fn on(scaled: &'a Scaled, context: Arc<CudaContext>, name: String) -> Result<Self> {
+        let energy_bits = scaled.fixed_energy();
+        let stream = context.new_stream()?;
+        let module = kernels::load(&context).context("loading the kernels; device code is built by `cargo oxide`")?;
         Ok(Cuda {
             scaled,
-            name: format!("cuda:{ordinal} ({device}, {})", std::any::type_name::<T>()),
+            name,
+            context,
             module,
             first_id: 0,
             count: 0,
@@ -498,6 +509,24 @@ where
         })
     }
 
+    /// `data` on the device. The memory is allocated and freed in the order
+    /// of this engine's stream; a synchronous allocation would wait for the
+    /// launches of the other engines of the device.
+    fn device<D: DeviceCopy>(&self, data: &[D]) -> Result<DeviceBuffer<D>> {
+        // SAFETY: the copy fills the buffer before anything reads it
+        let mut buffer = unsafe { DeviceBuffer::uninitialized_async(&self.stream, data.len()) }?;
+        buffer.copy_from_host(&self.stream, data)?;
+        Ok(buffer)
+    }
+
+    /// `len` zeros on the device, allocated like `device`.
+    fn zeros<D: DeviceCopy>(&self, len: usize) -> Result<DeviceBuffer<D>> {
+        // SAFETY: the buffer is zeroed on the stream that later reads it
+        let mut buffer = unsafe { DeviceBuffer::uninitialized_async(&self.stream, len) }?;
+        buffer.zero_async(&self.stream)?;
+        Ok(buffer)
+    }
+
     /// Launch shape for `threads` particle threads of `words` words of
     /// working state each, and whether that state is staged in shared
     /// memory (else it lives in `scratch`). 0 words is a kernel with no
@@ -521,7 +550,7 @@ where
     /// Put the row alias table of `tables` on the device, unless it is there.
     fn sync_row(&mut self, tables: &Tables<u64>) -> Result<()> {
         if self.row_id != tables.id {
-            self.row_alias = DeviceBuffer::from_host(&self.stream, &tables.packed_rows)?;
+            self.row_alias = self.device(&tables.packed_rows)?;
             self.row_id = tables.id;
         }
         Ok(())
@@ -530,8 +559,8 @@ where
     /// Likewise the tables only the FAR kernel reads.
     fn sync_far(&mut self, tables: &Tables<u64>) -> Result<()> {
         if self.far_id != tables.id {
-            self.col_alias = DeviceBuffer::from_host(&self.stream, &tables.packed_cols)?;
-            self.moves = DeviceBuffer::from_host(&self.stream, &tables.far_moves)?;
+            self.col_alias = self.device(&tables.packed_cols)?;
+            self.moves = self.device(&tables.far_moves)?;
             self.far_id = tables.id;
         }
         Ok(())
@@ -544,24 +573,24 @@ where
         }
         let n = self.scaled.n;
         self.count = count;
-        self.sigma = DeviceBuffer::zeroed(&self.stream, count * n)?;
-        self.next = DeviceBuffer::zeroed(&self.stream, count * n)?;
+        self.sigma = self.zeros(count * n)?;
+        self.next = self.zeros(count * n)?;
         let scratch = if self.needs_scratch() { count * lane_words(n) } else { 1 };
-        self.scratch = DeviceBuffer::zeroed(&self.stream, scratch)?;
-        self.events = DeviceBuffer::zeroed(&self.stream, count)?;
-        self.time = DeviceBuffer::zeroed(&self.stream, count)?;
-        self.energy_out = DeviceBuffer::zeroed(&self.stream, count)?;
-        self.gap_out = DeviceBuffer::zeroed(&self.stream, count)?;
-        self.cycles_out = DeviceBuffer::zeroed(&self.stream, count)?;
-        self.fixed_out = DeviceBuffer::zeroed(&self.stream, count)?;
-        self.position_out = DeviceBuffer::zeroed(&self.stream, count)?;
+        self.scratch = self.zeros(scratch)?;
+        self.events = self.zeros(count)?;
+        self.time = self.zeros(count)?;
+        self.energy_out = self.zeros(count)?;
+        self.gap_out = self.zeros(count)?;
+        self.cycles_out = self.zeros(count)?;
+        self.fixed_out = self.zeros(count)?;
+        self.position_out = self.zeros(count)?;
         Ok(())
     }
 
     fn upload(&mut self, perms: &[u32]) -> Result<()> {
         self.resize(perms.len() / self.scaled.n)?;
         let words: Vec<u16> = perms.iter().map(|&v| v as u16).collect();
-        self.sigma = DeviceBuffer::from_host(&self.stream, &words)?;
+        self.sigma = self.device(&words)?;
         Ok(())
     }
 
@@ -610,6 +639,15 @@ where
         (4 * n * n).clamp(4096, 1 << 18).min(self.capacity())
     }
 
+    fn concurrency(&self, particles: usize) -> usize {
+        let threads = if self.needs_scratch() { UNSTAGED_THREADS } else { CONCURRENT_THREADS };
+        (threads / particles.max(1)).max(1)
+    }
+
+    fn fork(&self) -> Result<Self> {
+        Self::on(self.scaled, self.context.clone(), self.name.clone())
+    }
+
     fn load(&mut self, perms: &[u32], first_id: u64) -> Result<()> {
         self.first_id = first_id;
         self.upload(perms)
@@ -629,20 +667,28 @@ where
         self.first_id = first_id;
         self.resize(count)?;
         self.sync_row(tables)?;
-        let unassign = DeviceBuffer::from_host(&self.stream, &stages.unassign::<u64>())?;
+        let unassign = self.device(&stages.unassign::<u64>())?;
         let ticks_per_time = T::from(STAGE_TICKS as f64 / stage_time).unwrap();
         let event_cap = stages.event_cap(n, stage_time);
         let mut cost = SampleCost::default();
         // A trial that misses is run again on a stream of its own. A launch
-        // lasts as long as one trial however few it holds, so it runs the
-        // next few trials of every particle still missing at once, each
-        // into a row of its own, and a particle takes its first hit: the
+        // lasts as long as one trial however few it holds, so once the miss
+        // rate is known a launch runs the next few trials of every particle
+        // still missing, each into a row of its own: enough to expect less
+        // than half a particle left. A particle takes its first hit, the
         // sample it would get from running its trials one at a time.
         let mut pending: Vec<u32> = (0..count as u32).collect();
         let mut tried = 0u64;
         while !pending.is_empty() && tried < max_trials {
             let clock = Instant::now();
-            let attempts = ((SAMPLER_TRIALS / pending.len()) as u64).clamp(1, max_trials - tried);
+            let wanted = if cost.trials == 0 {
+                1
+            } else {
+                let miss = 1.0 - cost.accepted as f64 / cost.trials as f64;
+                ((2.0 * pending.len() as f64).ln() / -miss.ln()).ceil() as u64
+            };
+            let most = ((SAMPLER_TRIALS / pending.len()) as u64).clamp(1, max_trials - tried);
+            let attempts = wanted.clamp(1, most);
             let slots = pending.len() * attempts as usize;
             let seeds: Vec<u64> = pending
                 .iter()
@@ -651,13 +697,13 @@ where
                     (tried..tried + attempts).map(move |trial| mix(sample.wrapping_add(trial)))
                 })
                 .collect();
-            let seeds = DeviceBuffer::from_host(&self.stream, &seeds)?;
+            let seeds = self.device(&seeds)?;
             let own_row: Vec<u32> = (0..slots as u32).collect();
-            let own_row = DeviceBuffer::from_host(&self.stream, &own_row)?;
-            let mut rows = DeviceBuffer::<u16>::zeroed(&self.stream, slots * n)?;
+            let own_row = self.device(&own_row)?;
+            let mut rows = self.zeros::<u16>(slots * n)?;
             let scratch = if self.needs_scratch() { slots * lane_words(n) } else { 1 };
-            let mut scratch = DeviceBuffer::<u16>::zeroed(&self.stream, scratch)?;
-            let mut events = DeviceBuffer::<u64>::zeroed(&self.stream, slots)?;
+            let mut scratch = self.zeros::<u16>(scratch)?;
+            let mut events = self.zeros::<u64>(slots)?;
             let (config, staged) = self.config(slots, lane_words(n));
             // SAFETY: the arguments match the kernel; every slot writes its
             // own row of `rows`, and every per-slot buffer holds `slots`
@@ -718,9 +764,9 @@ where
             }
             if !hit_rows.is_empty() {
                 let hits = hit_rows.len();
-                let hit_rows = DeviceBuffer::from_host(&self.stream, &hit_rows)?;
-                let hit_particles = DeviceBuffer::from_host(&self.stream, &hit_particles)?;
-                let mut samples = DeviceBuffer::<u16>::zeroed(&self.stream, hits * n)?;
+                let hit_rows = self.device(&hit_rows)?;
+                let hit_particles = self.device(&hit_particles)?;
+                let mut samples = self.zeros::<u16>(hits * n)?;
                 let (config, _) = self.config(hits, 0);
                 // SAFETY: the arguments match the kernels; `samples` holds
                 // one row per hit, the hit rows are below `slots`, and the
@@ -764,8 +810,8 @@ where
         let seeds: Vec<u64> = (0..self.count as u64)
             .map(|p| stream_seed(stream.seed, stream.phase, stream.level, self.first_id + p))
             .collect();
-        let seeds = DeviceBuffer::from_host(&self.stream, &seeds)?;
-        let cursor = DeviceBuffer::<u64>::zeroed(&self.stream, 1)?.wrap_elem::<DeviceAtomicU64>();
+        let seeds = self.device(&seeds)?;
+        let cursor = self.zeros::<u64>(1)?.wrap_elem::<DeviceAtomicU64>();
         let penalty = penalty(n);
         let unassign_below: u64 = fraction(1.0 / (1.0 + penalty));
         let threads = if self.needs_scratch() { self.count.min(UNSTAGED_THREADS) } else { self.count };
@@ -827,7 +873,7 @@ where
     }
 
     fn resample(&mut self, ancestors: &[u32]) -> Result<()> {
-        let ancestors = DeviceBuffer::from_host(&self.stream, ancestors)?;
+        let ancestors = self.device(ancestors)?;
         let (config, _) = self.config(self.count, 0);
         // SAFETY: the arguments match the kernel; both populations hold
         // count rows of n and every ancestor is below count.
@@ -861,9 +907,9 @@ where
         let seeds: Vec<u64> = (0..self.count as u64)
             .map(|p| stream_seed(stream.seed, stream.phase, stream.level, self.first_id + p))
             .collect();
-        let device_seeds = DeviceBuffer::from_host(&self.stream, &seeds)?;
-        let visits = DeviceBuffer::<u64>::zeroed(&self.stream, groups * n)?.wrap_elem::<DeviceAtomicU64>();
-        let visit_energy = DeviceBuffer::<i64>::zeroed(&self.stream, n)?.wrap_elem::<DeviceAtomicI64>();
+        let device_seeds = self.device(&seeds)?;
+        let visits = self.zeros::<u64>(groups * n)?.wrap_elem::<DeviceAtomicU64>();
+        let visit_energy = self.zeros::<i64>(n)?.wrap_elem::<DeviceAtomicI64>();
         let budget = ((self.far_budget * cycles as f64).ceil() as u64 + 32).min(max_steps);
         // the FAR chain keeps a matching and its inverse, and no list
         let (config, staged) = self.config(self.count, 2 * n);
@@ -954,12 +1000,12 @@ where
 
         // Continue the late chains on the host: the same chain on the same
         // stream, from where the device stopped it.
-        let targets = DeviceBuffer::from_host(&self.stream, &late)?;
+        let targets = self.device(&late)?;
         let positions = self.position_out.to_host_vec(&self.stream)?;
         let (config, _) = self.config(late.len(), 0);
         let gather = |from: &DeviceBuffer<u16>, targets: &DeviceBuffer<u32>| -> Result<Vec<u16>> {
             let count = targets.len();
-            let mut rows = DeviceBuffer::<u16>::zeroed(&self.stream, count * n)?;
+            let mut rows = self.zeros::<u16>(count * n)?;
             // SAFETY: the arguments match the kernel; `rows` holds one row
             // per target and every target is below `count`.
             unsafe { self.module.gather(self.stream.as_ref(), config, from, targets, &mut rows, n as u32, count as u32) }?;
@@ -1011,12 +1057,12 @@ where
         }
         if !capped.is_empty() {
             let from: Vec<u32> = capped.iter().map(|&index| late[index as usize]).collect();
-            let starts = gather(&self.sigma, &DeviceBuffer::from_host(&self.stream, &from)?)?;
+            let starts = gather(&self.sigma, &self.device(&from)?)?;
             for (start, &index) in starts.chunks(n).zip(&capped) {
                 rows[index as usize * n..][..n].copy_from_slice(start);
             }
         }
-        let rows = DeviceBuffer::from_host(&self.stream, &rows)?;
+        let rows = self.device(&rows)?;
         // SAFETY: as for the gather above; the targets are distinct.
         unsafe {
             self.module.scatter(self.stream.as_ref(), config, &rows, &targets, &mut self.next, n as u32, late.len() as u32)

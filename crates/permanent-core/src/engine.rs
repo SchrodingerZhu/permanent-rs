@@ -124,7 +124,7 @@ impl Tally for ChainTally {
     }
 }
 
-pub trait Engine {
+pub trait Engine: Send {
     /// Type of the waiting times in the move and the annealing sampler.
     type Data: Float;
     /// Type of the random thresholds the chains compare against.
@@ -140,6 +140,18 @@ pub trait Engine {
     fn learn_particles(&self) -> usize {
         4096
     }
+
+    /// How many populations of `particles` the engine moves at the same
+    /// time, each on an engine of its own (`fork`), in about the time of
+    /// one.
+    fn concurrency(&self, _particles: usize) -> usize {
+        1
+    }
+
+    /// An empty engine of the same kind on the same device or pool.
+    fn fork(&self) -> anyhow::Result<Self>
+    where
+        Self: Sized;
 
     /// Replace the population by the perfect matchings in `perms` (rows of
     /// n); `first_id` is the global id of the first one.

@@ -56,6 +56,10 @@ where
     type Data = T;
     type Counter = u64;
 
+    fn fork(&self) -> anyhow::Result<Self> {
+        Ok(Rayon::new(self.scaled))
+    }
+
     fn name(&self) -> String {
         format!("rayon ({} threads, {})", rayon::current_num_threads(), std::any::type_name::<T>())
     }

@@ -75,7 +75,8 @@ pub struct Cli {
     exact: bool,
     /// Segments the temperature ladder is cut into. Each starts from fresh
     /// sampler draws and runs independently, so segments run concurrently
-    /// across MPI ranks. Default: the number of ranks, at least 4.
+    /// across MPI ranks and on one GPU. Default: the number of ranks, at
+    /// least 4.
     #[arg(long)]
     segments: Option<usize>,
     /// Start segments with the sampler run for the paper's explicit time

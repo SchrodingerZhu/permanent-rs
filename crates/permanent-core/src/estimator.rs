@@ -32,8 +32,8 @@
 //! beta = 0 takes uniform permutations; any other takes fresh draws from
 //! the paper's annealing sampler, which needs only the n anchor weights of
 //! its first temperature. Segments share nothing, so their estimates are
-//! independent and multiply without bias, and they run at the same time on
-//! different ranks. One sweep is sequential in temperature; S segments make
+//! independent and multiply without bias, and they run at the same time: on
+//! different ranks, and within a rank as many as its engine moves at once. One sweep is sequential in temperature; S segments make
 //! it S times shorter at the price of S P sampler calls.
 //!
 //! Islands. Each segment is run R times independently. The R values are
@@ -56,6 +56,9 @@ use rand::seq::SliceRandom;
 use rand::{RngExt, SeedableRng};
 use rayon::prelude::*;
 use std::ops::Range;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::mpsc;
+use std::thread;
 use std::time::Instant;
 use tracing::{debug, warn};
 
@@ -379,6 +382,105 @@ impl SegmentRun {
     fn unpack(fields: &[f64]) -> Self {
         SegmentRun { segment: fields[0] as usize, ln_ratio: fields[1], fresh: fields[2], carried: fields[3] }
     }
+}
+
+/// What a segment's sweep reads from its session.
+#[derive(Clone, Copy)]
+struct Ladder<'s> {
+    scaled: &'s Scaled,
+    config: &'s Config,
+    stages: &'s StageSchedule,
+    anchor: usize,
+    levels: &'s [Level],
+    plan: &'s Plan,
+}
+
+/// One sweep of a segment: its islands' runs and what they cost.
+struct Sweep {
+    runs: Vec<SegmentRun>,
+    mutate: MutateCost,
+    sampler: SampleCost,
+}
+
+/// Run islands `islands` of segment `segment` on `engine`. `tick` is called
+/// once per temperature.
+fn run_segment<E: Engine>(
+    ladder: &Ladder<'_>,
+    engine: &mut E,
+    segment: usize,
+    islands: Range<u64>,
+    tick: &mut dyn FnMut(),
+) -> anyhow::Result<Sweep> {
+    let Ladder { scaled, config, stages, anchor, levels, plan } = *ladder;
+    let n = scaled.n;
+    let seed = config.seed;
+    let particles = plan.particles;
+    let count = (islands.end - islands.start) as usize;
+    let last = levels.len() - 1;
+    let Range { start: first, end } = plan.segments[segment].clone();
+    let first_id = islands.start * particles as u64;
+    let tables = |level: &Level| Tables::<E::Counter>::build(scaled, level.beta, &level.log_w, anchor);
+    let mut mutate = MutateCost::default();
+    let mut sampler = SampleCost::default();
+
+    if first == 0 {
+        engine.load(&uniform_permutations(n, count * particles, seed, PHASE_INIT, first_id), first_id)?;
+    } else {
+        let stream = Stream { seed, phase: PHASE_ANNEAL, level: first as u64 };
+        sampler = engine.anneal(
+            &tables(&levels[first]),
+            stages,
+            plan.stage_time,
+            SAMPLER_TRIALS,
+            count * particles,
+            first_id,
+            stream,
+        )?;
+    }
+    let mut runs = vec![SegmentRun { segment, ln_ratio: 0.0, fresh: f64::NAN, carried: f64::NAN }; count];
+    let mut weights = vec![0.0f64; particles];
+    let mut ancestors = Vec::with_capacity(count * particles);
+    for i in first..=end {
+        let level = &levels[i];
+        if i > first {
+            let stream = Stream { seed, phase: PHASE_MUTATE, level: i as u64 };
+            mutate.add(engine.mutate(&tables(level), config.mutation_time, stream)?);
+        }
+        tick();
+        if i == last {
+            let gaps = engine.log_gaps()?;
+            for (run, gaps) in runs.iter_mut().zip(gaps.chunks(particles)) {
+                let mean = gaps.iter().map(|g| g.exp()).sum::<f64>() / particles as f64;
+                run.ln_ratio += mean.ln();
+                run.carried = mean;
+            }
+            break;
+        }
+        let energies = engine.energies()?;
+        ancestors.clear();
+        for (island, (run, energies)) in runs.iter_mut().zip(energies.chunks(particles)).enumerate() {
+            for (w, h) in weights.iter_mut().zip(energies) {
+                *w = (-level.step * (h - level.shift)).exp();
+            }
+            let mean = weights.iter().sum::<f64>() / particles as f64;
+            if i == first {
+                run.fresh = mean;
+            }
+            if i == end {
+                // one level past the segment: only for the boundary check
+                run.carried = mean;
+                continue;
+            }
+            run.ln_ratio += -level.step * level.shift + mean.ln();
+            let id = islands.start + island as u64;
+            let mut rng = SmallRng::seed_from_u64(stream_seed(seed, PHASE_RESAMPLE, i as u64, id));
+            multinomial(&weights, island * particles, &mut rng, &mut ancestors);
+        }
+        if i < end {
+            engine.resample(&ancestors)?;
+        }
+    }
+    Ok(Sweep { runs, mutate, sampler })
 }
 
 pub struct Session<'a, E: Engine, C: Comm> {
@@ -718,89 +820,79 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
         }
     }
 
-    /// Run islands `islands` of segment `segment` on this rank's engine.
-    /// `tick` is called once per temperature.
-    #[allow(clippy::too_many_arguments)]
-    fn run_segment(
+    /// Sweep `jobs` (a segment and a batch of its islands each) and return
+    /// their sweeps in the order of the jobs. As many run at the same time
+    /// as the engine says it can move at once, each on an engine of its
+    /// own; a job's result does not depend on what runs beside it.
+    fn sweep(
         &mut self,
         levels: &[Level],
         plan: &Plan,
-        segment: usize,
-        islands: Range<u64>,
-        mutate: &mut MutateCost,
-        sampler: &mut SampleCost,
-        tick: &mut dyn FnMut(&mut Observer<'a>),
-    ) -> anyhow::Result<Vec<SegmentRun>> {
-        let scaled = self.scaled;
-        let n = scaled.n;
-        let seed = self.config.seed;
-        let anchor = self.anchor;
-        let particles = plan.particles;
-        let count = (islands.end - islands.start) as usize;
-        let last = levels.len() - 1;
-        let Range { start: first, end } = plan.segments[segment].clone();
-        let first_id = islands.start * particles as u64;
-        let tables = |level: &Level| Tables::<E::Counter>::build(scaled, level.beta, &level.log_w, anchor);
-
-        if first == 0 {
-            self.engine.load(&uniform_permutations(n, count * particles, seed, PHASE_INIT, first_id), first_id)?;
-        } else {
-            let stream = Stream { seed, phase: PHASE_ANNEAL, level: first as u64 };
-            let cost = self.engine.anneal(
-                &tables(&levels[first]),
-                &self.stages,
-                plan.stage_time,
-                SAMPLER_TRIALS,
-                count * particles,
-                first_id,
-                stream,
-            )?;
-            sampler.add(cost);
+        jobs: &[(usize, Range<u64>)],
+        round: usize,
+    ) -> anyhow::Result<Vec<Sweep>> {
+        let ladder = Ladder {
+            scaled: self.scaled,
+            config: self.config,
+            stages: &self.stages,
+            anchor: self.anchor,
+            levels,
+            plan,
+        };
+        let total: u64 = jobs.iter().map(|(segment, _)| plan.segments[*segment].len() as u64 + 1).sum();
+        let largest = jobs.iter().map(|(_, islands)| islands.end - islands.start).max().unwrap_or(0) as usize;
+        let lanes = self.engine.concurrency(largest * plan.particles).min(jobs.len());
+        let mut swept = 0u64;
+        let observer = &mut self.observer;
+        let mut tick = || {
+            swept += 1;
+            if let Some(observer) = observer.as_mut() {
+                observer(Progress::Sweep { round, done: swept, total });
+            }
+        };
+        if lanes <= 1 {
+            return jobs
+                .iter()
+                .map(|(segment, islands)| run_segment(&ladder, &mut self.engine, *segment, islands.clone(), &mut tick))
+                .collect();
         }
-        let mut runs = vec![SegmentRun { segment, ln_ratio: 0.0, fresh: f64::NAN, carried: f64::NAN }; count];
-        let mut weights = vec![0.0f64; particles];
-        let mut ancestors = Vec::with_capacity(count * particles);
-        for i in first..=end {
-            let level = &levels[i];
-            if i > first {
-                let stream = Stream { seed, phase: PHASE_MUTATE, level: i as u64 };
-                mutate.add(self.engine.mutate(&tables(level), self.config.mutation_time, stream)?);
+        let mut forks = (1..lanes).map(|_| self.engine.fork()).collect::<anyhow::Result<Vec<E>>>()?;
+        let next = AtomicUsize::new(0);
+        let (ticks, ticked) = mpsc::channel::<()>();
+        let mut sweeps: Vec<Option<Sweep>> = jobs.iter().map(|_| None).collect();
+        thread::scope(|scope| {
+            let workers: Vec<_> = std::iter::once(&mut self.engine)
+                .chain(&mut forks)
+                .map(|engine| {
+                    let (ladder, next, ticks) = (&ladder, &next, ticks.clone());
+                    scope.spawn(move || {
+                        let mut done = Vec::new();
+                        loop {
+                            let job = next.fetch_add(1, Ordering::Relaxed);
+                            let Some((segment, islands)) = jobs.get(job) else {
+                                break;
+                            };
+                            let mut tick = || {
+                                let _ = ticks.send(());
+                            };
+                            done.push((job, run_segment(ladder, engine, *segment, islands.clone(), &mut tick)?));
+                        }
+                        anyhow::Ok(done)
+                    })
+                })
+                .collect();
+            drop(ticks);
+            for () in ticked {
+                tick();
             }
-            tick(&mut self.observer);
-            if i == last {
-                let gaps = self.engine.log_gaps()?;
-                for (run, gaps) in runs.iter_mut().zip(gaps.chunks(particles)) {
-                    let mean = gaps.iter().map(|g| g.exp()).sum::<f64>() / particles as f64;
-                    run.ln_ratio += mean.ln();
-                    run.carried = mean;
+            for worker in workers {
+                for (job, sweep) in worker.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic))? {
+                    sweeps[job] = Some(sweep);
                 }
-                break;
             }
-            let energies = self.engine.energies()?;
-            ancestors.clear();
-            for (island, (run, energies)) in runs.iter_mut().zip(energies.chunks(particles)).enumerate() {
-                for (w, h) in weights.iter_mut().zip(energies) {
-                    *w = (-level.step * (h - level.shift)).exp();
-                }
-                let mean = weights.iter().sum::<f64>() / particles as f64;
-                if i == first {
-                    run.fresh = mean;
-                }
-                if i == end {
-                    // one level past the segment: only for the boundary check
-                    run.carried = mean;
-                    continue;
-                }
-                run.ln_ratio += -level.step * level.shift + mean.ln();
-                let id = islands.start + island as u64;
-                let mut rng = SmallRng::seed_from_u64(stream_seed(seed, PHASE_RESAMPLE, i as u64, id));
-                multinomial(&weights, island * particles, &mut rng, &mut ancestors);
-            }
-            if i < end {
-                self.engine.resample(&ancestors)?;
-            }
-        }
-        Ok(runs)
+            anyhow::Ok(())
+        })?;
+        Ok(sweeps.into_iter().map(|sweep| sweep.expect("every job is swept once")).collect())
     }
 
     /// Phase 2: run islands of every segment until the measured standard
@@ -825,27 +917,19 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
         for round in 0..MAX_TOPUP_ROUNDS {
             let capacity = (self.engine.capacity() / plan.particles).max(1) as u64;
             let mine = rank_share(segments, done..want, rank, ranks);
-            let total: u64 = mine
-                .iter()
-                .map(|(s, islands)| {
-                    (islands.end - islands.start).div_ceil(capacity) * (plan.segments[*s].len() as u64 + 1)
+            let jobs: Vec<(usize, Range<u64>)> = mine
+                .into_iter()
+                .flat_map(|(s, islands)| {
+                    (islands.start..islands.end)
+                        .step_by(capacity as usize)
+                        .map(move |from| (s, from..(from + capacity).min(islands.end)))
                 })
-                .sum();
-            let mut swept = 0u64;
-            for (s, islands) in mine {
-                let mut next = islands.start;
-                while next < islands.end {
-                    let batch = next..(next + capacity).min(islands.end);
-                    next = batch.end;
-                    let runs = self.run_segment(levels, &plan, s, batch, &mut mutate, &mut sampler, &mut |observer| {
-                        swept += 1;
-                        if let Some(observer) = observer.as_mut() {
-                            observer(Progress::Sweep { round, done: swept, total });
-                        }
-                    })?;
-                    for run in runs {
-                        run.pack(&mut packed);
-                    }
+                .collect();
+            for sweep in self.sweep(levels, &plan, &jobs, round)? {
+                mutate.add(sweep.mutate);
+                sampler.add(sweep.sampler);
+                for run in sweep.runs {
+                    run.pack(&mut packed);
                 }
             }
             done = want;

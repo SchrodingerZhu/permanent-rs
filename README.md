@@ -52,7 +52,7 @@ The modules named below are in `crates/permanent-core/src`.
 5. **Segments.** The temperature ladder is cut into S segments. Each one
    after the first starts from fresh draws of the paper's annealing sampler,
    so segments are independent, multiply without bias, and run at the same
-   time on different ranks.
+   time: on different ranks, and side by side on one GPU.
 6. **Islands.** Every segment is run R times independently; the error bar
    is the measured spread of those runs.
 
@@ -133,7 +133,10 @@ is its matching, the inverse and a short list of collisions, staged in
 shared memory while a warp's worth fits (n up to about 370) and kept in
 global memory beyond. FAR chains have very uneven lengths, so a FAR launch
 gives each chain a step budget and the few that overrun it are finished on
-host threads.
+host threads. A launch lasts as long as its longest particle, and a Phase 2
+population leaves most of the device idle, so the segments of one rank are
+swept at the same time, each by an engine on a CUDA stream of its own; the
+result is the same as sweeping them one after another.
 
 ## MPI
 
