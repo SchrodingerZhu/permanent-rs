@@ -1,6 +1,6 @@
 [package]
 name = "permanent-wasm"
-description = "Browser WebAssembly + WebGPU bridge, demo generators, and telemetry driver for permanent-rs"
+description = "Browser WebAssembly + WebGPU bridge and telemetry driver for permanent-rs"
 version.workspace = true
 edition.workspace = true
 
@@ -9,13 +9,11 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 permanent-core.workspace = true
-permanent-rayon.workspace = true
+permanent-demo.workspace = true
 permanent-wgpu.workspace = true
 anyhow.workspace = true
-rand.workspace = true
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1"
-web-time.workspace = true
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
 getrandom = { version = "0.4", features = ["wasm_js"] }
@@ -23,3 +21,6 @@ js-sys = "0.3"
 wasm-bindgen = "=0.2.130"
 wasm-bindgen-futures = "0.4"
 web-sys = { version = "0.3", features = ["console"] }
+
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dev-dependencies]
+wasm-bindgen-test = "0.3"

@@ -10,6 +10,7 @@ pub mod engine;
 pub mod estimator;
 pub mod exact;
 pub mod problem;
+pub mod report;
 pub mod sampler;
 pub mod scaling;
 pub mod stats;

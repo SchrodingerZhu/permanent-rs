@@ -4,16 +4,15 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Once};
 
 use js_sys::{Function, JSON, Promise, Reflect};
+use permanent_demo::{BuiltProblem, ProblemSpec, build_problem};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 
-use crate::generators::{self, BROWSER_MAX_EXACT_N};
-use crate::runner;
-use crate::sample;
-use crate::types::{BackendKind, Capabilities, ProblemSpec, WebRunConfig};
+use crate::runner::{self, BROWSER_MAX_EXACT_N};
+use crate::types::{Capabilities, WebRunConfig};
 
 #[wasm_bindgen(typescript_custom_section)]
 const TS_TYPES: &str = r#"
@@ -62,10 +61,7 @@ export type ProblemSpec =
     }
   | { kind: "matrix_market"; text: string };
 
-export type BackendKind = "auto" | "wgpu" | "cpu";
-
 export interface WebRunConfig {
-  backend?: BackendKind;
   epsilon?: number;
   delta?: number;
   seed?: number;
@@ -91,7 +87,6 @@ export interface Capabilities {
   adapter_name: string | null;
   max_storage_buffer_binding_size: number | null;
   max_buffer_size: number | null;
-  backends: BackendKind[];
   browser_max_exact_n: number;
 }
 
@@ -273,11 +268,26 @@ export interface PresetInfo {
   id: string;
   title: string;
   subtitle: string;
-  pdf_reference: string;
   spec: ProblemSpec;
   recommended_config: WebRunConfig;
 }
 "#;
+
+unsafe extern "C" {
+    fn __wasm_call_ctors();
+}
+
+/// Run the module's static constructors once, when it is instantiated.
+///
+/// CubeCL registers its tables through constructors. Unless something calls
+/// `__wasm_call_ctors`, the linker makes every exported function run all of
+/// them first, including the helpers the JS glue calls for each value that
+/// crosses the boundary.
+#[wasm_bindgen(start)]
+fn start() {
+    // SAFETY: the linker defines this function, and nothing else calls it.
+    unsafe { __wasm_call_ctors() }
+}
 
 static PANIC_HOOK: Once = Once::new();
 
@@ -321,7 +331,6 @@ async fn probe_webgpu() -> Capabilities {
         adapter_name: None,
         max_storage_buffer_binding_size: None,
         max_buffer_size: None,
-        backends: vec![BackendKind::Cpu],
         browser_max_exact_n: BROWSER_MAX_EXACT_N,
     };
 
@@ -355,7 +364,6 @@ async fn probe_webgpu() -> Capabilities {
     }
 
     caps.webgpu_available = true;
-    caps.backends = vec![BackendKind::Wgpu, BackendKind::Cpu];
 
     if let Ok(info) = Reflect::get(&adapter, &JsValue::from_str("info"))
         && !info.is_undefined()
@@ -391,38 +399,58 @@ async fn probe_webgpu() -> Capabilities {
     caps
 }
 
-/// Return the curated demo catalog matching Part 4 of `permanent-rs-explained`.
+/// Return the curated demo catalog.
 #[wasm_bindgen]
 pub fn list_presets() -> Result<JsValue, JsValue> {
     init_panic_hook();
-    to_js(&generators::list_presets())
+    to_js(&crate::list_presets())
 }
 
-/// Generate a problem (matrix, exact reference when cheap, Hungarian matching,
-/// and 2D/3D visual geometry) from a `ProblemSpec`.
+/// A problem built once and kept in the module, so that a page can read it
+/// and draw coverings from it without building it again.
+#[wasm_bindgen]
+pub struct Problem(BuiltProblem);
+
+#[wasm_bindgen]
+impl Problem {
+    /// Build the problem (matrix, exact reference when cheap, Hungarian
+    /// matching, and 2D/3D visual geometry) that `spec` describes.
+    #[wasm_bindgen(constructor)]
+    pub fn new(spec: JsValue) -> Result<Problem, JsValue> {
+        init_panic_hook();
+        let spec: ProblemSpec = from_js(spec)?;
+        build_problem(&spec).map(Problem).map_err(js_err)
+    }
+
+    /// The `GeneratedProblem` to display.
+    pub fn info(&self) -> Result<JsValue, JsValue> {
+        to_js(&self.0.info)
+    }
+
+    /// Quickly draw a valid perfect matching / dimer covering on the support
+    /// using alternating-cycle (worm) moves for interactive visualization.
+    ///
+    /// `seed` is passed as an ordinary JS number (nonnegative integer) to avoid
+    /// `BigInt` conversion errors at the JS boundary.
+    pub fn sample_covering(&self, seed: f64, steps: u32) -> Result<JsValue, JsValue> {
+        if !seed.is_finite() || seed < 0.0 {
+            return Err(JsValue::from_str("seed must be a finite nonnegative integer"));
+        }
+        let snapshot = permanent_demo::sample_covering(&self.0, seed as u64, steps).map_err(js_err)?;
+        to_js(&snapshot)
+    }
+}
+
+/// `new Problem(spec).info()`, for a page that needs the problem once.
 #[wasm_bindgen]
 pub fn generate_problem(spec: JsValue) -> Result<JsValue, JsValue> {
-    init_panic_hook();
-    let spec: ProblemSpec = from_js(spec)?;
-    let built = generators::build_problem(&spec).map_err(js_err)?;
-    to_js(&built.info)
+    Problem::new(spec)?.info()
 }
 
-/// Quickly draw a valid perfect matching / dimer covering on the support of
-/// `spec` using alternating-cycle (worm) moves for interactive visualization.
-///
-/// `seed` is passed as an ordinary JS number (nonnegative integer) to avoid
-/// `BigInt` conversion errors at the JS boundary.
+/// `new Problem(spec).sample_covering(seed, steps)`, for a page that draws once.
 #[wasm_bindgen]
 pub fn sample_covering(spec: JsValue, seed: f64, steps: u32) -> Result<JsValue, JsValue> {
-    init_panic_hook();
-    if !seed.is_finite() || seed < 0.0 {
-        return Err(JsValue::from_str("seed must be a finite nonnegative integer"));
-    }
-    let spec: ProblemSpec = from_js(spec)?;
-    let built = generators::build_problem(&spec).map_err(js_err)?;
-    let snapshot = sample::sample_covering(&built.problem, seed as u64, steps).map_err(js_err)?;
-    to_js(&snapshot)
+    Problem::new(spec)?.sample_covering(seed, steps)
 }
 
 struct RunningGuard(Arc<AtomicBool>);
@@ -462,8 +490,8 @@ impl RunHandle {
         self.cancel.store(true, Ordering::Relaxed);
     }
 
-    /// Execute a full estimation run, invoking `on_event(event)` with each
-    /// live telemetry message. Resolves to `RunSummary` or `null` if cancelled.
+    /// Execute a full estimation run on WebGPU, invoking `on_event(event)` with
+    /// each live telemetry message. Resolves to `RunSummary` or `null` if cancelled.
     ///
     /// Rejects overlapping calls on the same `RunHandle` until the active run
     /// finishes or is cancelled.
@@ -484,5 +512,114 @@ impl RunHandle {
         .await
         .map_err(js_err)?;
         to_js(&summary)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Run by the wasm test harness in a runtime with WebGPU.
+
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    use serde_json::Value;
+    use wasm_bindgen_test::wasm_bindgen_test;
+
+    use super::*;
+
+    fn js(json: &str) -> JsValue {
+        JSON::parse(json).unwrap()
+    }
+
+    fn json(value: &JsValue) -> Value {
+        serde_json::from_str(&JSON::stringify(value).unwrap().as_string().unwrap()).unwrap()
+    }
+
+    /// A handle for a run. The test harness does not call the start function,
+    /// so the constructors are run here.
+    fn handle() -> RunHandle {
+        static CONSTRUCTORS: Once = Once::new();
+        CONSTRUCTORS.call_once(start);
+        RunHandle::new()
+    }
+
+    /// Run on `handle` and return what `run` resolved to with the type of every event.
+    async fn run(handle: &RunHandle, spec: &str, config: &str) -> (Value, Vec<String>) {
+        let events = Rc::new(RefCell::new(Vec::new()));
+        let seen = Rc::clone(&events);
+        let on_event = Closure::<dyn FnMut(JsValue)>::new(move |event: JsValue| {
+            seen.borrow_mut().push(json(&event)["type"].as_str().unwrap().to_owned());
+        });
+        let summary = handle.run(js(spec), js(config), on_event.as_ref().clone().unchecked_into()).await;
+        (json(&summary.unwrap()), events.take())
+    }
+
+    #[wasm_bindgen_test]
+    fn a_kept_problem_gives_its_description_and_coverings() {
+        let problem = Problem::new(js(r#"{"kind": "dimer2d", "rows": 4, "cols": 6}"#)).unwrap();
+        assert_eq!(json(&problem.info().unwrap())["n"], 12);
+        let covering = json(&problem.sample_covering(1.0, 64).unwrap());
+        assert_eq!(covering["matching"].as_array().unwrap().len(), 12);
+    }
+
+    #[wasm_bindgen_test]
+    async fn probe_finds_webgpu() {
+        let capabilities = json(&probe_capabilities().await.unwrap());
+        assert_eq!(capabilities["webgpu_available"], true);
+    }
+
+    #[wasm_bindgen_test]
+    async fn run_streams_events_and_agrees_with_the_exact_value() {
+        // an open 2 x 2 x 2 box has 9 dimer coverings
+        let (summary, events) = run(
+            &handle(),
+            r#"{"kind": "dimer3d", "lx": 2, "ly": 2, "lz": 2}"#,
+            r#"{"epsilon": 0.4, "seed": 3, "learn_particles": 128, "particles": 16, "islands": 16, "segments": 2,
+                "save_schedule": true}"#,
+        )
+        .await;
+        for kind in ["init", "level", "sample", "plan", "sweep", "round", "line"] {
+            assert!(events.iter().any(|event| event == kind), "no {kind} event");
+        }
+        assert_eq!(events.last().unwrap(), "done");
+
+        let exact = 9.0_f64.ln();
+        assert!((summary["exact_ln"].as_f64().unwrap() - exact).abs() < 1e-12);
+        let estimate = &summary["estimate"];
+        let distance = (estimate["ln_permanent"].as_f64().unwrap() - exact) / estimate["std_error"].as_f64().unwrap();
+        assert!(distance.abs() < 4.0, "{distance} standard errors from the exact value");
+        assert!(estimate["entropy_per_site"].is_f64());
+        assert!(summary["schedule_json"].as_str().unwrap().contains("\"levels\""));
+    }
+
+    #[wasm_bindgen_test]
+    async fn plan_only_stops_before_phase_2_and_a_zero_permanent_needs_no_run() {
+        let config = r#"{"plan_only": true, "learn_particles": 128}"#;
+        let handle = handle();
+        let (summary, events) = run(&handle, r#"{"kind": "bundled_preset", "name": "weighted-8"}"#, config).await;
+        assert_eq!(summary["plan_only"], true);
+        assert!(summary["estimate"].is_null());
+        assert!(events.iter().any(|event| event == "plan"));
+        assert!(!events.iter().any(|event| event == "sweep"));
+
+        // column 3 is empty
+        let zero = r#"{"kind": "matrix_market",
+            "text": "%%MatrixMarket matrix coordinate real general\n3 3 4\n1 1 1\n2 1 2\n3 1 1\n3 2 1\n"}"#;
+        let (summary, _) = run(&handle, zero, config).await;
+        assert_eq!(summary["zero_permanent"], true);
+    }
+
+    /// `cancel()` called from a timer, as a page would on a click, ends the run.
+    #[wasm_bindgen_test]
+    async fn cancel_from_a_timer_stops_the_run() {
+        let handle = Rc::new(handle());
+        let stop = Rc::clone(&handle);
+        let global = js_sys::global();
+        let set_timeout: Function = Reflect::get(&global, &"setTimeout".into()).unwrap().unchecked_into();
+        set_timeout.call2(&global, &Closure::once_into_js(move || stop.cancel()), &0.into()).unwrap();
+
+        let (summary, events) = run(&handle, r#"{"kind": "bundled_preset", "name": "dimer-8x8"}"#, "{}").await;
+        assert!(summary.is_null());
+        assert_eq!(events.last().unwrap(), "cancelled");
     }
 }

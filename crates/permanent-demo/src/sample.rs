@@ -7,25 +7,25 @@
 //! Exact population draws during estimation come from `AsyncSession` instead.
 
 use anyhow::ensure;
-use permanent_core::problem::Problem;
-use permanent_core::scaling::{Prepared, prepare};
 use rand::rngs::SmallRng;
 use rand::{RngExt, SeedableRng};
 
+use crate::BuiltProblem;
 use crate::types::SampleSnapshot;
 
-/// Draw a valid perfect matching on the support of `problem` by applying
+/// Draw a valid perfect matching on the support of `built` by applying
 /// `steps` alternating-cycle (worm) attempts starting from the heaviest matching.
 ///
-/// Returns `Ok(None)` when `problem` has no perfect matching (permanent = 0).
-pub fn sample_covering(problem: &Problem, seed: u64, steps: u32) -> anyhow::Result<Option<SampleSnapshot>> {
+/// Returns `Ok(None)` when `built` has no perfect matching (permanent = 0).
+pub fn sample_covering(built: &BuiltProblem, seed: u64, steps: u32) -> anyhow::Result<Option<SampleSnapshot>> {
+    let problem = &built.problem;
     let n = problem.n;
     ensure!(n >= 2, "matrix dimension must be at least 2");
-    let Prepared::Scaled(scaled) = prepare(problem) else {
+    let Some(scaled) = &built.scaled else {
         return Ok(None);
     };
 
-    let mut col_of: Vec<usize> = scaled.matching;
+    let mut col_of = scaled.matching.clone();
     let mut row_of = vec![0usize; n];
     for (u, &v) in col_of.iter().enumerate() {
         row_of[v] = u;
@@ -125,8 +125,10 @@ pub fn sample_covering(problem: &Problem, seed: u64, steps: u32) -> anyhow::Resu
 
 #[cfg(test)]
 mod tests {
+    use permanent_core::problem::Problem;
+
     use super::*;
-    use crate::generators::build_problem;
+    use crate::build_problem;
     use crate::types::{ProblemSpec, RandomMatrixFamily};
 
     fn assert_valid_matching(problem: &Problem, matching: &[u32]) {
@@ -157,15 +159,15 @@ mod tests {
             seed: 1,
         })
         .unwrap();
-        let a = sample_covering(&cube.problem, 1, 64).unwrap().unwrap();
-        let b = sample_covering(&cube.problem, 2, 64).unwrap().unwrap();
+        let a = sample_covering(&cube, 1, 64).unwrap().unwrap();
+        let b = sample_covering(&cube, 2, 64).unwrap().unwrap();
         assert_valid_matching(&cube.problem, &a.matching);
         assert_valid_matching(&cube.problem, &b.matching);
         assert_ne!(a.matching, b.matching, "distinct seeds should explore distinct coverings");
 
         // Disjoint cycles (length 16): worm walk should cleanly flip full cycles.
         let cycles = build_problem(&ProblemSpec::DisjointCycles { cycle_sizes: vec![16, 16] }).unwrap();
-        let c = sample_covering(&cycles.problem, 9, 32).unwrap().unwrap();
+        let c = sample_covering(&cycles, 9, 32).unwrap().unwrap();
         assert_valid_matching(&cycles.problem, &c.matching);
 
         // Weighted sparse matrix.
@@ -178,13 +180,15 @@ mod tests {
             seed: 5,
         })
         .unwrap();
-        let w = sample_covering(&weighted.problem, 11, 64).unwrap().unwrap();
+        let w = sample_covering(&weighted, 11, 64).unwrap().unwrap();
         assert_valid_matching(&weighted.problem, &w.matching);
     }
 
     #[test]
     fn zero_permanent_returns_none() {
-        let p = Problem { n: 3, a: vec![1.0, 0.0, 0.0, 2.0, 0.0, 0.0, 1.0, 1.0, 1.0] };
-        assert!(sample_covering(&p, 1, 16).unwrap().is_none());
+        // column 3 is empty
+        let text = "%%MatrixMarket matrix coordinate real general\n3 3 4\n1 1 1\n2 1 2\n3 1 1\n3 2 1\n".into();
+        let zero = build_problem(&ProblemSpec::MatrixMarket { text }).unwrap();
+        assert!(sample_covering(&zero, 1, 16).unwrap().is_none());
     }
 }
