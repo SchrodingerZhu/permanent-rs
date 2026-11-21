@@ -37,7 +37,11 @@ jobs:
       - name: Clippy for the browser
         run: >
           nix develop .#ci --command cargo clippy --locked --target wasm32-unknown-unknown
-          -p permanent-wgpu --all-targets -- -D warnings
+          -p permanent-wgpu -p permanent-wasm --all-targets -- -D warnings
+      - name: Build browser wasm bindings
+        run: |
+          nix develop .#ci --command cargo build --locked --release --target wasm32-unknown-unknown -p permanent-wasm
+          nix develop .#ci --command wasm-bindgen --target web --out-dir target/wasm-pkg target/wasm32-unknown-unknown/release/permanent_wasm.wasm
 
   host:
     name: host

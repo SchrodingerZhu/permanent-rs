@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*"]
 # permanent-cuda needs the CUDA toolkit and `cargo oxide`; it is built only
 # through the `cuda` feature of permanent-cli.
-default-members = ["crates/permanent-core", "crates/permanent-rayon", "crates/permanent-wgpu", "crates/permanent-cli"]
+default-members = ["crates/permanent-core", "crates/permanent-rayon", "crates/permanent-wgpu", "crates/permanent-cli", "crates/permanent-wasm"]
 
 [workspace.package]
 version = "0.2.0"
