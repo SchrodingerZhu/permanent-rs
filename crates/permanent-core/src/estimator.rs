@@ -337,6 +337,25 @@ fn mean_and_error(values: &[f64]) -> (f64, f64) {
     (mean, ss / (k * (k - 1.0)))
 }
 
+/// The part of `islands` of each segment that `rank` runs. The islands of
+/// all segments, one segment after another, are cut into one contiguous run
+/// per rank. A rank then sweeps as few segments as it can, each with as many
+/// islands as it can: on a GPU a sweep takes about as long for a few islands
+/// as for many.
+fn rank_share(segments: usize, islands: Range<u64>, rank: usize, ranks: usize) -> Vec<(usize, Range<u64>)> {
+    let count = islands.end - islands.start;
+    let cut = |rank: usize| segments as u64 * count * rank as u64 / ranks as u64;
+    let (from, to) = (cut(rank), cut(rank + 1));
+    (0..segments)
+        .filter_map(|s| {
+            let base = s as u64 * count;
+            let lo = from.clamp(base, base + count) - base;
+            let hi = to.clamp(base, base + count) - base;
+            (lo < hi).then(|| (s, islands.start + lo..islands.start + hi))
+        })
+        .collect()
+}
+
 /// One island's run of one segment.
 #[derive(Debug, Clone, Copy)]
 struct SegmentRun {
@@ -804,16 +823,8 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
         let mut want = plan.islands as u64;
         let mut estimate = None;
         for round in 0..MAX_TOPUP_ROUNDS {
-            // Each segment's new islands are split into one contiguous block
-            // per rank, rotated by segment so the ranks carry equal loads.
             let capacity = (self.engine.capacity() / plan.particles).max(1) as u64;
-            let block = |slot: u64| done + (want - done) * slot / ranks as u64;
-            let mine: Vec<(usize, Range<u64>)> = (0..segments)
-                .map(|s| {
-                    let slot = ((rank + ranks - s % ranks) % ranks) as u64;
-                    (s, block(slot)..block(slot + 1))
-                })
-                .collect();
+            let mine = rank_share(segments, done..want, rank, ranks);
             let total: u64 = mine
                 .iter()
                 .map(|(s, islands)| {
@@ -965,5 +976,29 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
             want = first + needed.max(used + used / 10 + 1);
         }
         Ok(estimate.unwrap())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::rank_share;
+
+    #[test]
+    fn ranks_share_every_island_once_and_evenly() {
+        for (segments, count, ranks) in [(4, 91, 1), (4, 91, 2), (4, 91, 3), (8, 16, 8), (4, 5, 7), (1, 3, 8)] {
+            let mut runs = vec![vec![0; count as usize]; segments];
+            let mut loads = Vec::new();
+            for rank in 0..ranks {
+                let mine = rank_share(segments, 10..10 + count, rank, ranks);
+                loads.push(mine.iter().map(|(_, islands)| islands.end - islands.start).sum::<u64>());
+                for (s, islands) in mine {
+                    for island in islands {
+                        runs[s][(island - 10) as usize] += 1;
+                    }
+                }
+            }
+            assert!(runs.iter().flatten().all(|&times| times == 1), "{segments} segments, {ranks} ranks");
+            assert!(loads.iter().max().unwrap() - loads.iter().min().unwrap() <= 1, "{loads:?}");
+        }
     }
 }
