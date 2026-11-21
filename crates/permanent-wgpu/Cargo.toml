@@ -7,7 +7,7 @@ edition.workspace = true
 [dependencies]
 permanent-core.workspace = true
 anyhow.workspace = true
-tracing.workspace = true
+fixed.workspace = true
 # The WGSL path only: what a browser runs too. Minor versions of CubeCL
 # change its interfaces, so the version is exact.
 cubecl = { version = "=0.11.4", default-features = false, features = ["std", "wgpu"] }

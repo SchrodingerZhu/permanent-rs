@@ -13,16 +13,15 @@ pub const NONE: u32 = 0xFFFF;
 
 /// Words of a chain's state: its stream, then what the chain itself keeps.
 pub const STATE: usize = 24;
-// the stream: key, blocks generated, the last block, outputs of it left
-const KEY: usize = 0;
-const BLOCK: usize = 2;
-const LANES: usize = 4;
-const LEFT: usize = 8;
+// words 0..9 are the stream: key, blocks generated, the last block, and
+// how many of its outputs are left
 /// Set once a chain has started, when it is over, and if it ran out of steps.
 pub const FLAGS: usize = 9;
 pub const STARTED: u32 = 1;
 pub const OVER: u32 = 2;
 pub const CAPPED: u32 = 4;
+/// An annealing trial ended on a perfect matching.
+pub const PERFECT: u32 = 8;
 // the FAR chain
 pub const HOLE_U: usize = 10;
 pub const HOLE_V: usize = 11;
@@ -30,6 +29,24 @@ pub const CYCLES: usize = 12;
 pub const STEPS: usize = 13;
 pub const ENERGY: usize = 14;
 pub const PERFECT_ENERGY: usize = 16;
+// the relaxed-assignment chains
+pub const CONFLICTED: usize = 10;
+pub const UNASSIGNED: usize = 11;
+pub const EVENTS: usize = 12;
+/// The annealing trial's stage and its 64-bit tick clock.
+pub const STAGE: usize = 14;
+pub const TICKS: usize = 15;
+
+/// In the column array: two or more rows are on this column.
+pub const MULTI: u32 = NONE - 1;
+/// Rows in a collision that the list can hold.
+pub const CONFLICTS: usize = 32;
+
+/// Words of working memory of a relaxed assignment: the matching, its
+/// inverse and the collision list.
+pub const fn lane_words(n: usize) -> usize {
+    2 * n + CONFLICTS
+}
 
 const M0: u32 = 0xD251_1F53;
 const M1: u32 = 0xCD9E_8D57;
@@ -229,8 +246,9 @@ pub fn far(
                     // 64-bit sum from two words: the previous low word tells
                     // this thread whether its addition carried
                     let before = tally[1 + 2 * hole_v as usize].fetch_add(h_low);
+                    let after = before + h_low;
                     let mut carry = 0u32;
-                    if before + h_low < before {
+                    if after < before {
                         carry = 1;
                     }
                     tally[2 + 2 * hole_v as usize].fetch_add(h_high + carry);
@@ -352,5 +370,552 @@ pub fn far(
         state[at + ENERGY + 1] = h_high;
         state[at + PERFECT_ENERGY] = sum_low;
         state[at + PERFECT_ENERGY + 1] = sum_high;
+    }
+}
+
+/// Whether row u is in the collision list. `counts`: rows in a collision,
+/// unmatched rows, and whether the list overflowed.
+#[cube]
+fn is_conflicted(scratch: &mut [u32], list: usize, counts: &mut Array<u32>, u: u32) -> bool {
+    let mut found = false;
+    let mut i = 0usize;
+    while i < counts[0] as usize {
+        if scratch[list + i] == u {
+            found = true;
+        }
+        i += 1;
+    }
+    found
+}
+
+#[cube]
+fn add_conflict(scratch: &mut [u32], list: usize, counts: &mut Array<u32>, u: u32) {
+    if counts[0] == CONFLICTS as u32 {
+        counts[2] = 1;
+    } else {
+        scratch[list + counts[0] as usize] = u;
+        counts[0] += 1;
+    }
+}
+
+#[cube]
+fn drop_conflict(scratch: &mut [u32], list: usize, counts: &mut Array<u32>, u: u32) {
+    let size = counts[0] as usize;
+    let mut at = size;
+    let mut i = 0usize;
+    while i < size {
+        if at == size && scratch[list + i] == u {
+            at = i;
+        }
+        i += 1;
+    }
+    if at < size {
+        counts[0] -= 1;
+        scratch[list + at] = scratch[list + counts[0] as usize];
+    }
+}
+
+/// Unmatch row u.
+#[cube]
+fn remove(scratch: &mut [u32], rows: usize, n: usize, counts: &mut Array<u32>, u: u32) {
+    let cols = rows + n;
+    let list = cols + n;
+    let v = scratch[rows + u as usize];
+    if v != NONE {
+        scratch[rows + u as usize] = NONE;
+        counts[1] += 1;
+        if scratch[cols + v as usize] != MULTI {
+            // u was alone on v
+            scratch[cols + v as usize] = NONE;
+        } else {
+            drop_conflict(scratch, list, counts, u);
+            // if one row is left on v, it is no longer in a collision
+            let mut left = 0u32;
+            let mut last = NONE.runtime();
+            let mut i = 0usize;
+            while i < counts[0] as usize {
+                let w = scratch[list + i];
+                if scratch[rows + w as usize] == v {
+                    left += 1;
+                    last = w;
+                }
+                i += 1;
+            }
+            if left == 1 {
+                drop_conflict(scratch, list, counts, last);
+                scratch[cols + v as usize] = last;
+            }
+        }
+    }
+}
+
+/// Put the unmatched row u on column v.
+#[cube]
+fn place(scratch: &mut [u32], rows: usize, n: usize, counts: &mut Array<u32>, u: u32, v: u32) {
+    let cols = rows + n;
+    let list = cols + n;
+    scratch[rows + u as usize] = v;
+    counts[1] -= 1;
+    let occupant = scratch[cols + v as usize];
+    if occupant == NONE {
+        scratch[cols + v as usize] = u;
+    } else if occupant == MULTI {
+        add_conflict(scratch, list, counts, u);
+    } else {
+        scratch[cols + v as usize] = MULTI;
+        add_conflict(scratch, list, counts, occupant);
+        add_conflict(scratch, list, counts, u);
+    }
+}
+
+/// One ring of the dynamics (`permanent_core::chain::dynamics`): pick the
+/// row whose clock rang, unmatch it, and redraw it from its row of B unless
+/// it stays unmatched. `fast` is 1 + J and `unassign` the probability of
+/// staying unmatched as a fraction of 2^64.
+#[cube]
+fn ring(
+    tables: &[u32],
+    scratch: &mut [u32],
+    rows: usize,
+    n: u32,
+    counts: &mut Array<u32>,
+    rng: &mut Array<u32>,
+    fast_low: u32,
+    fast_high: u32,
+    unassign_low: u32,
+    unassign_high: u32,
+) {
+    let size = n as usize;
+    let list = rows + 2 * size;
+    // the 64-bit rates: conflicted (1 + J), and that plus the other rows
+    let conflicted = counts[0];
+    let c_low = conflicted * fast_low;
+    let c_high = u32::mul_hi(conflicted, fast_low) + conflicted * fast_high;
+    let others = n - conflicted;
+    let r_low = c_low + others;
+    let mut r_high = c_high;
+    if r_low < c_low {
+        r_high += 1;
+    }
+    // the high 64 bits of (64 random bits) x rate, by 32-bit limbs
+    let x_high = next_u32(rng);
+    let x_low = next_u32(rng);
+    let middle_a = u32::mul_hi(x_low, r_low) + x_low * r_high;
+    let mut carries = 0u32;
+    if middle_a < x_low * r_high {
+        carries += 1;
+    }
+    let middle = middle_a + x_high * r_low;
+    if middle < middle_a {
+        carries += 1;
+    }
+    let low_a = x_high * r_high + u32::mul_hi(x_low, r_high);
+    let mut t_high = u32::mul_hi(x_high, r_high);
+    if low_a < x_high * r_high {
+        t_high += 1;
+    }
+    let low_b = low_a + u32::mul_hi(x_high, r_low);
+    if low_b < low_a {
+        t_high += 1;
+    }
+    let t_low = low_b + carries;
+    if t_low < low_b {
+        t_high += 1;
+    }
+    let mut u = 0u32;
+    if below64(t_high, t_low, c_high, c_low) {
+        u = scratch[list + u32::mul_hi(next_u32(rng), conflicted) as usize];
+    } else {
+        // uniform over the rows outside the list, by rejection
+        let mut searching = true;
+        while searching {
+            u = u32::mul_hi(next_u32(rng), n);
+            if !is_conflicted(scratch, list, counts, u) {
+                searching = false;
+            }
+        }
+    }
+    remove(scratch, rows, size, counts, u);
+    let d_high = next_u32(rng);
+    let d_low = next_u32(rng);
+    if !below64(d_high, d_low, unassign_high, unassign_low) {
+        let v = alias_draw(tables, 0usize, u, n, rng);
+        place(scratch, rows, size, counts, u, v);
+    }
+}
+
+/// An exponential waiting time of rate 1 from 32 random bits.
+#[cube]
+fn exponential(bits: u32) -> f32 {
+    0.0 - f32::ln((f32::cast_from(bits) + 0.5) * 2.328_306_4e-10)
+}
+
+/// The rate at which some clock rings, as a real number.
+#[cube]
+fn rate(n: u32, conflicted: u32, fast_low: u32, fast_high: u32) -> f32 {
+    let low = conflicted * fast_low;
+    let high = u32::mul_hi(conflicted, fast_low) + conflicted * fast_high;
+    let total = low + (n - conflicted);
+    let mut carry = 0u32;
+    if total < low {
+        carry = 1;
+    }
+    f32::cast_from(high + carry) * 4_294_967_296.0 + f32::cast_from(total)
+}
+
+/// The mutation kernel K_t (`permanent_core::chain::dynamics::mutate`) on
+/// every particle that is not over, for at most `budget` events of this
+/// dispatch. `times`: per particle, the time still to spend in perfect
+/// matchings and the chain time elapsed. `tally[0]`: chains still running.
+#[cube(launch_unchecked)]
+pub fn mutate(
+    tables: &[u32],
+    sigma: &mut [u32],
+    scratch: &mut [u32],
+    state: &mut [u32],
+    times: &mut [f32],
+    tally: &[Atomic<u32>],
+    n: u32,
+    count: u32,
+    perfect_time: f32,
+    fast_low: u32,
+    fast_high: u32,
+    unassign_low: u32,
+    unassign_high: u32,
+    cap_low: u32,
+    cap_high: u32,
+    budget: u32,
+) {
+    let particle = ABSOLUTE_POS;
+    let size = n as usize;
+    let at = particle * STATE;
+    let mut active = false;
+    if particle < count as usize {
+        active = (state[at + FLAGS] & OVER) == 0;
+    }
+    if active {
+        let rows = particle * (2 * size + CONFLICTS);
+        let mut rng = Array::<u32>::new(9usize);
+        let mut i = 0usize;
+        while i < 9 {
+            rng[i] = state[at + i];
+            i += 1;
+        }
+        let mut counts = Array::<u32>::new(3usize);
+        counts[0] = 0;
+        counts[1] = 0;
+        counts[2] = 0;
+        let mut remaining = perfect_time;
+        let mut time = 0.0f32;
+        let mut events_low = 0u32;
+        let mut events_high = 0u32;
+        if (state[at + FLAGS] & STARTED) == 0 {
+            let mut u = 0usize;
+            while u < size {
+                let v = sigma[particle * size + u];
+                scratch[rows + u] = v;
+                scratch[rows + size + v as usize] = u as u32;
+                u += 1;
+            }
+        } else {
+            counts[0] = state[at + CONFLICTED];
+            counts[1] = state[at + UNASSIGNED];
+            events_low = state[at + EVENTS];
+            events_high = state[at + EVENTS + 1];
+            remaining = times[2 * particle];
+            time = times[2 * particle + 1];
+        }
+        let mut flags = STARTED.runtime();
+        let mut taken = 0u32;
+        let mut running = true;
+        while running {
+            if taken >= budget {
+                running = false;
+            } else {
+                let dt = exponential(next_u32(&mut rng)) / rate(n, counts[0], fast_low, fast_high);
+                let mut ringing = true;
+                if counts[0] == 0 && counts[1] == 0 {
+                    if dt >= remaining {
+                        time += remaining;
+                        flags = STARTED | OVER;
+                        ringing = false;
+                        running = false;
+                    } else {
+                        remaining -= dt;
+                    }
+                }
+                if ringing {
+                    time += dt;
+                    taken += 1;
+                    events_low += 1;
+                    if events_low == 0 {
+                        events_high += 1;
+                    }
+                    if below64(cap_high, cap_low, events_high, events_low) {
+                        flags = STARTED | OVER | CAPPED;
+                        running = false;
+                    } else {
+                        ring(
+                            tables,
+                            scratch,
+                            rows,
+                            n,
+                            &mut counts,
+                            &mut rng,
+                            fast_low,
+                            fast_high,
+                            unassign_low,
+                            unassign_high,
+                        );
+                        if counts[2] != 0 {
+                            flags = STARTED | OVER | CAPPED;
+                            running = false;
+                        }
+                    }
+                }
+            }
+        }
+        if flags == (STARTED | OVER) {
+            let mut u = 0usize;
+            while u < size {
+                sigma[particle * size + u] = scratch[rows + u];
+                u += 1;
+            }
+        }
+        if (flags & OVER) == 0 {
+            tally[0].fetch_add(1);
+        }
+        let mut i = 0usize;
+        while i < 9 {
+            state[at + i] = rng[i];
+            i += 1;
+        }
+        state[at + FLAGS] = flags;
+        state[at + CONFLICTED] = counts[0];
+        state[at + UNASSIGNED] = counts[1];
+        state[at + EVENTS] = events_low;
+        state[at + EVENTS + 1] = events_high;
+        times[2 * particle] = remaining;
+        times[2 * particle + 1] = time;
+    }
+}
+
+/// One trial of the annealing sampler
+/// (`permanent_core::chain::dynamics::trial`) on every particle that is not
+/// over: from the all-unmatched state through every activity stage. A trial
+/// that ends on a perfect matching writes it to the particle and sets
+/// `PERFECT`. `tables`: the packed row alias table, then for each stage the
+/// probability of staying unmatched as a fraction of 2^64.
+/// `ticks_per_time`: 2^40 ticks over the stage time.
+#[cube(launch_unchecked)]
+pub fn anneal(
+    tables: &[u32],
+    sigma: &mut [u32],
+    scratch: &mut [u32],
+    state: &mut [u32],
+    tally: &[Atomic<u32>],
+    n: u32,
+    count: u32,
+    stages: u32,
+    ticks_per_time: f32,
+    fast_low: u32,
+    fast_high: u32,
+    cap_low: u32,
+    cap_high: u32,
+    budget: u32,
+) {
+    let particle = ABSOLUTE_POS;
+    let size = n as usize;
+    let at = particle * STATE;
+    let mut active = false;
+    if particle < count as usize {
+        active = (state[at + FLAGS] & OVER) == 0;
+    }
+    if active {
+        let rows = particle * (2 * size + CONFLICTS);
+        let thresholds = 2 * size * size;
+        let mut rng = Array::<u32>::new(9usize);
+        let mut i = 0usize;
+        while i < 9 {
+            rng[i] = state[at + i];
+            i += 1;
+        }
+        let mut counts = Array::<u32>::new(3usize);
+        counts[0] = 0;
+        counts[1] = n;
+        counts[2] = 0;
+        let mut stage = 0u32;
+        let mut ticks_low = 0u32;
+        let mut ticks_high = 0u32;
+        let mut events_low = 0u32;
+        let mut events_high = 0u32;
+        if (state[at + FLAGS] & STARTED) == 0 {
+            let mut u = 0usize;
+            while u < size {
+                scratch[rows + u] = NONE;
+                scratch[rows + size + u] = NONE;
+                u += 1;
+            }
+        } else {
+            counts[0] = state[at + CONFLICTED];
+            counts[1] = state[at + UNASSIGNED];
+            events_low = state[at + EVENTS];
+            events_high = state[at + EVENTS + 1];
+            stage = state[at + STAGE];
+            ticks_low = state[at + TICKS];
+            ticks_high = state[at + TICKS + 1];
+        }
+        let mut flags = STARTED.runtime();
+        let mut taken = 0u32;
+        let mut running = true;
+        while running {
+            if taken >= budget {
+                running = false;
+            } else {
+                // the waiting time in ticks, as a 64-bit integer
+                let wait = exponential(next_u32(&mut rng)) * (ticks_per_time / rate(n, counts[0], fast_low, fast_high));
+                let wait_high = u32::cast_from(wait / 4_294_967_296.0);
+                let wait_low = u32::cast_from(wait - f32::cast_from(wait_high) * 4_294_967_296.0);
+                let low = ticks_low + wait_low;
+                let mut carry = 0u32;
+                if low < ticks_low {
+                    carry = 1;
+                }
+                ticks_low = low;
+                ticks_high = ticks_high + wait_high + carry;
+                // past 2^40 ticks the stage is over
+                if ticks_high > 256 || (ticks_high == 256 && ticks_low > 0) {
+                    stage += 1;
+                    ticks_low = 0;
+                    ticks_high = 0;
+                    if stage == stages {
+                        flags = STARTED | OVER;
+                        running = false;
+                    }
+                } else {
+                    taken += 1;
+                    events_low += 1;
+                    if events_low == 0 {
+                        events_high += 1;
+                    }
+                    if below64(cap_high, cap_low, events_high, events_low) {
+                        flags = STARTED | OVER | CAPPED;
+                        running = false;
+                    } else {
+                        let threshold = thresholds + 2 * stage as usize;
+                        ring(
+                            tables,
+                            scratch,
+                            rows,
+                            n,
+                            &mut counts,
+                            &mut rng,
+                            fast_low,
+                            fast_high,
+                            tables[threshold],
+                            tables[threshold + 1],
+                        );
+                        if counts[2] != 0 {
+                            flags = STARTED | OVER | CAPPED;
+                            running = false;
+                        }
+                    }
+                }
+            }
+        }
+        if flags == (STARTED | OVER) && counts[0] == 0 && counts[1] == 0 {
+            flags = STARTED | OVER | PERFECT;
+            let mut u = 0usize;
+            while u < size {
+                sigma[particle * size + u] = scratch[rows + u];
+                u += 1;
+            }
+        }
+        if (flags & OVER) == 0 {
+            tally[0].fetch_add(1);
+        }
+        let mut i = 0usize;
+        while i < 9 {
+            state[at + i] = rng[i];
+            i += 1;
+        }
+        state[at + FLAGS] = flags;
+        state[at + CONFLICTED] = counts[0];
+        state[at + UNASSIGNED] = counts[1];
+        state[at + EVENTS] = events_low;
+        state[at + EVENTS + 1] = events_high;
+        state[at + STAGE] = stage;
+        state[at + TICKS] = ticks_low;
+        state[at + TICKS + 1] = ticks_high;
+    }
+}
+
+/// Words `measure` writes for a particle: its energy and its
+/// regularization log-gap as 64-bit sums, then how many of its entries
+/// have a log-gap of minus infinity.
+pub const MEASURED: usize = 5;
+
+/// Sums over every particle's matching of the entries of `tables`: for each
+/// cell its energy and its log-gap, 64-bit fixed point with 32 fraction
+/// bits. A cell whose log-gap is minus infinity holds the smallest value
+/// and is counted, not added.
+#[cube(launch_unchecked)]
+pub fn measure(tables: &[u32], sigma: &[u32], out: &mut [u32], n: u32, count: u32) {
+    let particle = ABSOLUTE_POS;
+    let size = n as usize;
+    if particle < count as usize {
+        let gaps = 2 * size * size;
+        let mut e_low = 0u32;
+        let mut e_high = 0u32;
+        let mut g_low = 0u32;
+        let mut g_high = 0u32;
+        let mut infinite = 0u32;
+        let mut u = 0usize;
+        while u < size {
+            let cell = 2 * (u * size + sigma[particle * size + u] as usize);
+            let low = e_low + tables[cell];
+            let mut carry = 0u32;
+            if low < e_low {
+                carry = 1;
+            }
+            e_low = low;
+            e_high = e_high + tables[cell + 1] + carry;
+            let gap_low = tables[gaps + cell];
+            let gap_high = tables[gaps + cell + 1];
+            if gap_high == 0x8000_0000 && gap_low == 0 {
+                infinite += 1;
+            } else {
+                let low = g_low + gap_low;
+                let mut carry = 0u32;
+                if low < g_low {
+                    carry = 1;
+                }
+                g_low = low;
+                g_high = g_high + gap_high + carry;
+            }
+            u += 1;
+        }
+        let at = particle * MEASURED;
+        out[at] = e_low;
+        out[at + 1] = e_high;
+        out[at + 2] = g_low;
+        out[at + 3] = g_high;
+        out[at + 4] = infinite;
+    }
+}
+
+/// Resampling: particle p of `next` becomes a copy of particle
+/// `ancestors[p]` of `sigma`.
+#[cube(launch_unchecked)]
+pub fn gather(sigma: &[u32], ancestors: &[u32], next: &mut [u32], n: u32, count: u32) {
+    let particle = ABSOLUTE_POS;
+    let size = n as usize;
+    if particle < count as usize {
+        let from = ancestors[particle] as usize * size;
+        let mut u = 0usize;
+        while u < size {
+            next[particle * size + u] = sigma[from + u];
+            u += 1;
+        }
     }
 }

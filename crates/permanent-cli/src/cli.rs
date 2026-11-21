@@ -25,6 +25,9 @@ enum Backend {
     /// The CPU thread pool.
     #[cfg(feature = "rayon")]
     Rayon,
+    /// A GPU through wgpu: Vulkan, Metal or DirectX.
+    #[cfg(feature = "wgpu")]
+    Wgpu,
     /// An NVIDIA GPU; under MPI the ranks of a node use its devices in
     /// turn, starting at `--device`.
     #[cfg(feature = "cuda")]
@@ -36,6 +39,8 @@ impl Backend {
     const DEFAULT: Backend = Backend::Cuda;
     #[cfg(all(feature = "rayon", not(feature = "cuda")))]
     const DEFAULT: Backend = Backend::Rayon;
+    #[cfg(all(feature = "wgpu", not(any(feature = "rayon", feature = "cuda"))))]
+    const DEFAULT: Backend = Backend::Wgpu;
 }
 
 /// Type of the waiting times in the chains.
@@ -97,7 +102,7 @@ pub struct Cli {
     threads: Option<usize>,
     /// Type of the waiting times in the chains. Every probability decision
     /// is an integer comparison whatever this is. Default: f64 on rayon,
-    /// f32 on cuda.
+    /// f32 on cuda. The wgpu backend has f32 only.
     #[arg(long, value_enum)]
     precision: Option<Precision>,
     /// First GPU ordinal of the cuda backend.
@@ -246,6 +251,12 @@ fn run<C: Comm>(cli: &Cli, problem: &Problem, comm: &C, reporter: &Reporter) -> 
                 Precision::F32 => estimate(cli, &scaled, &config, exact, Rayon::<f32>::new(&scaled), comm, reporter),
                 Precision::F64 => estimate(cli, &scaled, &config, exact, Rayon::<f64>::new(&scaled), comm, reporter),
             }
+        }
+        #[cfg(feature = "wgpu")]
+        Backend::Wgpu => {
+            // WebGPU has no f64
+            anyhow::ensure!(cli.precision != Some(Precision::F64), "the wgpu backend runs in f32 only");
+            estimate(cli, &scaled, &config, exact, permanent_wgpu::Wgpu::new(&scaled)?, comm, reporter)
         }
         #[cfg(feature = "cuda")]
         Backend::Cuda => {

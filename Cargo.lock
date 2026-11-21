@@ -3659,6 +3659,7 @@ dependencies = [
  "permanent-core",
  "permanent-cuda",
  "permanent-rayon",
+ "permanent-wgpu",
  "rand 0.10.4",
  "ratatui",
  "rayon",
@@ -3716,9 +3717,9 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "cubecl",
+ "fixed",
  "permanent-core",
  "permanent-rayon",
- "tracing",
 ]
 
 [[package]]
