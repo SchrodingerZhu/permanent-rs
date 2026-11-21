@@ -167,17 +167,26 @@ fn below64(ah: u32, al: u32, bh: u32, bl: u32) -> bool {
 }
 
 /// Draw from line `line` of the packed alias table at `table` in `tables`.
+/// One 64-bit number makes both choices, as in the generic chain: the high
+/// 64 bits of its product with n are the cell, and the low 64 bits are
+/// compared with the cell's keep threshold.
 #[cube]
 fn alias_draw(tables: &[u32], table: usize, line: u32, n: u32, rng: &mut Array<u32>) -> u32 {
-    let i = u32::mul_hi(next_u32(rng), n);
+    let first = next_u32(rng);
+    let second = next_u32(rng);
+    // (first 2^32 + second) n, as three words
+    let within_low = second * n;
+    let within_high = first * n + u32::mul_hi(second, n);
+    let mut i = u32::mul_hi(first, n);
+    if within_high < first * n {
+        i += 1;
+    }
     let entry = table + 2 * (line as usize * n as usize + i as usize);
     let low = tables[entry];
     let high = tables[entry + 1];
-    // 48 random bits against the 48-bit threshold above the alias
-    let first = next_u32(rng);
-    let second = next_u32(rng);
+    // 48 bits against the 48-bit threshold above the alias
     let mut out = low & 0xFFFF;
-    if first < high || (first == high && (second >> 16) < (low >> 16)) {
+    if within_high < high || (within_high == high && (within_low >> 16) < (low >> 16)) {
         out = i;
     }
     out
