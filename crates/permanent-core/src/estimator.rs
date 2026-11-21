@@ -497,6 +497,17 @@ pub struct Session<'a, E: Engine, C: Comm> {
     pub z: f64,
     /// Gives every Phase 1 engine call its own streams.
     calls: u64,
+    seconds: LearnSeconds,
+}
+
+/// Seconds spent in each part of Phase 1, for the debug log.
+#[derive(Debug, Default)]
+struct LearnSeconds {
+    tables: f64,
+    far: f64,
+    energies: f64,
+    step: f64,
+    resample: f64,
 }
 
 impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
@@ -520,6 +531,7 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
             sigma_target: (1.0 + config.epsilon).ln() / z,
             z,
             calls: 0,
+            seconds: LearnSeconds::default(),
         })
     }
 
@@ -550,7 +562,9 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
         let mut drift = vec![0.0; n];
         for iteration in 0..LEARN_MAX_ITERATIONS {
             self.diagnostics.learn_iterations += 1;
+            let clock = Instant::now();
             let tables = Tables::<E::Counter>::build(scaled, beta, &log_w, anchor);
+            self.seconds.tables += clock.elapsed().as_secs_f64();
             // Once per temperature, to spread out the copies resampling
             // made; after that the FAR runs themselves move the particles.
             if iteration == 0 && !exact && self.config.learn_mutation_time > 0.0 {
@@ -568,7 +582,9 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
             let mut total_cycles = 0u64;
             for _round in 0..LEARN_MAX_ROUNDS {
                 let stream = self.learn_stream();
+                let clock = Instant::now();
                 let far = self.engine.far(&tables, cycles, 256 * cycles + 100_000, groups, stream)?;
+                self.seconds.far += clock.elapsed().as_secs_f64();
                 self.diagnostics.far_steps += far.steps;
                 self.diagnostics.learn_capped_chains += far.capped;
                 for g in 0..groups {
@@ -686,7 +702,9 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
         let mut previous_step: Option<f64> = None;
         loop {
             let learned = self.learn(levels.len(), beta, guess, levels.is_empty())?;
+            let clock = Instant::now();
             let energies = self.engine.energies()?;
+            self.seconds.energies += clock.elapsed().as_secs_f64();
             let pilot = self.comm.gather_f64(&energies);
             let shift = pilot.iter().sum::<f64>() / pilot.len() as f64;
             if beta >= 1.0 {
@@ -705,6 +723,7 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
                 self.notify_level(&levels);
                 break;
             }
+            let clock = Instant::now();
             let remaining = 1.0 - beta;
             // the paper's guaranteed step (Lemma 50)
             let floor = 0.25 * (1.0 / h_max).max(beta / spread);
@@ -725,18 +744,21 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
             let step = if remaining - step < 0.25 * step { remaining } else { step };
             let (relvar, weight_max) = weight_stats(&pilot, step);
             let relvar = relvar.max(1e-9);
+            self.seconds.step += clock.elapsed().as_secs_f64();
             debug!(level = levels.len(), beta, step, relvar, weight_max, "temperature fixed");
             // first-order prediction of the next weights
             guess = (0..n).map(|v| learned.log_w[v] + step * learned.drift[v]).collect();
             levels.push(Level { beta, log_w: learned.log_w, step, shift, relvar, weight_max });
             self.notify_level(&levels);
             // carry this rank's particles to the next temperature
+            let clock = Instant::now();
             let weights: Vec<f64> = energies.iter().map(|h| (-step * (h - shift)).exp()).collect();
             let mut rng =
                 SmallRng::seed_from_u64(stream_seed(seed, PHASE_LEARN_RESAMPLE, levels.len() as u64, rank as u64));
             let mut ancestors = Vec::with_capacity(local);
             multinomial(&weights, 0, &mut rng, &mut ancestors);
             self.engine.resample(&ancestors)?;
+            self.seconds.resample += clock.elapsed().as_secs_f64();
             previous_step = Some(step);
             beta = if step >= remaining { 1.0 } else { beta + step };
         }
@@ -753,6 +775,7 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
         d.mutate = MutateCost { events: counts[3], time: time[0], over_budget: counts[4] };
         d.learn_particles = counts[5] as usize;
         d.phase1_seconds = start.elapsed().as_secs_f64();
+        debug!(seconds = ?self.seconds, total = d.phase1_seconds, passes = d.learn_iterations, "Phase 1 time");
         Ok(levels)
     }
 
