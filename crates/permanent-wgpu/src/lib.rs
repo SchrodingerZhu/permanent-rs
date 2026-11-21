@@ -77,7 +77,8 @@ pub struct Wgpu<'a> {
     /// Bytes of working memory a dispatch may touch. Past the size of the
     /// device's cache, more chains at once make all of them slower: on an
     /// RTX 4090 throughput peaks between 32 and 80 MB and falls by a fifth
-    /// at 128 MB.
+    /// at 128 MB; on a GB10 it peaks near 24 MB and has almost halved at
+    /// 48 MB.
     pub working_set: usize,
     /// Steps per cycle a FAR dispatch allows before a chain is handed to
     /// the host; tuned so that about half a percent of the chains overrun.
@@ -108,6 +109,14 @@ impl Drop for Wgpu<'_> {
 fn buffer(handle: &Handle, len: usize) -> BufferArg {
     // SAFETY: every handle here is allocated with the length it is used at
     unsafe { BufferArg::from_raw_parts(handle.clone(), len) }
+}
+
+/// The rows of `len` particles from `first`, in a buffer of `count` rows of
+/// `words` each, as a kernel argument.
+fn rows(handle: &Handle, words: usize, count: usize, first: usize, len: usize) -> BufferArg {
+    let bytes = (words * size_of::<u32>()) as u64;
+    let part = handle.clone().offset_start(first as u64 * bytes).offset_end((count - first - len) as u64 * bytes);
+    buffer(&part, len * words)
 }
 
 fn halves(x: u64) -> (u32, u32) {
@@ -167,7 +176,7 @@ impl<'a> Wgpu<'a> {
             far: (0, placeholder.clone()),
             scratch: (0, placeholder),
             far_budget: 64.0,
-            working_set: 48 << 20,
+            working_set: 32 << 20,
             far_seconds: FarSeconds::default(),
             // long enough that most chains finish in one dispatch, short
             // enough that a dispatch stays well under a second
@@ -202,6 +211,18 @@ impl<'a> Wgpu<'a> {
     /// Particles a dispatch runs when each takes `words` of working memory.
     fn batch(&self, words: usize) -> usize {
         (self.working_set / (words * size_of::<u32>())).clamp(GROUP as usize, self.count.max(GROUP as usize))
+    }
+
+    /// Particles one dispatch runs when `count` are moved or drawn: equal
+    /// batches, each within the working set. Whole workgroups, so that a
+    /// batch's rows start at a multiple of 256 bytes in every buffer, where
+    /// a binding may start.
+    fn moved_at_once(&self, count: usize) -> usize {
+        let n = self.scaled.n;
+        let group = GROUP as usize;
+        let fit = self.working_set / ((n + lane_words(n) + STATE) * size_of::<u32>());
+        let batches = count.div_ceil((fit / group).max(1) * group).max(1);
+        count.div_ceil(batches).next_multiple_of(group).max(group)
     }
 
     /// Replace the particles `targets` by `rows`, one row of n for each.
@@ -298,7 +319,9 @@ impl<'a> Wgpu<'a> {
         let mut entries = tables.packed_rows.clone();
         entries.extend(stages.unassign::<u64>());
         let device_tables = self.client.create_from_slice(u64::as_bytes(&entries));
-        let scratch = self.client.empty(count * lane_words(n) * size_of::<u32>());
+        // the trials run a batch at a time, in one working buffer
+        let batch = self.moved_at_once(count);
+        let scratch = self.working(batch * lane_words(n));
         let ticks_per_time = (STAGE_TICKS as f64 / stage_time) as f32;
         let (fast_low, fast_high) = halves(stages.fast());
         let (cap_low, cap_high) = halves(stages.event_cap(n, stage_time));
@@ -311,34 +334,43 @@ impl<'a> Wgpu<'a> {
             // a trial that misses is run again on a stream of its own
             let state =
                 self.states(|particle| pending[particle].then(|| mix(self.seed(stream, particle).wrapping_add(trial))));
-            loop {
-                let tally = self.client.create_from_slice(u32::as_bytes(&[0]));
-                // SAFETY: the buffers have the lengths the kernel indexes
-                // them with: an n x n table and a threshold per stage,
-                // `count` particles of n words, their working memory and state.
-                unsafe {
-                    kernels::anneal::launch_unchecked(
-                        &self.client,
-                        self.grid(),
-                        CubeDim::new_1d(GROUP),
-                        buffer(&device_tables, 2 * entries.len()),
-                        buffer(&self.sigma, count * n),
-                        buffer(&scratch, count * lane_words(n)),
-                        buffer(&state, count * STATE),
-                        buffer(&tally, 1),
-                        n as u32,
-                        count as u32,
-                        stages.stages() as u32,
-                        ticks_per_time,
-                        fast_low,
-                        fast_high,
-                        cap_low,
-                        cap_high,
-                        self.budget,
-                    );
+            for first in (0..count).step_by(batch) {
+                let len = batch.min(count - first);
+                if !pending[first..first + len].contains(&true) {
+                    continue;
                 }
-                if self.read(&tally).await?[0] == 0 {
-                    break;
+                // a trial keeps its place in the working buffer from
+                // dispatch to dispatch, so a batch finishes before the next
+                loop {
+                    let tally = self.client.create_from_slice(u32::as_bytes(&[0]));
+                    // SAFETY: the buffers have the lengths the kernel
+                    // indexes them with: an n x n table and a threshold per
+                    // stage, `len` particles of n words, their working
+                    // memory and state.
+                    unsafe {
+                        kernels::anneal::launch_unchecked(
+                            &self.client,
+                            CubeCount::Static((len as u32).div_ceil(GROUP), 1, 1),
+                            CubeDim::new_1d(GROUP),
+                            buffer(&device_tables, 2 * entries.len()),
+                            rows(&self.sigma, n, count, first, len),
+                            buffer(&scratch, len * lane_words(n)),
+                            rows(&state, STATE, count, first, len),
+                            buffer(&tally, 1),
+                            n as u32,
+                            len as u32,
+                            stages.stages() as u32,
+                            ticks_per_time,
+                            fast_low,
+                            fast_high,
+                            cap_low,
+                            cap_high,
+                            self.budget,
+                        );
+                    }
+                    if self.read(&tally).await?[0] == 0 {
+                        break;
+                    }
                 }
             }
             let state = self.read(&state).await?;
@@ -424,42 +456,49 @@ impl<'a> Wgpu<'a> {
         let count = self.count;
         self.sync_rows(tables);
         let state = self.states(|particle| Some(self.seed(stream, particle)));
-        let scratch = self.client.empty(count * lane_words(n) * size_of::<u32>());
         let times = self.client.empty(count * 2 * size_of::<f32>());
+        // the particles move a batch at a time, in one working buffer
+        let batch = self.moved_at_once(count);
+        let scratch = self.working(batch * lane_words(n));
         let penalty = penalty(n);
         let (fast_low, fast_high) = halves(1 + penalty as u64);
         let (unassign_low, unassign_high) = halves(fraction(1.0 / (1.0 + penalty)));
         let (cap_low, cap_high) = halves(mutate_event_cap(n, perfect_time));
-        loop {
-            let tally = self.client.create_from_slice(u32::as_bytes(&[0]));
-            // SAFETY: the buffers have the lengths the kernel indexes them
-            // with: an n x n table, `count` particles of n words, their
-            // working memory, state and two times each.
-            unsafe {
-                kernels::mutate::launch_unchecked(
-                    &self.client,
-                    self.grid(),
-                    CubeDim::new_1d(GROUP),
-                    buffer(&self.rows.1, 2 * n * n),
-                    buffer(&self.sigma, count * n),
-                    buffer(&scratch, count * lane_words(n)),
-                    buffer(&state, count * STATE),
-                    buffer(&times, count * 2),
-                    buffer(&tally, 1),
-                    n as u32,
-                    count as u32,
-                    perfect_time as f32,
-                    fast_low,
-                    fast_high,
-                    unassign_low,
-                    unassign_high,
-                    cap_low,
-                    cap_high,
-                    self.budget,
-                );
-            }
-            if self.read(&tally).await?[0] == 0 {
-                break;
+        for first in (0..count).step_by(batch) {
+            let len = batch.min(count - first);
+            // a chain keeps its place in the working buffer from dispatch
+            // to dispatch, so a batch finishes before the next one starts
+            loop {
+                let tally = self.client.create_from_slice(u32::as_bytes(&[0]));
+                // SAFETY: the buffers have the lengths the kernel indexes
+                // them with: an n x n table, `len` particles of n words,
+                // their working memory, state and two times each.
+                unsafe {
+                    kernels::mutate::launch_unchecked(
+                        &self.client,
+                        CubeCount::Static((len as u32).div_ceil(GROUP), 1, 1),
+                        CubeDim::new_1d(GROUP),
+                        buffer(&self.rows.1, 2 * n * n),
+                        rows(&self.sigma, n, count, first, len),
+                        buffer(&scratch, len * lane_words(n)),
+                        rows(&state, STATE, count, first, len),
+                        rows(&times, 2, count, first, len),
+                        buffer(&tally, 1),
+                        n as u32,
+                        len as u32,
+                        perfect_time as f32,
+                        fast_low,
+                        fast_high,
+                        unassign_low,
+                        unassign_high,
+                        cap_low,
+                        cap_high,
+                        self.budget,
+                    );
+                }
+                if self.read(&tally).await?[0] == 0 {
+                    break;
+                }
             }
         }
         let state = self.read(&state).await?;
@@ -900,14 +939,15 @@ mod test {
 
     on_both!(
         /// From one fixed matching, a long mutation lands on the target, also
-        /// when a dispatch is far too short for it.
+        /// when a dispatch is far too short for it or holds few particles.
         a_long_mutation_reaches_the_target_distribution,
         async {
             let scaled = instance();
             let tables = Tables::<u64>::build(&scaled, BETA, &LOG_W, 0);
-            for budget in [1 << 16, 7] {
+            for (budget, working_set) in [(1 << 16, 32 << 20), (7, 32 << 20), (1 << 16, 1 << 20)] {
                 let mut wgpu = engine(&scaled).await;
                 wgpu.budget = budget;
+                wgpu.working_set = working_set;
                 let start: Vec<u32> = (0..COUNT).flat_map(|_| [0, 1, 2, 3]).collect();
                 wgpu.load(&start, 0);
                 let cost = wgpu.mutate(&tables, 24.0, Stream { seed: 5, phase: 1, level: 0 }).await.unwrap();
@@ -926,15 +966,19 @@ mod test {
             let tables = Tables::<u64>::build(&scaled, BETA, &LOG_W, 0);
             let stages = StageSchedule::new(scaled.n, 32.0);
             let stage_time = stages.rigorous_stage_time(1e-3);
-            let mut wgpu = engine(&scaled).await;
-            let stream = Stream { seed: 5, phase: 2, level: 0 };
-            let cost = wgpu.anneal(&tables, &stages, stage_time, 64, COUNT, 0, stream).await.unwrap();
-            assert_eq!(cost.over_budget, 0);
-            assert!(COUNT as f64 / cost.trials as f64 > 0.2);
-            check(&scaled, BETA, &wgpu.energies().await.unwrap());
-            let cost = wgpu.mutate(&tables, 0.3, Stream { seed: 5, phase: 3, level: 0 }).await.unwrap();
-            assert_eq!(cost.over_budget, 0);
-            check(&scaled, BETA, &wgpu.energies().await.unwrap());
+            // in one dispatch, then in batches of a few thousand particles
+            for working_set in [32 << 20, 1 << 20] {
+                let mut wgpu = engine(&scaled).await;
+                wgpu.working_set = working_set;
+                let stream = Stream { seed: 5, phase: 2, level: 0 };
+                let cost = wgpu.anneal(&tables, &stages, stage_time, 64, COUNT, 0, stream).await.unwrap();
+                assert_eq!(cost.over_budget, 0);
+                assert!(COUNT as f64 / cost.trials as f64 > 0.2);
+                check(&scaled, BETA, &wgpu.energies().await.unwrap());
+                let cost = wgpu.mutate(&tables, 0.3, Stream { seed: 5, phase: 3, level: 0 }).await.unwrap();
+                assert_eq!(cost.over_budget, 0);
+                check(&scaled, BETA, &wgpu.energies().await.unwrap());
+            }
         }
     );
 
