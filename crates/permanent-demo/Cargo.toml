@@ -1,0 +1,11 @@
+[package]
+name = "permanent-demo"
+description = "Demo problem generators, exact references, curated presets, and covering sampler for permanent-rs"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+permanent-core.workspace = true
+anyhow.workspace = true
+rand.workspace = true
+serde = { version = "1.0.229", features = ["derive"] }

@@ -3724,6 +3724,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "permanent-demo"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "permanent-core",
+ "rand 0.10.4",
+ "serde",
+]
+
+[[package]]
 name = "permanent-rayon"
 version = "0.2.0"
 dependencies = [
@@ -3732,6 +3742,24 @@ dependencies = [
  "permanent-core",
  "rand 0.10.4",
  "rayon",
+]
+
+[[package]]
+name = "permanent-wasm"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "getrandom 0.4.3",
+ "js-sys",
+ "permanent-core",
+ "permanent-demo",
+ "permanent-wgpu",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
+ "web-sys",
 ]
 
 [[package]]

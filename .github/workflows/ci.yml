@@ -37,7 +37,11 @@ jobs:
       - name: Clippy for the browser
         run: >
           nix develop .#ci --command cargo clippy --locked --target wasm32-unknown-unknown
-          -p permanent-wgpu --all-targets -- -D warnings
+          -p permanent-demo -p permanent-wgpu -p permanent-wasm --all-targets -- -D warnings
+      - name: Build browser wasm bindings
+        run: |
+          nix develop .#ci --command cargo build --locked --release --target wasm32-unknown-unknown -p permanent-wasm
+          nix develop .#ci --command wasm-bindgen --target web --out-dir target/wasm-pkg target/wasm32-unknown-unknown/release/permanent_wasm.wasm
 
   host:
     name: host
@@ -80,9 +84,9 @@ jobs:
       - uses: DeterminateSystems/nix-installer-action@v22
       - name: Build dev shell
         run: nix develop .#ci --command true
-      # the engine's own tests, run by Deno, whose WebGPU sits on the
-      # software Vulkan driver here
+      # the engine's own tests and the browser bridge's, run by Deno, whose
+      # WebGPU sits on the software Vulkan driver here
       - name: Test
         run: >
           nix develop .#ci --command cargo test --locked --release
-          -p permanent-wgpu --target wasm32-unknown-unknown
+          -p permanent-wgpu -p permanent-wasm --target wasm32-unknown-unknown

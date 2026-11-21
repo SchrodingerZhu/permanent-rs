@@ -451,28 +451,23 @@ fn estimate<E: Engine, C: Comm>(
         );
     }
     say!(reporter, "  regularization factor E[g]:  {:.4}", estimate.mean_gap);
-    let half = session.z() * estimate.std_error;
+    let accuracy = estimate.accuracy(session.z(), config, exact);
     say!(reporter, "permanent ≈ {}", scientific(estimate.ln_permanent));
     say!(reporter, "  ln(permanent) = {:.6} ± {:.6} (std error)", estimate.ln_permanent, estimate.std_error);
     say!(
         reporter,
         "  {:.1}% statistical interval: [{}, {}]  (relative half-width {:.2}%)",
-        100.0 * (1.0 - cli.delta / 2.0), // half of delta is statistical
-        scientific(estimate.ln_permanent - half),
-        scientific(estimate.ln_permanent + half),
-        100.0 * (half.exp() - 1.0)
+        accuracy.level_percent,
+        scientific(accuracy.ln_low),
+        scientific(accuracy.ln_high),
+        accuracy.half_width_percent
     );
     if !estimate.met_target {
         say!(reporter, "  WARNING: the measured error did not reach the target within the top-up limit");
     }
-    if let Some(exact) = exact {
-        say!(
-            reporter,
-            "exact = {}; relative error {:+.3}% ({:+.2} std errors)",
-            scientific(exact),
-            100.0 * ((estimate.ln_permanent - exact).exp() - 1.0),
-            (estimate.ln_permanent - exact) / estimate.std_error
-        );
+    if let Some(exact) = accuracy.against_exact {
+        let distance = exact.std_errors.map(|z| format!(" ({z:+.2} std errors)")).unwrap_or_default();
+        say!(reporter, "exact = {}; relative error {:+.3}%{distance}", scientific(exact.ln_exact), exact.error_percent);
     }
     info!(ln_permanent = estimate.ln_permanent, std_error = estimate.std_error, "finished");
     Ok(())
