@@ -469,7 +469,8 @@ pub struct Cuda<'a, T: DeviceCopy> {
     /// A stream of this engine's own, so that engines of one context run
     /// their launches at the same time.
     stream: Arc<CudaStream>,
-    module: kernels::LoadedModule,
+    /// The kernels, loaded once for all the engines of a context.
+    module: Arc<kernels::LoadedModule>,
     /// How the mutation kernel stages its working state; `None` when the
     /// state of one particle exceeds the shared memory of a block.
     mutation: Option<Staged>,
@@ -536,7 +537,9 @@ where
         let device = context.device_name()?;
         let multiprocessors = Multiprocessors::of(&context)?;
         let name = format!("cuda:{ordinal} ({device}, {})", std::any::type_name::<T>());
-        let engine = Self::on(scaled, context, multiprocessors, name)?;
+        let module = kernels::load(&context).context("loading the kernels; device code is built by `cargo oxide`")?;
+        let mutation = Self::stage_mutation(&module, multiprocessors.shared, lane_words(n))?;
+        let engine = Self::on(scaled, context, multiprocessors, Arc::new(module), mutation, name)?;
         info!(
             %device,
             staged = fits_shared(lane_words(n)),
@@ -553,12 +556,12 @@ where
         scaled: &'a Scaled,
         context: Arc<CudaContext>,
         multiprocessors: Multiprocessors,
+        module: Arc<kernels::LoadedModule>,
+        mutation: Option<Staged>,
         name: String,
     ) -> Result<Self> {
         let energy_bits = scaled.fixed_energy();
         let stream = context.new_stream()?;
-        let module = kernels::load(&context).context("loading the kernels; device code is built by `cargo oxide`")?;
-        let mutation = Self::stage_mutation(&module, multiprocessors.shared, lane_words(scaled.n))?;
         Ok(Cuda {
             scaled,
             name,
@@ -783,7 +786,14 @@ where
     }
 
     fn fork(&self) -> Result<Self> {
-        Self::on(self.scaled, self.context.clone(), self.multiprocessors, self.name.clone())
+        Self::on(
+            self.scaled,
+            self.context.clone(),
+            self.multiprocessors,
+            self.module.clone(),
+            self.mutation,
+            self.name.clone(),
+        )
     }
 
     fn load(&mut self, perms: &[u32], first_id: u64) -> Result<()> {
