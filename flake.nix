@@ -104,6 +104,11 @@
         driverLibPath = "/run/opengl-driver/lib";
         nixglhost = nix-gl-host.packages.${system}.default;
 
+        # The wgpu engine opens the Vulkan loader by name when it starts, and
+        # a program built in these shells looks for it nowhere else. The
+        # loader then finds the system's drivers by itself.
+        vulkanLibPath = pkgs.lib.makeLibraryPath [ pkgs.vulkan-loader ];
+
         # The program with the rayon backend. The cuda backend is built with
         # cuda-oxide inside the cuda shell.
         permanent =
@@ -151,6 +156,7 @@
         devShells.default = pkgs.mkShell {
           packages = rustDevPackages;
           env.RUST_BACKTRACE = "1";
+          env.LD_LIBRARY_PATH = vulkanLibPath;
         };
 
         # `nix develop .#mpi` — for `cargo build --features mpi`.
@@ -158,6 +164,7 @@
           packages = rustDevPackages ++ [ pkgs.mpi ];
           nativeBuildInputs = [ pkgs.rustPlatform.bindgenHook ];
           env.RUST_BACKTRACE = "1";
+          env.LD_LIBRARY_PATH = vulkanLibPath;
         };
 
         # `nix develop .#ci` — what CI runs in: the pinned toolchain, wasmer
@@ -174,7 +181,7 @@
           env.CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER = "wasm-bindgen-test-runner";
           env.WASM_BINDGEN_USE_DENO = "1";
           env.RUST_BACKTRACE = "1";
-          env.LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [ pkgs.vulkan-loader ];
+          env.LD_LIBRARY_PATH = vulkanLibPath;
           env.VK_DRIVER_FILES = "${pkgs.mesa}/share/vulkan/icd.d/lvp_icd.${pkgs.stdenv.hostPlatform.parsed.cpu.name}.json";
         };
 
@@ -196,7 +203,7 @@
           env.RUST_BACKTRACE = "1";
           env.CUDA_PATH = "${cudaEnv}";
           env.CUDA_HOME = "${cudaEnv}";
-          env.LD_LIBRARY_PATH = "${pkgs.lib.makeLibraryPath [ cudaEnv ]}:${driverLibPath}";
+          env.LD_LIBRARY_PATH = "${pkgs.lib.makeLibraryPath [ cudaEnv ]}:${driverLibPath}:${vulkanLibPath}";
           shellHook = ''
             # keep cargo-installed tools of this shell apart from the user's
             export CARGO_HOME="''${CARGO_HOME:-$HOME/.cargo}"
