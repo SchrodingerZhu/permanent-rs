@@ -128,6 +128,10 @@ unsafe fn energy_at(energy: &[i64], n: usize, u: u32, v: u32) -> i64 {
 /// row) into `lane` and start a chain on it. For a matching with holes the
 /// caller sets `hole_u` and `hole_v` afterwards.
 ///
+/// The inverse is kept for matched columns only. The chain never reads the
+/// entry of its free column, so that entry is left as it was, here and in
+/// [`run`].
+///
 /// # Safety
 /// `stored` must be valid for n words and `lane` hold two arrays.
 #[inline(always)]
@@ -135,11 +139,6 @@ pub unsafe fn begin<C>(lane: &Lane, stored: *const u16, tables: &FarTables<C>) -
     let n = lane.n as u32;
     let mut energy = 0i64;
     unsafe {
-        let mut v = 0;
-        while v < n {
-            lane.set(COL, v, NONE);
-            v += 1;
-        }
         let mut u = 0;
         while u < n {
             let v = *stored.add(u as usize) as u32;
@@ -220,7 +219,6 @@ pub unsafe fn run<C, R, V>(
                 unsafe {
                     let v = lane.get(ROW, u);
                     lane.set(ROW, u, NONE);
-                    lane.set(COL, v, NONE);
                     h -= energy_at(tables.energy, size, u, v);
                     hole_u = u;
                     hole_v = v;
@@ -259,7 +257,6 @@ pub unsafe fn run<C, R, V>(
                         let z = lane.get(ROW, y);
                         lane.set(ROW, y, hole_v);
                         lane.set(COL, hole_v, y);
-                        lane.set(COL, z, NONE);
                         h += energy_at(tables.energy, size, y, hole_v) - energy_at(tables.energy, size, y, z);
                         hole_v = z;
                     }
