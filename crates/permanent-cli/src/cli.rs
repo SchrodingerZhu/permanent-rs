@@ -25,7 +25,8 @@ enum Backend {
     /// The CPU thread pool.
     #[cfg(feature = "rayon")]
     Rayon,
-    /// An NVIDIA GPU; under MPI rank r uses device `--device` + r.
+    /// An NVIDIA GPU; under MPI rank r uses device `--device` + r, modulo
+    /// the number of devices on its node.
     #[cfg(feature = "cuda")]
     Cuda,
 }

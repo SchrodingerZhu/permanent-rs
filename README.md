@@ -42,13 +42,13 @@ The modules named below are in `crates/permanent-core/src`.
    (Kac's formula). The identity holds per cycle, so every particle of a
    population runs a few cycles instead of a few chains running many, and
    the runs are also what moves that population between temperatures.
-4. **Population** (`estimator.rs`, `sampler.rs`). P particles at one
-   temperature are weighted by exp(-d H), resampled, and moved by the
-   relaxed-assignment dynamics at the top activity, run until time t has
-   been spent in perfect matchings. That move leaves the next temperature's
-   distribution invariant for any weights and contracts it by exp(-t)
-   (the paper's spectral gap of 1 carries over to the chain watched on
-   perfect matchings).
+4. **Population** (`estimator.rs`, `sampler.rs`, `chain/dynamics.rs`). P
+   particles at one temperature are weighted by exp(-d H), resampled, and
+   moved by the relaxed-assignment dynamics at the top activity, run until
+   time t has been spent in perfect matchings. That move leaves the next
+   temperature's distribution invariant for any weights and contracts it by
+   exp(-t) (the paper's spectral gap of 1 carries over to the chain watched
+   on perfect matchings).
 5. **Segments.** The temperature ladder is cut into S segments. Each one
    after the first starts from fresh draws of the paper's annealing sampler,
    so segments are independent, multiply without bias, and run at the same
@@ -100,7 +100,8 @@ feature of the same name and chosen at run time with `--backend`:
 | `cuda` | `permanent-cuda` | an NVIDIA GPU |
 
 Both engines run the same chains, written once in
-`permanent-core/src/chain` and compiled for the host and for the device.
+`crates/permanent-core/src/chain` and compiled for the host and for the
+device.
 Every probability decision is a comparison of random bits with an integer
 threshold and FAR energies are fixed point; only the waiting times of the
 move and of the sampler are floating point. Their type is the engine's type
@@ -171,6 +172,7 @@ host.
         src/comm.rs           reductions across MPI ranks
         src/estimator.rs      schedule, planning, segments, islands
         src/exact.rs          exact subset DP for n <= 26
+        src/stats.rs          ln n!, normal quantile, seeds of the random streams
     crates/permanent-rayon    engine on the CPU thread pool
     crates/permanent-cuda     engine on a GPU
         src/lib.rs            kernels (wrappers over the chains) and the host side
