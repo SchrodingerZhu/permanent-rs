@@ -237,6 +237,10 @@ mod kernels {
     /// holes, and `position_out` the stream's blocks << 3 | outputs left.
     /// Particle p adds its visits to N(anchor, v) to
     /// `visits[(p % groups) n + v]` and their energies to `visit_energy[v]`.
+    ///
+    /// As in `mutate`, a thread takes particles from `cursor` (one counter,
+    /// zero at launch) until none is left, and a chain depends on its
+    /// particle's seed alone.
     #[kernel(unchecked_indexing)]
     #[allow(clippy::too_many_arguments)]
     pub fn far(
@@ -245,6 +249,7 @@ mod kernels {
         moves: &[u64],
         energy: &[i64],
         seeds: &[u64],
+        cursor: &[DeviceAtomicU64],
         visits: &[DeviceAtomicU64],
         visit_energy: &[DeviceAtomicI64],
         sigma: &[u16],
@@ -262,36 +267,36 @@ mod kernels {
         cycles: u64,
         budget: u64,
     ) {
-        let index = thread::index_1d();
-        let slot = index.get();
-        if slot >= count as usize {
+        let thread = thread::index_1d().get();
+        if thread >= count as usize {
             return;
         }
         let size = n as usize;
         let tables = FarTables { row_alias, col_alias, moves, energy };
-        let mut rng = Stream32::new(seeds[slot]);
-        let mut tally = DeviceTally { visits, first: (slot as u32 % groups) as usize * size, visit_energy };
-        // SAFETY: `sigma` and `next` hold `count` rows of n, the lane two
-        // arrays of n, and the tables are n x n.
-        let chain = unsafe {
-            let lane = lane(scratch.as_mut_ptr(), slot, size, staged);
-            let mut chain = far_chain::begin(&lane, sigma.as_ptr().add(slot * size), &tables);
-            far_chain::run(&lane, &tables, anchor, cycles, budget, &mut rng, &mut chain, &mut tally);
-            far_chain::store(&lane, next.as_mut_ptr().add(slot * size));
-            chain
-        };
-        if let Some(out) = cycles_out.get_mut(index) {
-            *out = chain.perfect_steps;
-        }
-        if let Some(out) = status_out.get_mut(thread::index_1d()) {
-            *out = chain.steps | (chain.hole_u as u64) << 32 | (chain.hole_v as u64) << 48;
-        }
-        if let Some(out) = energy_out.get_mut(thread::index_1d()) {
-            *out = chain.perfect_energy.to_bits();
-        }
-        if let Some(out) = position_out.get_mut(thread::index_1d()) {
-            let (blocks, left) = rng.position();
-            *out = blocks << 3 | left as u64;
+        // SAFETY: the lane is this thread's own.
+        let lane = unsafe { lane(scratch.as_mut_ptr(), thread, size, staged) };
+        loop {
+            let slot = cursor[0].fetch_add(1, AtomicOrdering::Relaxed) as usize;
+            if slot >= count as usize {
+                break;
+            }
+            let mut rng = Stream32::new(seeds[slot]);
+            let mut tally = DeviceTally { visits, first: (slot as u32 % groups) as usize * size, visit_energy };
+            // SAFETY: `sigma` and `next` hold `count` rows of n, the lane
+            // two arrays of n, the tables are n x n, every per-particle
+            // buffer holds `count` entries, and the cursor gives each slot
+            // to one thread.
+            unsafe {
+                let mut chain = far_chain::begin(&lane, sigma.as_ptr().add(slot * size), &tables);
+                far_chain::run(&lane, &tables, anchor, cycles, budget, &mut rng, &mut chain, &mut tally);
+                far_chain::store(&lane, next.as_mut_ptr().add(slot * size));
+                *cycles_out.as_mut_ptr().add(slot) = chain.perfect_steps;
+                *status_out.as_mut_ptr().add(slot) =
+                    chain.steps | (chain.hole_u as u64) << 32 | (chain.hole_v as u64) << 48;
+                *energy_out.as_mut_ptr().add(slot) = chain.perfect_energy.to_bits();
+                let (blocks, left) = rng.position();
+                *position_out.as_mut_ptr().add(slot) = blocks << 3 | left as u64;
+            }
         }
     }
 
@@ -979,10 +984,14 @@ where
             .map(|p| stream_seed(stream.seed, stream.phase, stream.level, self.first_id + p))
             .collect();
         let device_seeds = self.device(&seeds)?;
+        let cursor = self.zeros::<u64>(1)?.wrap_elem::<DeviceAtomicU64>();
         let visits = self.zeros::<u64>(groups * n)?.wrap_elem::<DeviceAtomicU64>();
         let visit_energy = self.zeros::<i64>(n)?.wrap_elem::<DeviceAtomicI64>();
         let budget = ((self.far_budget * cycles as f64).ceil() as u64 + 32).min(max_steps);
-        // the FAR chain keeps a matching and its inverse, and no list
+        // The FAR chain keeps a matching and its inverse, and no list. A
+        // launch lasts as long as a thread's share of the chains, each a
+        // few hundred steps, so unlike a mutation it has a thread for every
+        // particle wherever the state lives.
         let (config, staged) = self.config(self.count, 2 * n);
         self.far_seconds.calls += 1;
         self.far_seconds.setup += clock.elapsed().as_secs_f64();
@@ -999,6 +1008,7 @@ where
                 &self.moves,
                 &self.energy_fixed,
                 &device_seeds,
+                &cursor,
                 &visits,
                 &visit_energy,
                 &self.sigma,
