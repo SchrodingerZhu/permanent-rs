@@ -10,11 +10,9 @@
 //! exact, so a chain's precision does not depend on how many events it has.
 
 use num_traits::{AsPrimitive, Float, PrimInt, Unsigned};
-use rand::RngExt;
-use rand::distr::{Distribution, StandardUniform};
 use rand_core::Rng;
 
-use super::{below, mul_high};
+use super::{at_least, below, scaled_below};
 use super::far::alias_draw;
 use super::matching::Matching;
 
@@ -32,7 +30,9 @@ pub fn exponential<T: Float>(bits: u32) -> T {
 
 /// One ring: pick the row whose clock rang, unmatch it, and redraw it from
 /// its row of B unless it stays unmatched. Rows in a collision ring at rate
-/// 1 + J each (`conflicted_rate` in all), the others at rate 1.
+/// 1 + J each (`conflicted_rate` in all), the others at rate 1. `word` is
+/// 32 random bits for the choice between the two kinds of row; without a
+/// collision nothing depends on it.
 ///
 /// # Safety
 /// `alias` must be the packed row alias table of an n x n matrix.
@@ -44,14 +44,14 @@ unsafe fn ring<C, R>(
     rate: u64,
     conflicted_rate: u64,
     unassign_below: C,
+    word: u32,
     rng: &mut R,
 ) where
     C: PrimInt + Unsigned + AsPrimitive<u32>,
     R: Rng,
-    StandardUniform: Distribution<C>,
     u64: AsPrimitive<C>,
 {
-    let conflicted = mul_high(rng.next_u64(), rate) < conflicted_rate;
+    let conflicted = scaled_below(word, rate, conflicted_rate, rng);
     unsafe {
         let mut u;
         if conflicted {
@@ -66,7 +66,7 @@ unsafe fn ring<C, R>(
             }
         }
         matching.remove(u);
-        if rng.random::<C>() >= unassign_below {
+        if at_least(unassign_below, rng) {
             let v = alias_draw(alias, u, n, rng);
             matching.place(u, v);
         }
@@ -77,7 +77,8 @@ unsafe fn ring<C, R>(
 #[derive(Clone, Copy)]
 pub struct Moved<T> {
     pub events: u64,
-    /// Elapsed chain time, excursions included.
+    /// Elapsed chain time: the waiting times drawn in perfect matchings
+    /// and the mean waiting times of the events outside them.
     pub time: T,
     /// The event cap was hit or the collision list overflowed; the state is
     /// not a sample.
@@ -108,7 +109,6 @@ where
     C: PrimInt + Unsigned + AsPrimitive<u32>,
     T: Float + AsPrimitive<u64>,
     R: Rng,
-    StandardUniform: Distribution<C>,
     u64: AsPrimitive<C>,
 {
     let ticks_per_time = T::from(MOVE_TICKS).unwrap() / perfect_time;
@@ -119,21 +119,29 @@ where
     loop {
         let conflicted_rate = matching.conflicted as u64 * fast;
         let rate = (n - matching.conflicted) as u64 + conflicted_rate;
-        let dt: u64 = (exponential::<T>(rng.next_u32()) * (ticks_per_time / T::from(rate).unwrap())).as_();
+        let mean = ticks_per_time / T::from(rate).unwrap();
+        // Only the time in perfect matchings stops the move, so only there
+        // is a waiting time drawn. A perfect matching has no collision, so
+        // the ring does not use the word the waiting time was drawn from.
+        let word = rng.next_u32();
         if matching.is_perfect() {
+            let dt: u64 = (exponential::<T>(word) * mean).as_();
             if dt >= remaining {
                 ticks += remaining;
                 break;
             }
             remaining -= dt;
+            ticks += dt;
+        } else {
+            let dt: u64 = mean.as_();
+            ticks += dt;
         }
-        ticks += dt;
         events += 1;
         if events > event_cap {
             over_budget = true;
             break;
         }
-        unsafe { ring(matching, n, alias, rate, conflicted_rate, unassign_below, rng) };
+        unsafe { ring(matching, n, alias, rate, conflicted_rate, unassign_below, word, rng) };
         if matching.overflow {
             over_budget = true;
             break;
@@ -174,7 +182,6 @@ where
     C: PrimInt + Unsigned + AsPrimitive<u32>,
     T: Float + AsPrimitive<u64>,
     R: Rng,
-    StandardUniform: Distribution<C>,
     u64: AsPrimitive<C>,
 {
     unsafe { matching.clear() };
@@ -204,7 +211,7 @@ where
             over_budget = true;
             break;
         }
-        unsafe { ring(matching, n, alias, rate, conflicted_rate, unassign_below, rng) };
+        unsafe { ring(matching, n, alias, rate, conflicted_rate, unassign_below, rng.next_u32(), rng) };
         if matching.overflow {
             over_budget = true;
             break;

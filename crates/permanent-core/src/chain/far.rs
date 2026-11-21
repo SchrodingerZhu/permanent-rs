@@ -82,7 +82,8 @@ pub trait Tally {
 /// One 64-bit number makes both choices. The high word of its product with
 /// n is the cell, and the low word is uniform within the cell (it takes
 /// every n-th value), so it is compared with the keep threshold. A cell's
-/// probability is 1/n to within 2^-64.
+/// probability is 1/n to within 2^-64. The number's low 32 bits are drawn
+/// only when its high 32 do not settle both choices.
 ///
 /// # Safety
 /// `table` must hold n lines of n entries.
@@ -93,11 +94,28 @@ where
     R: Rng,
     u64: AsPrimitive<C>,
 {
-    let bits = rng.next_u64();
-    let i = mul_high(bits, n as u64) as u32;
-    let within: C = (bits.wrapping_mul(n as u64) >> (64 - 8 * core::mem::size_of::<C>())).as_();
-    let entry = unsafe { *table.get_unchecked(line as usize * n as usize + i as usize) };
-    if within >> 16 < entry >> 16 { i } else { entry.as_() & 0xFFFF }
+    // A 64-bit draw u gives the cell (the high half of u n) and the place
+    // within it (the low half). Its high word alone gives both unless the
+    // low word, which adds less than n 2^32 to the product, could change
+    // the cell or the comparison.
+    let shift = 64 - 8 * core::mem::size_of::<C>();
+    let high = rng.next_u32();
+    let product = high as u64 * n as u64;
+    let least = product << 32;
+    let most = least.wrapping_add(((n as u64) << 32) - 1);
+    let mut i = (product >> 32) as u32;
+    let mut entry = unsafe { *table.get_unchecked(line as usize * n as usize + i as usize) };
+    let within: C = (least >> shift).as_();
+    let within_most: C = (most >> shift).as_();
+    let mut keep = within >> 16 < entry >> 16;
+    if most < least || keep != (within_most >> 16 < entry >> 16) {
+        let bits = (high as u64) << 32 | rng.next_u32() as u64;
+        i = mul_high(bits, n as u64) as u32;
+        let within: C = (bits.wrapping_mul(n as u64) >> shift).as_();
+        entry = unsafe { *table.get_unchecked(line as usize * n as usize + i as usize) };
+        keep = within >> 16 < entry >> 16;
+    }
+    if keep { i } else { entry.as_() & 0xFFFF }
 }
 
 /// Bits of the energy of entry (u, v).
