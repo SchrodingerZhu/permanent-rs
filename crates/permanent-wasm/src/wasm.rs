@@ -1,4 +1,5 @@
-//! Browser `wasm-bindgen` exports for Dedicated Web Workers and Window contexts.
+//! Browser `wasm-bindgen` exports and typed WebGPU capability probing for
+//! Dedicated Web Workers and Window contexts.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Once};
@@ -148,6 +149,37 @@ export interface SampleSnapshot {
   valid: boolean;
 }
 
+export interface Phase1Summary {
+  temperatures: number;
+  seconds: number;
+  learn_particles: number;
+  learn_iterations: number;
+  far_steps: number;
+  mutate_events: number;
+  mutations: number;
+  mutate_time: number;
+  learn_mutation_time: number;
+  learn_capped_chains: number;
+  mutate_over_budget: number;
+  worst_first_correction_factor: number;
+  check_min: number;
+  check_max: number;
+}
+
+export interface PlanSummary {
+  segments: [number, number][];
+  ln_scale: number;
+  particles: number;
+  islands: number;
+  relvar_sum: number;
+  mixing_factor: number;
+  island_relvar: number;
+  stage_time: number;
+  predicted_events: number;
+  sigma_target: number;
+  z: number;
+}
+
 export type VerdictInfo =
   | { status: "consistent"; max_gap_se: number }
   | { status: "inconsistent"; max_gap_se: number }
@@ -157,6 +189,8 @@ export interface EstimateSummary {
   ln_permanent: number;
   std_error: number;
   scientific: string;
+  ln_ci_low: number;
+  ln_ci_high: number;
   ci_low_scientific: string;
   ci_high_scientific: string;
   ci_level_pct: number;
@@ -166,11 +200,13 @@ export interface EstimateSummary {
   islands: number;
   particles: number;
   island_relvar: number;
+  planned_island_relvar: number;
   mean_gap: number;
   verdict: VerdictInfo;
   mutate_events: number;
   sampler_events: number;
-  over_budget: number;
+  mutate_over_budget: number;
+  sampler_over_budget: number;
   seconds: number;
   rel_error_pct: number | null;
   z_score: number | null;
@@ -184,24 +220,20 @@ export interface RunSummary {
   nnz: number;
   is_zero_one: boolean;
   engine: string;
+  epsilon: number;
+  delta: number;
   seed: number;
   plan_only: boolean;
   zero_permanent: boolean;
-  temperatures: number;
-  phase1_seconds: number;
-  learn_particles: number;
-  learn_iterations: number;
-  far_steps: number;
-  worst_first_correction_factor: number;
-  check_min: number;
-  check_max: number;
   exact_ln: number | null;
   exact_scientific: string | null;
   exact_source: string | null;
+  exact_skipped_too_large: boolean;
+  phase1: Phase1Summary | null;
+  plan: PlanSummary | null;
   estimate: EstimateSummary | null;
   final_sample: SampleSnapshot | null;
   schedule_json: string | null;
-  lines: string[];
 }
 
 export type WebEvent =
@@ -211,8 +243,12 @@ export type WebEvent =
       nnz: number;
       is_zero_one: boolean;
       engine: string;
+      epsilon: number;
+      delta: number;
+      seed: number;
       exact_ln: number | null;
       exact_source: string | null;
+      exact_skipped_too_large: boolean;
     }
   | {
       type: "level";
@@ -228,19 +264,8 @@ export type WebEvent =
       matching: number[];
       valid: boolean;
     }
-  | {
-      type: "plan";
-      segments: [number, number][];
-      ln_scale: number;
-      particles: number;
-      islands: number;
-      relvar_sum: number;
-      mixing_factor: number;
-      island_relvar: number;
-      stage_time: number;
-      sigma_target: number;
-      z: number;
-    }
+  | ({ type: "phase1" } & Phase1Summary)
+  | ({ type: "plan" } & PlanSummary)
   | {
       type: "sweep";
       round: number;
@@ -258,8 +283,10 @@ export type WebEvent =
       islands: number;
       ln_permanent: number;
       std_error: number;
+      mutate_events: number;
+      sampler_events: number;
+      seconds: number;
     }
-  | { type: "line"; text: string }
   | { type: "done"; summary: RunSummary }
   | { type: "cancelled" }
   | { type: "failed"; message: string };
@@ -317,7 +344,7 @@ fn js_err(error: anyhow::Error) -> JsValue {
 }
 
 /// Probe WebGPU adapter availability and device limits from either a Window or
-/// a Dedicated Web Worker.
+/// a Dedicated Web Worker (JS-facing export).
 #[wasm_bindgen]
 pub async fn probe_capabilities() -> Result<JsValue, JsValue> {
     init_panic_hook();
@@ -325,7 +352,9 @@ pub async fn probe_capabilities() -> Result<JsValue, JsValue> {
     to_js(&caps)
 }
 
-async fn probe_webgpu() -> Capabilities {
+/// Probe WebGPU adapter availability and device limits, returning a typed Rust
+/// [`Capabilities`] struct directly (for Rust/Dioxus front ends).
+pub async fn probe_webgpu() -> Capabilities {
     let mut caps = Capabilities {
         webgpu_available: false,
         adapter_name: None,
@@ -578,13 +607,15 @@ mod tests {
                 "save_schedule": true}"#,
         )
         .await;
-        for kind in ["init", "level", "sample", "plan", "sweep", "round", "line"] {
+        for kind in ["init", "level", "sample", "phase1", "plan", "sweep", "round"] {
             assert!(events.iter().any(|event| event == kind), "no {kind} event");
         }
         assert_eq!(events.last().unwrap(), "done");
 
         let exact = 9.0_f64.ln();
         assert!((summary["exact_ln"].as_f64().unwrap() - exact).abs() < 1e-12);
+        assert!(summary["phase1"]["temperatures"].as_u64().unwrap() >= 2);
+        assert!(summary["plan"]["islands"].as_u64().unwrap() >= 1);
         let estimate = &summary["estimate"];
         let distance = (estimate["ln_permanent"].as_f64().unwrap() - exact) / estimate["std_error"].as_f64().unwrap();
         assert!(distance.abs() < 4.0, "{distance} standard errors from the exact value");
@@ -598,7 +629,10 @@ mod tests {
         let handle = handle();
         let (summary, events) = run(&handle, r#"{"kind": "bundled_preset", "name": "weighted-8"}"#, config).await;
         assert_eq!(summary["plan_only"], true);
+        assert!(summary["phase1"].is_object());
+        assert!(summary["plan"].is_object());
         assert!(summary["estimate"].is_null());
+        assert!(events.iter().any(|event| event == "phase1"));
         assert!(events.iter().any(|event| event == "plan"));
         assert!(!events.iter().any(|event| event == "sweep"));
 
@@ -607,6 +641,8 @@ mod tests {
             "text": "%%MatrixMarket matrix coordinate real general\n3 3 4\n1 1 1\n2 1 2\n3 1 1\n3 2 1\n"}"#;
         let (summary, _) = run(&handle, zero, config).await;
         assert_eq!(summary["zero_permanent"], true);
+        assert!(summary["phase1"].is_null());
+        assert!(summary["plan"].is_null());
     }
 
     /// `cancel()` called from a timer, as a page would on a click, ends the run.

@@ -1,5 +1,5 @@
-//! Asynchronous WebGPU estimation driver for the browser, streaming structured
-//! `WebEvent`s (1:1 with `permanent-cli`'s TUI dashboard) and report lines.
+//! Asynchronous WebGPU estimation driver, streaming purely typed `WebEvent`
+//! telemetry directly to Rust/Dioxus or JS front ends.
 
 use std::cell::RefCell;
 use std::sync::atomic::AtomicBool;
@@ -8,13 +8,12 @@ use permanent_core::comm::Solo;
 use permanent_core::engine::AsyncEngine;
 use permanent_core::estimator::{AsyncSession, Cancelled, Config, Progress, Verdict};
 use permanent_core::exact;
-use permanent_core::report::{self, Accuracy};
 use permanent_core::scaling::Scaled;
 use permanent_core::stats::{ln_factorial, scientific};
 use permanent_demo::{BuiltProblem, ProblemSpec, SampleSnapshot, build_problem};
 use permanent_wgpu::Wgpu;
 
-use crate::types::{EstimateSummary, RunSummary, VerdictInfo, WebEvent, WebRunConfig};
+use crate::types::{EstimateSummary, Phase1Summary, PlanSummary, RunSummary, VerdictInfo, WebEvent, WebRunConfig};
 
 /// Maximum `n` for general subset-DP exact permanent in the browser
 /// (`2^20 * 8` bytes = 8 MiB). Closed-form references work at any size.
@@ -22,33 +21,21 @@ pub const BROWSER_MAX_EXACT_N: usize = 20;
 
 struct Sink<F: FnMut(WebEvent)> {
     emit: F,
-    lines: Vec<String>,
     last_sample: Option<SampleSnapshot>,
 }
 
 impl<F: FnMut(WebEvent)> Sink<F> {
     fn new(emit: F) -> Self {
-        Self { emit, lines: Vec::new(), last_sample: None }
+        Self { emit, last_sample: None }
     }
 
     fn send(&mut self, event: WebEvent) {
         (self.emit)(event);
     }
-
-    fn say(&mut self, text: String) {
-        self.lines.push(text.clone());
-        (self.emit)(WebEvent::Line { text });
-    }
 }
 
-macro_rules! say {
-    ($sink:expr, $($arg:tt)*) => {
-        $sink.borrow_mut().say(format!($($arg)*))
-    };
-}
-
-/// Run the full permanent estimation pipeline on WebGPU for `spec` and
-/// `config`, streaming live telemetry events to `on_event`.
+/// Build `spec` and run the full permanent estimation pipeline on WebGPU,
+/// streaming structured telemetry events to `on_event`.
 ///
 /// Returns `Ok(Some(summary))` on completion, `Ok(None)` if cooperatively
 /// cancelled via `cancel`, or `Err` on invalid inputs / runtime errors (after
@@ -60,7 +47,37 @@ pub async fn run_problem<F: FnMut(WebEvent)>(
     on_event: F,
 ) -> anyhow::Result<Option<RunSummary>> {
     let sink = RefCell::new(Sink::new(on_event));
-    match run_inner(spec, config, cancel, &sink).await {
+    match build_problem(spec) {
+        Ok(built) => run_built_inner(&built, config, cancel, &sink).await,
+        Err(error) => {
+            sink.borrow_mut().send(WebEvent::Failed { message: format!("{error:#}") });
+            Err(error)
+        }
+    }
+}
+
+/// Run the full permanent estimation pipeline on WebGPU for an already-built
+/// [`BuiltProblem`], avoiding repeating matrix construction and `prepare()`.
+///
+/// Intended for Rust front ends (such as Dioxus) that already hold a
+/// [`BuiltProblem`] for interactive visualization and covering sampling.
+pub async fn run_built_problem<F: FnMut(WebEvent)>(
+    built: &BuiltProblem,
+    config: &WebRunConfig,
+    cancel: &AtomicBool,
+    on_event: F,
+) -> anyhow::Result<Option<RunSummary>> {
+    let sink = RefCell::new(Sink::new(on_event));
+    run_built_inner(built, config, cancel, &sink).await
+}
+
+async fn run_built_inner<F: FnMut(WebEvent)>(
+    built: &BuiltProblem,
+    config: &WebRunConfig,
+    cancel: &AtomicBool,
+    sink: &RefCell<Sink<F>>,
+) -> anyhow::Result<Option<RunSummary>> {
+    match run_inner(built, config, cancel, sink).await {
         Ok(outcome) => Ok(outcome),
         Err(error) => {
             if error.is::<Cancelled>() {
@@ -75,66 +92,53 @@ pub async fn run_problem<F: FnMut(WebEvent)>(
 }
 
 async fn run_inner<F: FnMut(WebEvent)>(
-    spec: &ProblemSpec,
+    built: &BuiltProblem,
     config: &WebRunConfig,
     cancel: &AtomicBool,
     sink: &RefCell<Sink<F>>,
 ) -> anyhow::Result<Option<RunSummary>> {
-    let built = build_problem(spec)?;
     let n = built.problem.n;
     let nnz = built.info.nnz;
     let is_zero_one = built.info.is_zero_one;
 
-    say!(sink, "matrix: {n} x {n}, {nnz} nonzero entries{}", if is_zero_one { " (0/1)" } else { " (weighted)" });
-
-    let (exact_ln, exact_source) = resolve_exact(&built, config, sink);
+    let (exact_ln, exact_source, exact_skipped_too_large) = resolve_exact(built, config);
 
     let Some(scaled) = &built.scaled else {
-        say!(sink, "permanent = 0 exactly (the support has no perfect matching)");
         sink.borrow_mut().send(WebEvent::Init {
             n,
             nnz,
             is_zero_one,
             engine: "none".into(),
+            epsilon: config.epsilon,
+            delta: config.delta,
+            seed: config.seed,
             exact_ln: None,
             exact_source: Some("no perfect matching".into()),
+            exact_skipped_too_large: false,
         });
-        let lines = sink.borrow().lines.clone();
         let summary = RunSummary {
             n,
             nnz,
             is_zero_one,
             engine: "none".into(),
+            epsilon: config.epsilon,
+            delta: config.delta,
             seed: config.seed,
             plan_only: config.plan_only,
             zero_permanent: true,
-            temperatures: 0,
-            phase1_seconds: 0.0,
-            learn_particles: 0,
-            learn_iterations: 0,
-            far_steps: 0,
-            worst_first_correction_factor: 1.0,
-            check_min: 1.0,
-            check_max: 1.0,
             exact_ln: None,
             exact_scientific: Some("0".into()),
             exact_source: Some("no perfect matching".into()),
+            exact_skipped_too_large: false,
+            phase1: None,
+            plan: None,
             estimate: None,
             final_sample: None,
             schedule_json: None,
-            lines,
         };
         sink.borrow_mut().send(WebEvent::Done { summary: Box::new(summary.clone()) });
         return Ok(Some(summary));
     };
-
-    say!(
-        sink,
-        "target: relative error {} with probability {}; seed {}",
-        config.epsilon,
-        1.0 - config.delta,
-        config.seed
-    );
 
     let core_config = Config {
         epsilon: config.epsilon,
@@ -152,7 +156,19 @@ async fn run_inner<F: FnMut(WebEvent)>(
     };
 
     let engine = init_wgpu(scaled, config).await?;
-    run_with_engine(&built, scaled, &core_config, config, exact_ln, exact_source, engine, cancel, sink).await
+    run_with_engine(
+        built,
+        scaled,
+        &core_config,
+        config,
+        exact_ln,
+        exact_source,
+        exact_skipped_too_large,
+        engine,
+        cancel,
+        sink,
+    )
+    .await
 }
 
 async fn init_wgpu<'a>(scaled: &'a Scaled, config: &WebRunConfig) -> anyhow::Result<Wgpu<'a>> {
@@ -171,25 +187,19 @@ async fn init_wgpu<'a>(scaled: &'a Scaled, config: &WebRunConfig) -> anyhow::Res
     Ok(engine)
 }
 
-fn resolve_exact<F: FnMut(WebEvent)>(
-    built: &BuiltProblem,
-    config: &WebRunConfig,
-    sink: &RefCell<Sink<F>>,
-) -> (Option<f64>, Option<String>) {
+fn resolve_exact(built: &BuiltProblem, config: &WebRunConfig) -> (Option<f64>, Option<String>, bool) {
     if let Some(exact_ln) = built.info.exact_ln {
-        return (Some(exact_ln), built.info.exact_source.clone());
+        return (Some(exact_ln), built.info.exact_source.clone(), false);
     }
     if !config.compute_exact {
-        return (None, None);
+        return (None, None, false);
     }
-    let n = built.problem.n;
-    if n > BROWSER_MAX_EXACT_N {
-        say!(sink, "exact: skipped in browser, n > {BROWSER_MAX_EXACT_N}");
-        return (None, None);
+    if built.problem.n > BROWSER_MAX_EXACT_N {
+        return (None, None, true);
     }
     match exact::ln_permanent(&built.problem) {
-        Some(v) if v.is_finite() => (Some(v), Some("subset DP".into())),
-        _ => (None, None),
+        Some(v) if v.is_finite() => (Some(v), Some("subset DP".into()), false),
+        _ => (None, None, false),
     }
 }
 
@@ -201,6 +211,7 @@ async fn run_with_engine<E: AsyncEngine, F: FnMut(WebEvent)>(
     web_config: &WebRunConfig,
     exact_ln: Option<f64>,
     exact_source: Option<String>,
+    exact_skipped_too_large: bool,
     engine: E,
     cancel: &AtomicBool,
     sink: &RefCell<Sink<F>>,
@@ -219,8 +230,12 @@ async fn run_with_engine<E: AsyncEngine, F: FnMut(WebEvent)>(
         nnz,
         is_zero_one,
         engine: engine_name.clone(),
+        epsilon: web_config.epsilon,
+        delta: web_config.delta,
+        seed: web_config.seed,
         exact_ln,
         exact_source: exact_source.clone(),
+        exact_skipped_too_large,
     });
 
     session.observe(|progress| match progress {
@@ -252,13 +267,14 @@ async fn run_with_engine<E: AsyncEngine, F: FnMut(WebEvent)>(
             });
         }
         Progress::Round { index, estimate: e } => {
-            let mut s = sink.borrow_mut();
-            s.say(report::round(e));
-            s.send(WebEvent::Round {
+            sink.borrow_mut().send(WebEvent::Round {
                 round: index,
                 islands: e.islands,
                 ln_permanent: e.ln_permanent,
                 std_error: e.std_error,
+                mutate_events: e.mutate.events,
+                sampler_events: e.sampler.events,
+                seconds: e.seconds,
             });
         }
     });
@@ -266,7 +282,23 @@ async fn run_with_engine<E: AsyncEngine, F: FnMut(WebEvent)>(
     let levels = session.learn_schedule().await?;
     let d = session.diagnostics.clone();
 
-    report::phase1(&d, levels.len(), &engine_name, core_config, |line| sink.borrow_mut().say(line));
+    let phase1 = Phase1Summary {
+        temperatures: levels.len(),
+        seconds: d.phase1_seconds,
+        learn_particles: d.learn_particles,
+        learn_iterations: d.learn_iterations,
+        far_steps: d.far_steps,
+        mutate_events: d.mutate.events,
+        mutations: d.mutations,
+        mutate_time: d.mutate.time,
+        learn_mutation_time: core_config.learn_mutation_time,
+        learn_capped_chains: d.learn_capped_chains,
+        mutate_over_budget: d.mutate.over_budget,
+        worst_first_correction_factor: d.worst_first_correction.exp(),
+        check_min: if d.check_min.is_finite() { d.check_min } else { 1.0 },
+        check_max: if d.check_max.is_finite() { d.check_max } else { 1.0 },
+    };
+    sink.borrow_mut().send(WebEvent::Phase1(phase1.clone()));
 
     let schedule_json = if web_config.save_schedule {
         let payload = serde_json::json!({
@@ -284,7 +316,7 @@ async fn run_with_engine<E: AsyncEngine, F: FnMut(WebEvent)>(
 
     let plan = session.plan(&levels);
     let ln_scale = ln_factorial(n) - scaled.log_scale;
-    sink.borrow_mut().send(WebEvent::Plan {
+    let plan_summary = PlanSummary {
         segments: plan.segments.iter().map(|r| [r.start, r.end]).collect(),
         ln_scale,
         particles: plan.particles,
@@ -293,52 +325,43 @@ async fn run_with_engine<E: AsyncEngine, F: FnMut(WebEvent)>(
         mixing_factor: plan.mixing_factor,
         island_relvar: plan.island_relvar,
         stage_time: plan.stage_time,
+        predicted_events: plan.predicted_events,
         sigma_target: session.sigma_target,
         z: session.z,
-    });
-
-    report::plan(&plan, session.sigma_target, session.z, |line| sink.borrow_mut().say(line));
+    };
+    sink.borrow_mut().send(WebEvent::Plan(plan_summary.clone()));
 
     let exact_scientific = exact_ln.map(scientific);
     if web_config.plan_only {
         drop(session);
-        let (final_sample, lines) = {
-            let s = sink.borrow();
-            (s.last_sample.clone(), s.lines.clone())
-        };
+        let final_sample = sink.borrow().last_sample.clone();
         let summary = RunSummary {
             n,
             nnz,
             is_zero_one,
             engine: engine_name,
+            epsilon: web_config.epsilon,
+            delta: web_config.delta,
             seed: web_config.seed,
             plan_only: true,
             zero_permanent: false,
-            temperatures: levels.len(),
-            phase1_seconds: d.phase1_seconds,
-            learn_particles: d.learn_particles,
-            learn_iterations: d.learn_iterations,
-            far_steps: d.far_steps,
-            worst_first_correction_factor: d.worst_first_correction.exp(),
-            check_min: if d.check_min.is_finite() { d.check_min } else { 1.0 },
-            check_max: if d.check_max.is_finite() { d.check_max } else { 1.0 },
             exact_ln,
             exact_scientific,
             exact_source,
+            exact_skipped_too_large,
+            phase1: Some(phase1),
+            plan: Some(plan_summary),
             estimate: None,
             final_sample,
             schedule_json,
-            lines,
         };
         sink.borrow_mut().send(WebEvent::Done { summary: Box::new(summary.clone()) });
         return Ok(Some(summary));
     }
 
-    say!(sink, "phase 2 (estimate):");
     let est = session.estimate(&levels, &plan).await?;
-    let accuracy = Accuracy::new(&est, session.z, core_config, exact_ln);
+    let accuracy = est.accuracy(session.z, core_config, exact_ln);
     drop(session);
-    report::estimate(&est, &plan, &accuracy, |line| sink.borrow_mut().say(line));
 
     let verdict = match est.verdict {
         Verdict::Consistent(gap) => VerdictInfo::Consistent { max_gap_se: gap },
@@ -347,41 +370,34 @@ async fn run_with_engine<E: AsyncEngine, F: FnMut(WebEvent)>(
     };
 
     let (entropy_per_site, entropy_std_error) = if let Some(sites) = built.info.lattice_sites {
-        let s = est.ln_permanent / sites as f64;
-        let se = est.std_error / sites as f64;
-        say!(sink, "entropy per site = {s:.5} ± {se:.5} ({sites} sites)");
-        (Some(s), Some(se))
+        (Some(est.ln_permanent / sites as f64), Some(est.std_error / sites as f64))
     } else {
         (None, None)
     };
 
-    let (final_sample, lines) = {
-        let s = sink.borrow();
-        (s.last_sample.clone(), s.lines.clone())
-    };
+    let final_sample = sink.borrow().last_sample.clone();
     let summary = RunSummary {
         n,
         nnz,
         is_zero_one,
         engine: engine_name,
+        epsilon: web_config.epsilon,
+        delta: web_config.delta,
         seed: web_config.seed,
         plan_only: false,
         zero_permanent: false,
-        temperatures: levels.len(),
-        phase1_seconds: d.phase1_seconds,
-        learn_particles: d.learn_particles,
-        learn_iterations: d.learn_iterations,
-        far_steps: d.far_steps,
-        worst_first_correction_factor: d.worst_first_correction.exp(),
-        check_min: if d.check_min.is_finite() { d.check_min } else { 1.0 },
-        check_max: if d.check_max.is_finite() { d.check_max } else { 1.0 },
         exact_ln,
         exact_scientific,
         exact_source,
+        exact_skipped_too_large,
+        phase1: Some(phase1),
+        plan: Some(plan_summary),
         estimate: Some(EstimateSummary {
             ln_permanent: est.ln_permanent,
             std_error: est.std_error,
             scientific: scientific(est.ln_permanent),
+            ln_ci_low: accuracy.ln_low,
+            ln_ci_high: accuracy.ln_high,
             ci_low_scientific: scientific(accuracy.ln_low),
             ci_high_scientific: scientific(accuracy.ln_high),
             ci_level_pct: accuracy.level_percent,
@@ -391,11 +407,13 @@ async fn run_with_engine<E: AsyncEngine, F: FnMut(WebEvent)>(
             islands: est.islands,
             particles: est.particles,
             island_relvar: est.island_relvar,
+            planned_island_relvar: plan.island_relvar * plan.particles as f64 / est.particles as f64,
             mean_gap: est.mean_gap,
             verdict,
             mutate_events: est.mutate.events,
             sampler_events: est.sampler.events,
-            over_budget: est.mutate.over_budget + est.sampler.over_budget,
+            mutate_over_budget: est.mutate.over_budget,
+            sampler_over_budget: est.sampler.over_budget,
             seconds: est.seconds,
             rel_error_pct: accuracy.against_exact.map(|exact| exact.error_percent),
             z_score: accuracy.against_exact.and_then(|exact| exact.std_errors),
@@ -405,7 +423,6 @@ async fn run_with_engine<E: AsyncEngine, F: FnMut(WebEvent)>(
         }),
         final_sample,
         schedule_json,
-        lines,
     };
     sink.borrow_mut().send(WebEvent::Done { summary: Box::new(summary.clone()) });
     Ok(Some(summary))

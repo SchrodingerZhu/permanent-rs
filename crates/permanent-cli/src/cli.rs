@@ -8,12 +8,11 @@ use std::time::{Duration, Instant};
 use clap::{ArgAction, Parser, ValueEnum};
 use permanent_core::comm::{Comm, Solo};
 use permanent_core::engine::Engine;
-use permanent_core::estimator::{Config, Progress, Session};
+use permanent_core::estimator::{Config, Progress, Session, Verdict};
 use permanent_core::exact;
 use permanent_core::problem::Problem;
-use permanent_core::report::{self, Accuracy};
 use permanent_core::scaling::{Prepared, Scaled, prepare};
-use permanent_core::stats::ln_factorial;
+use permanent_core::stats::{ln_factorial, scientific};
 use tracing::level_filters::LevelFilter;
 use tracing::{debug, info};
 use tracing_subscriber::EnvFilter;
@@ -334,7 +333,16 @@ fn estimate<E: Engine, C: Comm>(
                 seconds = e.seconds,
                 "phase 2 round finished"
             );
-            reporter.say(report::round(e));
+            say!(
+                reporter,
+                "  {:>6} islands   ln(per) = {:.5} ± {:.5}   {:.3e} mutation + {:.3e} sampler events, {:.1} s",
+                e.islands,
+                e.ln_permanent,
+                e.std_error,
+                e.mutate.events as f64,
+                e.sampler.events as f64,
+                e.seconds,
+            );
             reporter.send(|| TuiEvent::Round {
                 islands: e.islands,
                 ln_permanent: e.ln_permanent,
@@ -346,11 +354,41 @@ fn estimate<E: Engine, C: Comm>(
     let levels = session.learn_schedule()?;
     let d = session.diagnostics().clone();
     debug!(?d, "phase 1 diagnostics");
-    report::phase1(&d, levels.len(), &engine, config, |line| reporter.say(line));
+    let t = cli.mutation_time;
+    say!(reporter, "phase 1 (learn weights, build schedule): {:.1} s", d.phase1_seconds);
+    say!(reporter, "  temperatures:                {}", levels.len());
+    say!(reporter, "  population:                  {} particles on {engine}", d.learn_particles);
+    say!(
+        reporter,
+        "  work:                        {} learning passes, {:.3e} mutation events, {:.3e} FAR steps",
+        d.learn_iterations,
+        d.mutate.events as f64,
+        d.far_steps as f64
+    );
+    // Phase 1 mutates only when --learn-mutation-time asks for it
+    if d.mutations > 0 {
+        say!(
+            reporter,
+            "  mutation (t = {}):         {:.0} events each, {:.3} of the time in perfect matchings",
+            cli.learn_mutation_time,
+            d.mutate.events as f64 / d.mutations as f64,
+            cli.learn_mutation_time * d.mutations as f64 / d.mutate.time
+        );
+    }
+    say!(reporter, "  worst first-pass correction: x{:.3}", d.worst_first_correction.exp());
+    say!(reporter, "  weight check (should be ~1): {:.3} to {:.3}", d.check_min, d.check_max);
+    if d.learn_capped_chains + d.mutate.over_budget > 0 {
+        say!(
+            reporter,
+            "  WARNING: {} capped FAR chains, {} mutations over budget",
+            d.learn_capped_chains,
+            d.mutate.over_budget
+        );
+    }
     if let Some(path) = cli.save_schedule.as_ref().filter(|_| comm.rank() == 0) {
         let schedule = serde_json::json!({
             "n": n,
-            "mutation_time": cli.mutation_time,
+            "mutation_time": t,
             "energy": scaled.energy,
             "log_gap": scaled.log_gap.iter().map(|g| g.max(f64::MIN)).collect::<Vec<_>>(),
             "log_scale": scaled.log_scale,
@@ -361,14 +399,76 @@ fn estimate<E: Engine, C: Comm>(
     }
     let plan = session.plan(&levels);
     reporter.send(|| TuiEvent::Plan { segments: plan.segments.clone(), ln_scale: ln_factorial(n) - scaled.log_scale });
-    report::plan(&plan, session.sigma_target(), session.z(), |line| reporter.say(line));
+    say!(reporter, "plan:");
+    say!(
+        reporter,
+        "  segments:                    {} (independent; each starts from fresh sampler draws)",
+        plan.segments.len()
+    );
+    say!(reporter, "  islands x particles:         {} x {} per segment", plan.islands, plan.particles);
+    say!(
+        reporter,
+        "  variance per island:         planned {:.4} (sum of step variances {:.3}, margin 2); bound factor {:.2}",
+        plan.island_relvar,
+        plan.relvar_sum,
+        plan.mixing_factor
+    );
+    say!(reporter, "  target std error of ln(per): {:.4} (interval z = {:.3})", session.sigma_target(), session.z());
+    say!(reporter, "  sampler stage time:          {:.4}", plan.stage_time);
+    if plan.predicted_events > 0.0 {
+        say!(reporter, "  predicted:                   ~{:.3e} mutation events", plan.predicted_events);
+    }
     if cli.plan_only {
         return Ok(());
     }
     say!(reporter, "phase 2 (estimate, {ranks} rank{}):", if ranks == 1 { "" } else { "s" });
     let estimate = session.estimate(&levels, &plan)?;
-    let accuracy = Accuracy::new(&estimate, session.z(), config, exact);
-    report::estimate(&estimate, &plan, &accuracy, |line| reporter.say(line));
+    say!(
+        reporter,
+        "  measured variance per island: {:.4} with {} particles (planned {:.4})",
+        estimate.island_relvar,
+        estimate.particles,
+        plan.island_relvar * plan.particles as f64 / estimate.particles as f64
+    );
+    match estimate.verdict {
+        Verdict::Consistent(gap) => say!(
+            reporter,
+            "  boundary check: carried and fresh populations agree (largest difference {gap:+.2} standard errors)"
+        ),
+        Verdict::Inconsistent(gap) => say!(
+            reporter,
+            "  WARNING: carried and fresh populations differ by {gap:+.2} standard errors at a segment \
+             boundary; raise --mutation-time or use --rigorous-sampler"
+        ),
+        Verdict::Unchecked => say!(reporter, "  boundary check: none (one segment)"),
+    }
+    if estimate.mutate.over_budget + estimate.sampler.over_budget > 0 {
+        say!(
+            reporter,
+            "  WARNING: {} mutations and {} sampler trials hit their event cap",
+            estimate.mutate.over_budget,
+            estimate.sampler.over_budget
+        );
+    }
+    say!(reporter, "  regularization factor E[g]:  {:.4}", estimate.mean_gap);
+    let accuracy = estimate.accuracy(session.z(), config, exact);
+    say!(reporter, "permanent ≈ {}", scientific(estimate.ln_permanent));
+    say!(reporter, "  ln(permanent) = {:.6} ± {:.6} (std error)", estimate.ln_permanent, estimate.std_error);
+    say!(
+        reporter,
+        "  {:.1}% statistical interval: [{}, {}]  (relative half-width {:.2}%)",
+        accuracy.level_percent,
+        scientific(accuracy.ln_low),
+        scientific(accuracy.ln_high),
+        accuracy.half_width_percent
+    );
+    if !estimate.met_target {
+        say!(reporter, "  WARNING: the measured error did not reach the target within the top-up limit");
+    }
+    if let Some(exact) = accuracy.against_exact {
+        let distance = exact.std_errors.map(|z| format!(" ({z:+.2} std errors)")).unwrap_or_default();
+        say!(reporter, "exact = {}; relative error {:+.3}%{distance}", scientific(exact.ln_exact), exact.error_percent);
+    }
     info!(ln_permanent = estimate.ln_permanent, std_error = estimate.std_error, "finished");
     Ok(())
 }

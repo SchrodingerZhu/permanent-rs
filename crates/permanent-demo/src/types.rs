@@ -138,7 +138,7 @@ pub enum ProblemGeometry {
 }
 
 /// Complete generated problem descriptor returned to front ends for display.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GeneratedProblem {
     pub title: String,
     pub description: String,
@@ -169,7 +169,7 @@ pub struct SampleSnapshot {
 }
 
 /// One entry in the curated demo catalog (frontend-agnostic).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DemoPreset {
     pub id: String,
     pub title: String,

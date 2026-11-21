@@ -1,5 +1,5 @@
-//! Serializable configuration, capability, and telemetry types shared across
-//! the Rust/Wasm boundary.
+//! Serializable configuration, capability, and structured telemetry types shared
+//! across the Rust/Wasm boundary.
 
 use serde::{Deserialize, Serialize};
 
@@ -7,7 +7,7 @@ pub use permanent_demo::types::{
     GeneratedProblem, LatticeBond, MatrixEntry, ProblemGeometry, ProblemSpec, RandomMatrixFamily, SampleSnapshot,
 };
 
-/// Estimator and engine configuration exposed to the web UI. Runs are on WebGPU (`permanent-wgpu`).
+/// Estimator and engine configuration exposed to front ends. Runs are on WebGPU (`permanent-wgpu`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct WebRunConfig {
@@ -58,8 +58,43 @@ impl Default for WebRunConfig {
     }
 }
 
+/// Phase 1 (schedule learning) diagnostics and work totals.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Phase1Summary {
+    pub temperatures: usize,
+    pub seconds: f64,
+    pub learn_particles: usize,
+    pub learn_iterations: u64,
+    pub far_steps: u64,
+    pub mutate_events: u64,
+    pub mutations: u64,
+    pub mutate_time: f64,
+    pub learn_mutation_time: f64,
+    pub learn_capped_chains: u64,
+    pub mutate_over_budget: u64,
+    pub worst_first_correction_factor: f64,
+    pub check_min: f64,
+    pub check_max: f64,
+}
+
+/// Phase 2 execution plan computed from the learned temperature schedule.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlanSummary {
+    pub segments: Vec<[usize; 2]>,
+    pub ln_scale: f64,
+    pub particles: usize,
+    pub islands: usize,
+    pub relvar_sum: f64,
+    pub mixing_factor: f64,
+    pub island_relvar: f64,
+    pub stage_time: f64,
+    pub predicted_events: f64,
+    pub sigma_target: f64,
+    pub z: f64,
+}
+
 /// Result of the segment-boundary consistency check.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum VerdictInfo {
     Consistent { max_gap_se: f64 },
@@ -68,11 +103,13 @@ pub enum VerdictInfo {
 }
 
 /// Structured Phase 2 estimation result.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EstimateSummary {
     pub ln_permanent: f64,
     pub std_error: f64,
     pub scientific: String,
+    pub ln_ci_low: f64,
+    pub ln_ci_high: f64,
     pub ci_low_scientific: String,
     pub ci_high_scientific: String,
     pub ci_level_pct: f64,
@@ -82,11 +119,13 @@ pub struct EstimateSummary {
     pub islands: usize,
     pub particles: usize,
     pub island_relvar: f64,
+    pub planned_island_relvar: f64,
     pub mean_gap: f64,
     pub verdict: VerdictInfo,
     pub mutate_events: u64,
     pub sampler_events: u64,
-    pub over_budget: u64,
+    pub mutate_over_budget: u64,
+    pub sampler_over_budget: u64,
     pub seconds: f64,
     pub rel_error_pct: Option<f64>,
     pub z_score: Option<f64>,
@@ -95,35 +134,32 @@ pub struct EstimateSummary {
     pub entropy_lower_bound: Option<f64>,
 }
 
-/// Final summary emitted on `WebEvent::Done` and returned from `run`.
-#[derive(Debug, Clone, Serialize)]
+/// Final structured summary emitted on `WebEvent::Done` and returned from `run`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RunSummary {
     pub n: usize,
     pub nnz: usize,
     pub is_zero_one: bool,
     pub engine: String,
+    pub epsilon: f64,
+    pub delta: f64,
     pub seed: u64,
     pub plan_only: bool,
     pub zero_permanent: bool,
-    pub temperatures: usize,
-    pub phase1_seconds: f64,
-    pub learn_particles: usize,
-    pub learn_iterations: u64,
-    pub far_steps: u64,
-    pub worst_first_correction_factor: f64,
-    pub check_min: f64,
-    pub check_max: f64,
     pub exact_ln: Option<f64>,
     pub exact_scientific: Option<String>,
     pub exact_source: Option<String>,
+    pub exact_skipped_too_large: bool,
+    pub phase1: Option<Phase1Summary>,
+    pub plan: Option<PlanSummary>,
     pub estimate: Option<EstimateSummary>,
     pub final_sample: Option<SampleSnapshot>,
     pub schedule_json: Option<String>,
-    pub lines: Vec<String>,
 }
 
-/// Live telemetry event stream mirroring `permanent-cli`'s TUI dashboard.
-#[derive(Debug, Clone, Serialize)]
+/// Structured live telemetry event stream mirroring `permanent-cli`'s TUI
+/// dashboard without pre-formatted prose lines.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum WebEvent {
     Init {
@@ -131,8 +167,12 @@ pub enum WebEvent {
         nnz: usize,
         is_zero_one: bool,
         engine: String,
+        epsilon: f64,
+        delta: f64,
+        seed: u64,
         exact_ln: Option<f64>,
         exact_source: Option<String>,
+        exact_skipped_too_large: bool,
     },
     Level {
         index: usize,
@@ -146,18 +186,8 @@ pub enum WebEvent {
         matching: Vec<u32>,
         valid: bool,
     },
-    Plan {
-        segments: Vec<[usize; 2]>,
-        ln_scale: f64,
-        particles: usize,
-        islands: usize,
-        relvar_sum: f64,
-        mixing_factor: f64,
-        island_relvar: f64,
-        stage_time: f64,
-        sigma_target: f64,
-        z: f64,
-    },
+    Phase1(Phase1Summary),
+    Plan(PlanSummary),
     Sweep {
         round: usize,
         done: u64,
@@ -173,9 +203,9 @@ pub enum WebEvent {
         islands: usize,
         ln_permanent: f64,
         std_error: f64,
-    },
-    Line {
-        text: String,
+        mutate_events: u64,
+        sampler_events: u64,
+        seconds: f64,
     },
     Done {
         summary: Box<RunSummary>,
@@ -187,7 +217,7 @@ pub enum WebEvent {
 }
 
 /// One entry of the curated demo catalog.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PresetInfo {
     pub id: String,
     pub title: String,
@@ -197,7 +227,7 @@ pub struct PresetInfo {
 }
 
 /// Browser WebGPU capability report.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Capabilities {
     pub webgpu_available: bool,
     pub adapter_name: Option<String>,

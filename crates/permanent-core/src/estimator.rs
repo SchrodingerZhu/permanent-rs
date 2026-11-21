@@ -201,6 +201,50 @@ pub struct Estimate {
     pub seconds: f64,
 }
 
+/// The statistical interval of an estimate, and the estimate against an exact
+/// value when one is known.
+#[derive(Debug, Clone, Copy)]
+pub struct Accuracy {
+    /// Confidence level of the interval, in percent.
+    pub level_percent: f64,
+    /// `ln` of the two ends of the interval.
+    pub ln_low: f64,
+    pub ln_high: f64,
+    /// Distance of the upper end from the estimate, relative to it, in percent.
+    pub half_width_percent: f64,
+    pub against_exact: Option<AgainstExact>,
+}
+
+/// Comparison of an estimate against a known exact `ln(permanent)`.
+#[derive(Debug, Clone, Copy)]
+pub struct AgainstExact {
+    pub ln_exact: f64,
+    /// Relative error of the estimate, in percent.
+    pub error_percent: f64,
+    /// The same difference in standard errors; `None` when the standard error is 0.
+    pub std_errors: Option<f64>,
+}
+
+impl Estimate {
+    /// Compute the statistical interval (using the session's normal quantile `z`)
+    /// and optional comparison against a known exact `ln(permanent)`.
+    pub fn accuracy(&self, z: f64, config: &Config, ln_exact: Option<f64>) -> Accuracy {
+        let half = z * self.std_error;
+        Accuracy {
+            // half of delta is statistical
+            level_percent: 100.0 * (1.0 - config.delta / 2.0),
+            ln_low: self.ln_permanent - half,
+            ln_high: self.ln_permanent + half,
+            half_width_percent: 100.0 * (half.exp() - 1.0),
+            against_exact: ln_exact.map(|ln_exact| AgainstExact {
+                ln_exact,
+                error_percent: 100.0 * ((self.ln_permanent - ln_exact).exp() - 1.0),
+                std_errors: (self.std_error > 0.0).then(|| (self.ln_permanent - ln_exact) / self.std_error),
+            }),
+        }
+    }
+}
+
 /// What the segment-boundary check found.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Verdict {
@@ -1441,7 +1485,29 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
 
 #[cfg(test)]
 mod tests {
-    use super::rank_share;
+    use super::{Config, Estimate, MutateCost, SampleCost, Verdict, rank_share};
+
+    #[test]
+    fn accuracy_omits_std_errors_when_std_error_is_zero() {
+        let estimate = Estimate {
+            ln_permanent: 2.0,
+            std_error: 0.0,
+            met_target: true,
+            rounds: 1,
+            islands: 4,
+            particles: 16,
+            island_relvar: 0.0,
+            mean_gap: 1.0,
+            mutate: MutateCost::default(),
+            mutations: 0,
+            sampler: SampleCost::default(),
+            verdict: Verdict::Unchecked,
+            seconds: 0.1,
+        };
+        let accuracy = estimate.accuracy(1.96, &Config::default(), Some(2.0));
+        assert!(accuracy.against_exact.unwrap().std_errors.is_none());
+        assert!((accuracy.level_percent - 97.5).abs() < 1e-12);
+    }
 
     #[test]
     fn ranks_share_every_island_once_and_evenly() {
