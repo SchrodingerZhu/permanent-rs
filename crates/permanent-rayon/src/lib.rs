@@ -16,6 +16,11 @@ use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use rayon::prelude::*;
 
+/// Fewest FAR chains a task runs. Every task tallies into a round of its
+/// own, which costs about as much to set up and merge as a few short chains
+/// cost to run, so the pool must not split a round down to single chains.
+const FAR_CHAINS_PER_TASK: usize = 32;
+
 /// The population on the rayon pool, one particle per task. `T` is the
 /// type of the chains' waiting times and `G` the generator of a particle's
 /// stream.
@@ -229,6 +234,7 @@ where
             .sigma
             .par_chunks_mut(n)
             .enumerate()
+            .with_min_len(FAR_CHAINS_PER_TASK)
             .fold(
                 // the round of this task and one chain's lane
                 || (FarRound::new(n, groups), vec![0u16; 2 * n]),
