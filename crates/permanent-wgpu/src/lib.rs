@@ -366,7 +366,7 @@ impl<'a> Wgpu<'a> {
                     .map_init(
                         || (vec![0u16; words(n)], vec![0u16; n]),
                         |(memory, row), &(_, seed)| {
-                            let mut matching = Matching::new(Lane::on(memory, n));
+                            let mut matching = Matching::on(memory, n);
                             let mut cost = SampleCost::default();
                             for trial in trial + 1..max_trials {
                                 let mut rng = Philox::new(mix(seed.wrapping_add(trial)));
