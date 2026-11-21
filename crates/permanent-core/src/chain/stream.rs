@@ -4,7 +4,7 @@
 //! construction, and a stream's position is two integers, so a chain
 //! stopped on one device can be continued on another.
 
-use rand_core::{Infallible, SeedableRng, TryRng, utils};
+use rand_core::{Infallible, Rng, SeedableRng, TryRng, utils};
 use rand_philox::philox4x32_10;
 
 #[derive(Clone, Copy)]
@@ -12,6 +12,8 @@ pub struct Stream {
     key: [u32; 2],
     /// Blocks generated so far.
     block: u64,
+    /// The last block, turned so that the next output is first: with no
+    /// index that depends on the position, a device keeps it in registers.
     lanes: [u32; 4],
     /// Outputs of the last block not yet handed out.
     left: u32,
@@ -35,7 +37,9 @@ impl Stream {
         if left > 0 {
             stream.block = block - 1;
             stream.refill();
-            stream.left = left;
+            for _ in left..4 {
+                stream.next_u32();
+            }
         } else {
             stream.block = block;
         }
@@ -59,7 +63,9 @@ impl TryRng for Stream {
             self.refill();
         }
         self.left -= 1;
-        Ok(self.lanes[3 - self.left as usize])
+        let [word, second, third, fourth] = self.lanes;
+        self.lanes = [second, third, fourth, word];
+        Ok(word)
     }
 
     #[inline(always)]
@@ -90,7 +96,6 @@ impl SeedableRng for Stream {
 #[cfg(test)]
 mod test {
     use super::*;
-    use rand_core::Rng;
 
     #[test]
     fn hands_out_each_block_once() {
