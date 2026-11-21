@@ -17,6 +17,8 @@ anyhow = "1.0.104"
 rand = "0.10.2"
 rayon = "1.12.0"
 tracing = "0.1.44"
+num-traits = "0.2.19"
+fixed = "1.31"
 
 [profile.release]
 lto = "thin"

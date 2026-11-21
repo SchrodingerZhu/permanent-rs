@@ -9,7 +9,10 @@
 //! Particle p of a call draws from the stream (seed, phase, level,
 //! first id + p), so results do not depend on threads, batches or ranks.
 
-use crate::far::FarStats;
+use num_traits::{Float, PrimInt, Unsigned};
+
+use crate::chain::far::{FarChain, Tally};
+use crate::chain::{Energy, EnergySum};
 use crate::sampler::{MutateCost, SampleCost, StageSchedule};
 use crate::tables::Tables;
 
@@ -22,17 +25,17 @@ pub struct Stream {
 }
 
 /// FAR statistics of one call, pooled over the particles of each group.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FarRound {
     /// Per group: cycles run, then visits to N(anchor, v) for each v.
     pub cycles: Vec<u64>,
     pub visits: Vec<Vec<u64>>,
     /// Sum of energies over the visits to N(anchor, v).
-    pub visit_energy: Vec<f64>,
+    pub visit_energy: Vec<EnergySum>,
     /// Sum of energies over perfect steps.
-    pub perfect_energy: f64,
+    pub perfect_energy: EnergySum,
     pub steps: u64,
-    /// Chains that hit the step cap (their particle did not move).
+    /// Chains that hit the step cap; their particles did not move.
     pub capped: u64,
 }
 
@@ -41,25 +44,31 @@ impl FarRound {
         FarRound {
             cycles: vec![0; groups],
             visits: vec![vec![0; n]; groups],
-            visit_energy: vec![0.0; n],
-            perfect_energy: 0.0,
+            visit_energy: vec![EnergySum::ZERO; n],
+            perfect_energy: EnergySum::ZERO,
             steps: 0,
             capped: 0,
         }
     }
 
-    /// Add one chain's statistics, as a member of `group`.
-    pub fn add(&mut self, group: usize, stats: &FarStats) {
-        self.cycles[group] += stats.perfect_steps;
-        for (total, visits) in self.visits[group].iter_mut().zip(&stats.visits) {
+    /// Count what `chain` did since it had taken `cycles` perfect steps
+    /// and `steps` steps with a perfect-energy sum of zero; `capped` if it
+    /// ran out of steps.
+    pub fn close(&mut self, group: usize, chain: &FarChain, cycles: u64, steps: u64, capped: bool) {
+        self.cycles[group] += chain.perfect_steps - cycles;
+        self.perfect_energy += EnergySum::from(chain.perfect_energy);
+        self.steps += chain.steps - steps;
+        self.capped += capped as u64;
+    }
+
+    /// Add the visits of a chain of `group`.
+    pub fn add(&mut self, group: usize, tally: &ChainTally) {
+        for (total, visits) in self.visits[group].iter_mut().zip(&tally.visits) {
             *total += visits;
         }
-        for (total, energy) in self.visit_energy.iter_mut().zip(&stats.visit_energy) {
-            *total += energy;
+        for (total, energy) in self.visit_energy.iter_mut().zip(&tally.visit_energy) {
+            *total += *energy;
         }
-        self.perfect_energy += stats.perfect_energy;
-        self.steps += stats.steps;
-        self.capped += stats.capped as u64;
     }
 
     pub fn merge(mut self, other: FarRound) -> FarRound {
@@ -81,7 +90,46 @@ impl FarRound {
     }
 }
 
+/// The visits of one chain, counted into its group of a round.
+pub struct GroupTally<'r> {
+    pub round: &'r mut FarRound,
+    pub group: usize,
+}
+
+impl Tally for GroupTally<'_> {
+    #[inline]
+    fn visit(&mut self, v: u32, energy: Energy) {
+        self.round.visits[self.group][v as usize] += 1;
+        self.round.visit_energy[v as usize] += EnergySum::from(energy);
+    }
+}
+
+/// The visits of one chain, kept apart until it is added to a round.
+pub struct ChainTally {
+    visits: Vec<u64>,
+    visit_energy: Vec<EnergySum>,
+}
+
+impl ChainTally {
+    pub fn new(n: usize) -> Self {
+        ChainTally { visits: vec![0; n], visit_energy: vec![EnergySum::ZERO; n] }
+    }
+}
+
+impl Tally for ChainTally {
+    #[inline]
+    fn visit(&mut self, v: u32, energy: Energy) {
+        self.visits[v as usize] += 1;
+        self.visit_energy[v as usize] += EnergySum::from(energy);
+    }
+}
+
 pub trait Engine {
+    /// Type of the waiting times in the move and the annealing sampler.
+    type Data: Float;
+    /// Type of the random thresholds the chains compare against.
+    type Counter: PrimInt + Unsigned + Send + Sync;
+
     fn name(&self) -> String;
 
     /// Most particles the engine can hold.
@@ -102,7 +150,7 @@ pub trait Engine {
     #[allow(clippy::too_many_arguments)]
     fn anneal(
         &mut self,
-        tables: &Tables,
+        tables: &Tables<Self::Counter>,
         stages: &StageSchedule,
         stage_time: f64,
         max_trials: u64,
@@ -112,7 +160,7 @@ pub trait Engine {
     ) -> anyhow::Result<SampleCost>;
 
     /// Apply the mutation kernel K_t of `sampler.rs` to every particle.
-    fn mutate(&mut self, tables: &Tables, perfect_time: f64, stream: Stream) -> anyhow::Result<MutateCost>;
+    fn mutate(&mut self, tables: &Tables<Self::Counter>, perfect_time: f64, stream: Stream) -> anyhow::Result<MutateCost>;
 
     /// Energy of every particle.
     fn energies(&mut self) -> anyhow::Result<Vec<f64>>;
@@ -128,7 +176,7 @@ pub trait Engine {
     /// into group p % groups.
     fn far(
         &mut self,
-        tables: &Tables,
+        tables: &Tables<Self::Counter>,
         cycles: u64,
         max_steps: u64,
         groups: usize,

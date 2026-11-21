@@ -4,12 +4,13 @@ use permanent_core::exact;
 use permanent_core::problem::Problem;
 use permanent_core::scaling::{Prepared, prepare};
 use permanent_rayon::Rayon;
+use rand::rngs::SmallRng;
 
 fn check(problem: &Problem, seed: u64) {
     let exact = exact::ln_permanent(problem).unwrap();
     let Prepared::Scaled(scaled) = prepare(problem) else { panic!("permanent is zero") };
     let config = Config { epsilon: 0.1, delta: 0.05, seed, ..Default::default() };
-    let mut session = Session::new(&scaled, &config, Rayon::new(&scaled), &Solo).unwrap();
+    let mut session = Session::new(&scaled, &config, Rayon::<f64, SmallRng>::new(&scaled), &Solo).unwrap();
     let levels = session.learn_schedule().unwrap();
     let plan = session.plan(&levels);
     let estimate = session.estimate(&levels, &plan).unwrap();
@@ -75,7 +76,7 @@ fn tiny_populations_are_unbiased() {
         segments: Some(1),
         ..Default::default()
     };
-    let mut session = Session::new(&scaled, &config, Rayon::new(&scaled), &Solo).unwrap();
+    let mut session = Session::new(&scaled, &config, Rayon::<f64, SmallRng>::new(&scaled), &Solo).unwrap();
     let levels = session.learn_schedule().unwrap();
     let plan = session.plan(&levels);
     let estimate = session.estimate(&levels, &plan).unwrap();

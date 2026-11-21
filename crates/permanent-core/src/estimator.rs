@@ -430,7 +430,7 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
         let mut drift = vec![0.0; n];
         for iteration in 0..LEARN_MAX_ITERATIONS {
             self.diagnostics.learn_iterations += 1;
-            let tables = Tables::build(scaled, beta, &log_w, anchor);
+            let tables = Tables::<E::Counter>::build(scaled, beta, &log_w, anchor);
             // Once per temperature, to spread out the copies resampling
             // made; after that the FAR runs themselves move the particles.
             if iteration == 0 && !exact && self.config.learn_mutation_time > 0.0 {
@@ -458,9 +458,9 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
                     }
                 }
                 for v in 0..n {
-                    energy_sums[v] += far.visit_energy[v];
+                    energy_sums[v] += far.visit_energy[v].to_num::<f64>();
                 }
-                energy_sums[n] += far.perfect_energy;
+                energy_sums[n] += far.perfect_energy.to_num::<f64>();
                 // Over all ranks: cycles, groups, visits_v; and the second
                 // moments sum k^2, sum visits_v^2, sum visits_v k of the
                 // groups, for the ratio-estimator error of each class.
@@ -721,7 +721,7 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
         let last = levels.len() - 1;
         let Range { start: first, end } = plan.segments[segment].clone();
         let first_id = islands.start * particles as u64;
-        let tables = |level: &Level| Tables::build(scaled, level.beta, &level.log_w, anchor);
+        let tables = |level: &Level| Tables::<E::Counter>::build(scaled, level.beta, &level.log_w, anchor);
 
         if first == 0 {
             self.engine.load(&uniform_permutations(n, count * particles, seed, PHASE_INIT, first_id), first_id)?;

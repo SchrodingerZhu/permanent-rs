@@ -50,6 +50,10 @@ impl Scaled {
     pub fn h_max(&self) -> f64 {
         self.n as f64 * self.log_inv_tau
     }
+    /// The energies as bits of the chains' fixed-point type, to the nearest.
+    pub fn fixed_energy(&self) -> Vec<i64> {
+        self.energy.iter().map(|&e| crate::chain::Energy::from_num(e).to_bits()).collect()
+    }
     pub fn energy_of(&self, perm: &[u32]) -> f64 {
         let n = self.n;
         perm.iter().enumerate().map(|(u, &v)| self.energy[u * n + v as usize]).sum()

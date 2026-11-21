@@ -37,7 +37,7 @@ The modules named below are in `crates/permanent-core/src`.
 2. **Annealing.** Activities are a~(u,v)^beta for beta from 0 (uniform over
    all n! permutations) to 1, so
    per(A) = n! · ∏ E_i[exp(-d_i H)] · E[g] / c.
-3. **Learning** (`far.rs`). The n anchor weights of each temperature are
+3. **Learning** (`chain/far.rs`). The n anchor weights of each temperature are
    learned with the FAR chain, counted over cycles between perfect states
    (Kac's formula). The identity holds per cycle, so every particle of a
    population runs a few cycles instead of a few chains running many, and
@@ -99,6 +99,22 @@ feature of the same name and chosen at run time with `--backend`:
 | `rayon` (default feature) | `permanent-rayon` | the CPU thread pool |
 | `cuda` | `permanent-cuda` | an NVIDIA GPU |
 
+Both engines run the same chains, written once in
+`permanent-core/src/chain` and compiled for the host and for the device.
+Every probability decision is a comparison of random bits with an integer
+threshold and FAR energies are fixed point; only the waiting times of the
+move and of the sampler are floating point. Their type is the engine's type
+parameter (`Rayon<T>`, `Cuda<T>`), chosen with `--precision f32|f64`: the
+default is `f64` on rayon and `f32` on cuda. The estimator and the command
+line are generic over the engine, so nothing is dispatched at run time
+beyond the choice of backend.
+
+The GPU draws from Philox4x32-10, keyed by a particle's seed; the rayon
+engine draws from `SmallRng`, which makes it more than twice as fast, and
+runs on Philox when asked (`Rayon<T, Stream>`), in which case the FAR chain
+returns the same counts as on the GPU. A run with a given seed gives the
+same result whatever the number of threads.
+
 The kernels of the `cuda` backend are Rust, compiled with cuda-oxide
 (https://github.com/NVIDIA/cuda-rust), which needs the toolchain pinned in
 `rust-toolchain.toml`, LLVM 21+ and CUDA 13+. Build through `cargo oxide`
@@ -148,16 +164,16 @@ host.
         src/problem.rs        Matrix Market input
         src/scaling.rs        Hungarian method, scaling, regularization
         src/tables.rs         per-temperature B matrix and alias tables
-        src/sampler.rs        relaxed-assignment dynamics: annealing sampler, mutation
-        src/far.rs            FAR chain and cycle counting
+        src/sampler.rs        relaxed-assignment dynamics: activity schedule and caps
+        src/chain/            the chains, for host and device: FAR, the move,
+                              the annealing trial, a particle's memory and stream
         src/engine.rs         the Engine trait: population operations
         src/comm.rs           reductions across MPI ranks
         src/estimator.rs      schedule, planning, segments, islands
         src/exact.rs          exact subset DP for n <= 26
     crates/permanent-rayon    engine on the CPU thread pool
     crates/permanent-cuda     engine on a GPU
-        src/lib.rs            kernels and the host side
-        src/philox.rs         Philox4x32-10, the kernels' generator
+        src/lib.rs            kernels (wrappers over the chains) and the host side
     crates/permanent-cli      the `permanent` program
         src/cli.rs            command line, report, logging
         src/tui.rs            dashboard

@@ -37,6 +37,13 @@ impl Backend {
     const DEFAULT: Backend = Backend::Rayon;
 }
 
+/// Type of the waiting times in the chains.
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+enum Precision {
+    F32,
+    F64,
+}
+
 /// Estimate the permanent of a nonnegative matrix to a requested accuracy.
 ///
 /// Give the matrix and the accuracy; the temperatures, the population and
@@ -86,6 +93,11 @@ pub struct Cli {
     /// Worker threads (default: all).
     #[arg(short, long)]
     threads: Option<usize>,
+    /// Type of the waiting times in the chains. Every probability decision
+    /// is an integer comparison whatever this is. Default: f64 on rayon,
+    /// f32 on cuda.
+    #[arg(long, value_enum)]
+    precision: Option<Precision>,
     /// First GPU ordinal of the cuda backend.
     #[cfg(feature = "cuda")]
     #[arg(long, default_value_t = 0)]
@@ -225,14 +237,25 @@ fn run<C: Comm>(cli: &Cli, problem: &Problem, comm: &C, reporter: &Reporter) -> 
     // one engine per rank
     match cli.backend {
         #[cfg(feature = "rayon")]
-        Backend::Rayon => estimate(cli, &scaled, &config, exact, permanent_rayon::Rayon::new(&scaled), comm, reporter),
+        Backend::Rayon => {
+            // the default generator: see `Rayon`
+            type Rayon<'a, T> = permanent_rayon::Rayon<'a, T, rand::rngs::SmallRng>;
+            match cli.precision.unwrap_or(Precision::F64) {
+                Precision::F32 => estimate(cli, &scaled, &config, exact, Rayon::<f32>::new(&scaled), comm, reporter),
+                Precision::F64 => estimate(cli, &scaled, &config, exact, Rayon::<f64>::new(&scaled), comm, reporter),
+            }
+        }
         #[cfg(feature = "cuda")]
         Backend::Cuda => {
-            let devices = permanent_cuda::Cuda::device_count()?;
+            use permanent_cuda::Cuda;
+            let devices = permanent_cuda::device_count()?;
             anyhow::ensure!(devices > 0, "no CUDA device");
             // one GPU per rank, wrapping around when there are fewer GPUs
-            let engine = permanent_cuda::Cuda::new(&scaled, (cli.device + comm.rank()) % devices)?;
-            estimate(cli, &scaled, &config, exact, engine, comm, reporter)
+            let device = (cli.device + comm.rank()) % devices;
+            match cli.precision.unwrap_or(Precision::F32) {
+                Precision::F32 => estimate(cli, &scaled, &config, exact, Cuda::<f32>::new(&scaled, device)?, comm, reporter),
+                Precision::F64 => estimate(cli, &scaled, &config, exact, Cuda::<f64>::new(&scaled, device)?, comm, reporter),
+            }
         }
     }
 }

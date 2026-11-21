@@ -275,7 +275,7 @@ checks at a cost of about 3 c_s / (L c_m), a fifth of the total at L ≈ 200.
 Phase 1 fixes β_i and the anchor weights w_i. Its errors cannot bias the
 estimate (Theorem 2); they only change v_i, g_i and ν(A), that is, the cost.
 
-**Learning.** The FAR chain (`far.rs`) is a discrete-time chain on perfect
+**Learning.** The FAR chain (`chain/far.rs`) is a discrete-time chain on perfect
 and near-perfect matchings, reversible for π with π(· | perfect) = μ. Let
 T_1 < T_2 < … be its perfect steps. The chain watched at those steps is
 stationary when started from μ, and by Kac's formula the expected number of

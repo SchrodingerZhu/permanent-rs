@@ -16,299 +16,104 @@
 //! it is small enough to sit in the device's cache, and that measures
 //! faster than staging fewer particles per block.
 //!
-//! The arithmetic differs from the CPU engine, so the two are statistically
-//! equivalent, not draw-for-draw identical:
-//!
-//!  - Every probability decision is an integer comparison. Ring rates are
-//!    exact integers (the collision penalty J = 32 n^2 is one), the alias
-//!    tables carry 48-bit thresholds and the unassign probability a 64-bit
-//!    one, so no decision is coarser than the CPU's 53-bit uniforms.
-//!  - Waiting times are f32; nothing in the event loop is f64.
-//!  - The generator is Philox4x32-10, keyed by the particle's stream seed.
-//!  - The FAR learner tracks a matching's energy in 2^-24 fixed point, so
-//!    the running sum never drifts.
+//! The chains are those of `permanent_core::chain`, the same code the rayon
+//! engine runs, compiled here for the device: every probability decision
+//! is an integer comparison, the generator is Philox4x32-10 keyed by the
+//! particle's stream seed, FAR energies are fixed point, and only waiting
+//! times are in the real type `T` of `Cuda<T>`. With the same seeds the
+//! FAR chain returns the same counts on both engines.
 //!
 //! A launch lasts as long as its longest thread. FAR cycles have a long
 //! tail, so a FAR launch gives every chain a step budget, and the few
-//! chains that overrun it are finished on the host; every cycle still
-//! completes, which is what the learner's identity needs.
+//! chains that overrun it are continued on the host from where they
+//! stopped, on the same stream; every cycle still completes, which is what
+//! the learner's identity needs.
 
 use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::{Context, Result, ensure};
-use cuda_core::{CudaContext, DeviceBuffer, LaunchConfig, Stream as CudaStream};
-use cuda_device::atomic::{AtomicOrdering, DeviceAtomicF64, DeviceAtomicU64};
+use cuda_core::{CudaContext, DeviceBuffer, DeviceCopy, LaunchConfig, Stream as CudaStream};
+use cuda_device::atomic::{AtomicOrdering, DeviceAtomicI64, DeviceAtomicU64};
 use cuda_device::{DisjointSlice, DynamicSharedArray, device, kernel, thread};
+use num_traits::{AsPrimitive, Float};
 use cuda_host::cuda_module;
-use permanent_core::engine::{Engine, FarRound, Stream};
-use permanent_core::far;
+use permanent_core::chain::dynamics::{self, STAGE_TICKS};
+use permanent_core::chain::far::{self as far_chain, FarChain, FarTables, Tally};
+use permanent_core::chain::lane::{Lane, MAX_N, NONE};
+use permanent_core::chain::matching::{Matching, words as lane_words};
+use permanent_core::chain::stream::Stream as Stream32;
+use permanent_core::chain::{Energy, EnergySum};
+use permanent_core::engine::{ChainTally, Engine, FarRound, Stream};
 use permanent_core::sampler::{MutateCost, SampleCost, StageSchedule, mutate_event_cap, penalty};
 use permanent_core::scaling::Scaled;
 use permanent_core::stats::{mix, stream_seed};
-use permanent_core::tables::Tables;
-use rand::SeedableRng;
-use rand::rngs::SmallRng;
+use permanent_core::tables::{Tables, fraction};
 use rayon::prelude::*;
 use tracing::{debug, info};
 
-mod philox;
-use philox::{Philox, philox_new, philox_next, philox_next_u64};
-
-/// A particle's working state: the matching sigma (row u to column, or
-/// NONE), its inverse (column v to its row, NONE when free, MULTI when two
-/// or more rows are on it), then the rows in a collision.
-const SIGMA: usize = 0;
-const COL: usize = 1;
-/// The FAR chain's matching, in the same two arrays.
-const ROW: usize = 0;
-/// Rows in a collision that the list can hold.
-const CONFLICTS: usize = 32;
-/// Fixed-point scale of the FAR chain's energies.
-const ENERGY_ONE: f64 = (1u64 << 24) as f64;
-const NONE: u32 = 0xFFFF;
-const MULTI: u32 = 0xFFFE;
 /// Set in a particle's event count when its move hit the event cap.
 const OVER_BUDGET: u64 = 1 << 63;
 /// Set in a trial's event count when it ended on a perfect matching.
 const PERFECT: u64 = 1 << 62;
-/// Stage time of the sampler, in ticks.
-const STAGE_TICKS: u64 = 1 << 40;
 
-/// Words of working state per particle.
-const fn lane_words(n: usize) -> usize {
-    2 * n + CONFLICTS
-}
-
-/// One particle's working state. Element i of array a lives at
-/// `base + (a n + i) stride`, and entry i of the collision list at
-/// `base + (2 n + i) stride`: stride 1 in global memory, the block size in
-/// shared memory, where it puts the lanes of a warp in distinct banks.
-#[derive(Clone, Copy)]
-struct Work {
-    base: *mut u16,
-    stride: usize,
-    n: usize,
-    n_conf: u32,
-    unassigned: u32,
-    /// The collision list was full when a row had to be added.
-    overflow: bool,
-}
-
+/// This thread's lane: one of its block's shared memory when `staged`, where
+/// the stride puts the lanes of a warp in distinct banks, else its slot of
+/// `scratch`.
 #[device]
-unsafe fn get(work: &Work, array: usize, index: u32) -> u32 {
-    unsafe { *work.base.add((array * work.n + index as usize) * work.stride) as u32 }
-}
-
-#[device]
-unsafe fn set(work: &Work, array: usize, index: u32, value: u32) {
-    unsafe { *work.base.add((array * work.n + index as usize) * work.stride) = value as u16 }
-}
-
-#[device]
-unsafe fn conflict(work: &Work, index: u32) -> u32 {
-    unsafe { get(work, 2, index) }
-}
-
-#[device]
-unsafe fn is_conflicted(work: &Work, u: u32) -> bool {
-    let mut i = 0u32;
-    while i < work.n_conf {
-        if unsafe { conflict(work, i) } == u {
-            return true;
-        }
-        i += 1;
-    }
-    false
-}
-
-#[device]
-unsafe fn add_conflict(work: &mut Work, u: u32) {
-    if work.n_conf as usize == CONFLICTS {
-        work.overflow = true;
-        return;
-    }
-    unsafe { set(work, 2, work.n_conf, u) };
-    work.n_conf += 1;
-}
-
-#[device]
-unsafe fn drop_conflict(work: &mut Work, u: u32) {
-    let mut i = 0u32;
-    while i < work.n_conf {
-        unsafe {
-            if conflict(work, i) == u {
-                work.n_conf -= 1;
-                set(work, 2, i, conflict(work, work.n_conf));
-                return;
-            }
-        }
-        i += 1;
-    }
-}
-
-#[device]
-unsafe fn remove(work: &mut Work, u: u32) {
-    unsafe {
-        let v = get(work, SIGMA, u);
-        if v == NONE {
-            return;
-        }
-        set(work, SIGMA, u, NONE);
-        work.unassigned += 1;
-        if get(work, COL, v) != MULTI {
-            // u was alone on v
-            set(work, COL, v, NONE);
-            return;
-        }
-        drop_conflict(work, u);
-        // if one row is left on v, it is no longer in a collision
-        let mut left = 0u32;
-        let mut last = NONE;
-        let mut i = 0u32;
-        while i < work.n_conf {
-            let w = conflict(work, i);
-            if get(work, SIGMA, w) == v {
-                left += 1;
-                last = w;
-            }
-            i += 1;
-        }
-        if left == 1 {
-            drop_conflict(work, last);
-            set(work, COL, v, last);
-        }
-    }
-}
-
-#[device]
-unsafe fn place(work: &mut Work, u: u32, v: u32) {
-    unsafe {
-        set(work, SIGMA, u, v);
-        work.unassigned -= 1;
-        let occupant = get(work, COL, v);
-        if occupant == NONE {
-            set(work, COL, v, u);
-        } else if occupant == MULTI {
-            add_conflict(work, u);
-        } else {
-            set(work, COL, v, MULTI);
-            add_conflict(work, occupant);
-            add_conflict(work, u);
-        }
-    }
-}
-
-/// A uniform integer below `bound` from 32 random bits.
-#[device]
-fn below(bits: u32, bound: u32) -> u32 {
-    ((bits as u64 * bound as u64) >> 32) as u32
-}
-
-/// High 64 bits of the 64x64 product, by 32-bit limbs.
-#[device]
-fn mul_high(a: u64, b: u64) -> u64 {
-    let (a0, a1) = (a & 0xFFFF_FFFF, a >> 32);
-    let (b0, b1) = (b & 0xFFFF_FFFF, b >> 32);
-    let p01 = a0 * b1;
-    let p10 = a1 * b0;
-    let middle = ((a0 * b0) >> 32) + (p01 & 0xFFFF_FFFF) + (p10 & 0xFFFF_FFFF);
-    a1 * b1 + (p01 >> 32) + (p10 >> 32) + (middle >> 32)
-}
-
-/// Draw from line `line` of a packed alias table.
-#[device]
-unsafe fn alias_draw(table: *const u64, line: u32, n: u32, rng: &mut Philox) -> u32 {
-    let i = below(philox_next(rng), n);
-    let entry = unsafe { *table.add(line as usize * n as usize + i as usize) };
-    let draw = philox_next_u64(rng) >> 16;
-    if draw < (entry >> 16) { i } else { (entry & 0xFFFF) as u32 }
-}
-
-/// One ring of the dynamics: pick the vertex whose clock rang, unassign it,
-/// and redraw it from its row unless it stays unassigned.
-#[device]
-unsafe fn ring(
-    work: &mut Work,
-    rng: &mut Philox,
-    table: *const u64,
-    rate: u64,
-    conflicted_rate: u64,
-    unassign_below: u64,
-) {
-    let n = work.n as u32;
-    let conflicted = mul_high(philox_next_u64(rng), rate) < conflicted_rate;
-    unsafe {
-        let mut u;
-        if conflicted {
-            u = conflict(work, below(philox_next(rng), work.n_conf));
-        } else {
-            // uniform over the rows outside the list, by rejection
-            loop {
-                u = below(philox_next(rng), n);
-                if !is_conflicted(work, u) {
-                    break;
-                }
-            }
-        }
-        remove(work, u);
-        if philox_next_u64(rng) >= unassign_below {
-            let v = alias_draw(table, u, n, rng);
-            place(work, u, v);
-        }
-    }
-}
-
-/// This thread's working state: a lane of the block's shared memory when
-/// `staged`, else its slot of `scratch`.
-#[device]
-unsafe fn bind(scratch: *mut u16, slot: usize, n: usize, staged: u32) -> Work {
+unsafe fn lane(scratch: *mut u16, slot: usize, n: usize, staged: u32) -> Lane {
     unsafe {
         if staged != 0 {
             let shared: *mut u16 = DynamicSharedArray::<u16>::get();
-            Work {
-                base: shared.add(thread::threadIdx_x() as usize),
-                stride: thread::blockDim_x() as usize,
-                n,
-                n_conf: 0,
-                unassigned: 0,
-                overflow: false,
-            }
+            Lane::new(shared.add(thread::threadIdx_x() as usize), thread::blockDim_x() as usize, n)
         } else {
-            Work { base: scratch.add(slot * lane_words(n)), stride: 1, n, n_conf: 0, unassigned: 0, overflow: false }
+            Lane::new(scratch.add(slot * lane_words(n)), 1, n)
         }
     }
 }
 
-/// An exponential waiting time of rate 1 from 32 random bits.
-#[device]
-fn exponential(bits: u32) -> f32 {
-    -((bits as f32 + 0.5) * 2.328_306_4e-10).ln()
+/// Counts a chain's visits into the launch's shared sums.
+struct DeviceTally<'k> {
+    /// The row of this chain's group.
+    visits: &'k [DeviceAtomicU64],
+    first: usize,
+    visit_energy: &'k [DeviceAtomicI64],
+}
+
+impl Tally for DeviceTally<'_> {
+    #[inline(always)]
+    fn visit(&mut self, v: u32, energy: Energy) {
+        // SAFETY: the kernel is launched with groups rows of n counters and n sums
+        unsafe {
+            self.visits.get_unchecked(self.first + v as usize).fetch_add(1, AtomicOrdering::Relaxed);
+            self.visit_energy.get_unchecked(v as usize).fetch_add(energy.to_bits(), AtomicOrdering::Relaxed);
+        }
+    }
 }
 
 #[cuda_module]
 mod kernels {
     use super::*;
 
-    /// The mutation kernel K_t of `permanent_core::sampler::mutate` on every
-    /// particle: relaxed-assignment dynamics at activity J until
+    /// The mutation kernel K_t (`permanent_core::chain::dynamics::mutate`)
+    /// on every particle: relaxed-assignment dynamics at activity J until
     /// `perfect_time` has been spent in perfect matchings.
     ///
-    /// alias[u n + i]: (48-bit keep threshold << 16) | alias column.
-    /// unassign_below: P(unassign) 2^64. fast: 1 + J.
+    /// alias: the packed row alias table. unassign_below: P(unassign) 2^64.
+    /// fast: 1 + J.
     #[kernel(unchecked_indexing)]
     #[allow(clippy::too_many_arguments)]
-    pub fn mutate(
+    pub fn mutate<T: Float>(
         alias: &[u64],
         seeds: &[u64],
         mut sigma: DisjointSlice<u16>,
         mut scratch: DisjointSlice<u16>,
         mut events_out: DisjointSlice<u64>,
-        mut time_out: DisjointSlice<f32>,
+        mut time_out: DisjointSlice<T>,
         n: u32,
         count: u32,
         staged: u32,
-        perfect_time: f32,
+        perfect_time: T,
         fast: u64,
         unassign_below: u64,
         event_cap: u64,
@@ -319,73 +124,47 @@ mod kernels {
             return;
         }
         let size = n as usize;
-        let mut work = unsafe { bind(scratch.as_mut_ptr(), slot, size, staged) };
-        let row = unsafe { sigma.as_mut_ptr().add(slot * size) };
-        let mut u = 0u32;
-        while u < n {
-            unsafe {
-                let v = *row.add(u as usize) as u32;
-                set(&work, SIGMA, u, v);
-                set(&work, COL, v, u);
+        let mut rng = Stream32::new(seeds[slot]);
+        // SAFETY: `sigma` holds `count` perfect matchings on n rows, the
+        // lane a relaxed assignment, and the table is n x n.
+        let moved = unsafe {
+            let row = sigma.as_mut_ptr().add(slot * size);
+            let mut matching = Matching::new(lane(scratch.as_mut_ptr(), slot, size, staged));
+            matching.load(row);
+            let moved = dynamics::mutate::<u64, T, _>(
+                &mut matching,
+                n,
+                alias,
+                perfect_time,
+                fast,
+                unassign_below,
+                event_cap,
+                &mut rng,
+            );
+            if !moved.over_budget {
+                matching.store(row);
             }
-            u += 1;
-        }
-
-        let mut rng: Philox = philox_new(seeds[slot]);
-        let table = alias.as_ptr();
-        let mut remaining = perfect_time;
-        let mut time = 0.0f32;
-        let mut events = 0u64;
-        let mut over_budget = false;
-        loop {
-            let conflicted_rate = work.n_conf as u64 * fast;
-            let rate = (n - work.n_conf) as u64 + conflicted_rate;
-            let dt = exponential(philox_next(&mut rng)) / rate as f32;
-            if work.n_conf == 0 && work.unassigned == 0 {
-                if dt >= remaining {
-                    time += remaining;
-                    break;
-                }
-                remaining -= dt;
-            }
-            time += dt;
-            events += 1;
-            if events > event_cap {
-                over_budget = true;
-                break;
-            }
-            unsafe { ring(&mut work, &mut rng, table, rate, conflicted_rate, unassign_below) };
-            if work.overflow {
-                over_budget = true;
-                break;
-            }
-        }
-
-        if !over_budget {
-            let mut u = 0u32;
-            while u < n {
-                unsafe { *row.add(u as usize) = get(&work, SIGMA, u) as u16 };
-                u += 1;
-            }
-        }
+            moved
+        };
         if let Some(out) = events_out.get_mut(index) {
-            *out = if over_budget { events | OVER_BUDGET } else { events };
+            *out = if moved.over_budget { moved.events | OVER_BUDGET } else { moved.events };
         }
         if let Some(out) = time_out.get_mut(thread::index_1d()) {
-            *out = time;
+            *out = moved.time;
         }
     }
 
-    /// One trial of the annealing sampler (`permanent_core::sampler::run_trial`)
-    /// per slot: from the all-unassigned state through every activity
-    /// stage. A trial that ends on a perfect matching writes it to particle
-    /// `targets[slot]` and sets PERFECT in its event count.
+    /// One trial of the annealing sampler
+    /// (`permanent_core::chain::dynamics::trial`) per slot: from the
+    /// all-unmatched state through every activity stage. A trial that ends
+    /// on a perfect matching writes it to particle `targets[slot]` and sets
+    /// PERFECT in its event count.
     ///
     /// unassign[stage]: P(unassign) 2^64 at that stage's activity.
     /// ticks_per_time: STAGE_TICKS / stage time.
     #[kernel(unchecked_indexing)]
     #[allow(clippy::too_many_arguments)]
-    pub fn anneal(
+    pub fn anneal<T: Float + AsPrimitive<u64>>(
         alias: &[u64],
         unassign: &[u64],
         seeds: &[u64],
@@ -396,8 +175,7 @@ mod kernels {
         n: u32,
         count: u32,
         staged: u32,
-        stages: u32,
-        ticks_per_time: f32,
+        ticks_per_time: T,
         fast: u64,
         event_cap: u64,
     ) {
@@ -407,77 +185,32 @@ mod kernels {
             return;
         }
         let size = n as usize;
-        let mut work = unsafe { bind(scratch.as_mut_ptr(), slot, size, staged) };
-        work.unassigned = n;
-        let mut u = 0u32;
-        while u < n {
-            unsafe {
-                set(&work, SIGMA, u, NONE);
-                set(&work, COL, u, NONE);
+        let mut rng = Stream32::new(seeds[slot]);
+        // SAFETY: the lane holds a relaxed assignment, the table is n x n,
+        // and the targets are distinct particles of `sigma`.
+        let (trial, perfect) = unsafe {
+            let mut matching = Matching::new(lane(scratch.as_mut_ptr(), slot, size, staged));
+            let trial =
+                dynamics::trial::<u64, T, _>(&mut matching, n, alias, unassign, ticks_per_time, fast, event_cap, &mut rng);
+            let perfect = !trial.over_budget && matching.is_perfect();
+            if perfect {
+                matching.store(sigma.as_mut_ptr().add(targets[slot] as usize * size));
             }
-            u += 1;
-        }
-
-        let mut rng: Philox = philox_new(seeds[slot]);
-        let table = alias.as_ptr();
-        // One flat loop over events and stage changes, so the threads of a
-        // warp stay in the same code whatever stage each has reached.
-        let mut stage = 0u32;
-        let mut ticks = 0u64;
-        let mut unassign_below = unassign[0];
-        let mut events = 0u64;
-        let mut outcome = 0u64;
-        loop {
-            let conflicted_rate = work.n_conf as u64 * fast;
-            let rate = (n - work.n_conf) as u64 + conflicted_rate;
-            ticks += (exponential(philox_next(&mut rng)) * (ticks_per_time / rate as f32)) as u64;
-            if ticks > STAGE_TICKS {
-                stage += 1;
-                if stage == stages {
-                    break;
-                }
-                ticks = 0;
-                unassign_below = unassign[stage as usize];
-                continue;
-            }
-            events += 1;
-            if events > event_cap {
-                outcome = OVER_BUDGET;
-                break;
-            }
-            unsafe { ring(&mut work, &mut rng, table, rate, conflicted_rate, unassign_below) };
-            if work.overflow {
-                outcome = OVER_BUDGET;
-                break;
-            }
-        }
-
-        if outcome == 0 && work.n_conf == 0 && work.unassigned == 0 {
-            outcome = PERFECT;
-            let row = unsafe { sigma.as_mut_ptr().add(targets[slot] as usize * size) };
-            let mut u = 0u32;
-            while u < n {
-                unsafe { *row.add(u as usize) = get(&work, SIGMA, u) as u16 };
-                u += 1;
-            }
-        }
+            (trial, perfect)
+        };
         if let Some(out) = events_out.get_mut(index) {
-            *out = events | outcome;
+            *out = trial.events | if perfect { PERFECT } else if trial.over_budget { OVER_BUDGET } else { 0 };
         }
     }
 
-    /// The FAR chain of `permanent_core::far::run` on every particle: `cycles`
-    /// cycles from its perfect matching, or `budget` steps if that comes
-    /// first. The particle is replaced by where the chain stopped: a perfect
-    /// matching, or one with NONE at its left hole. `status_out` holds
-    /// steps | left hole << 32 | right hole << 48, with NONE for no holes.
+    /// The FAR chain (`permanent_core::chain::far`) on every particle:
+    /// `cycles` cycles from its perfect matching in `sigma`, or `budget`
+    /// steps if that comes first. Where the chain stopped goes to `next`: a
+    /// perfect matching, or one with NONE at its row hole. `status_out`
+    /// holds steps | row hole << 32 | column hole << 48, with NONE for no
+    /// holes, and `position_out` the stream's blocks << 3 | outputs left.
     /// Particle p adds its visits to N(anchor, v) to
     /// `visits[(p % groups) n + v]` and their energies to `visit_energy[v]`.
-    ///
-    /// moves[2 (u n + v)], moves[2 (u n + v) + 1]: with holes (u, v), the
-    /// chain adds the edge below the first threshold and slides left below
-    /// the second, as fractions of 2^64; a right slide is as likely as a
-    /// left one. energy: 2^-24 fixed point.
     #[kernel(unchecked_indexing)]
     #[allow(clippy::too_many_arguments)]
     pub fn far(
@@ -487,12 +220,14 @@ mod kernels {
         energy: &[i64],
         seeds: &[u64],
         visits: &[DeviceAtomicU64],
-        visit_energy: &[DeviceAtomicF64],
-        mut sigma: DisjointSlice<u16>,
+        visit_energy: &[DeviceAtomicI64],
+        sigma: &[u16],
+        mut next: DisjointSlice<u16>,
         mut scratch: DisjointSlice<u16>,
         mut cycles_out: DisjointSlice<u64>,
         mut status_out: DisjointSlice<u64>,
         mut energy_out: DisjointSlice<i64>,
+        mut position_out: DisjointSlice<u64>,
         n: u32,
         count: u32,
         staged: u32,
@@ -507,105 +242,30 @@ mod kernels {
             return;
         }
         let size = n as usize;
-        let work = unsafe { bind(scratch.as_mut_ptr(), slot, size, staged) };
-        let stored = unsafe { sigma.as_mut_ptr().add(slot * size) };
-        let mut h = 0i64;
-        let mut u = 0u32;
-        while u < n {
-            unsafe {
-                let v = *stored.add(u as usize) as u32;
-                set(&work, ROW, u, v);
-                set(&work, COL, v, u);
-                h += energy[u as usize * size + v as usize];
-            }
-            u += 1;
-        }
-
-        let mut rng: Philox = philox_new(seeds[slot]);
-        let group = (slot as u32 % groups) as usize;
-        let mut hole_u = NONE;
-        let mut hole_v = 0u32;
-        let mut perfect_steps = 0u64;
-        let mut perfect_energy = 0i64;
-        let mut steps = 0u64;
-        loop {
-            if steps >= budget {
-                break;
-            }
-            if hole_u == NONE {
-                if perfect_steps == cycles {
-                    break;
-                }
-                perfect_steps += 1;
-                perfect_energy += h;
-                steps += 1;
-                if philox_next(&mut rng) & 1 == 0 {
-                    let u = below(philox_next(&mut rng), n);
-                    unsafe {
-                        let v = get(&work, ROW, u);
-                        set(&work, ROW, u, NONE);
-                        set(&work, COL, v, NONE);
-                        h -= energy[u as usize * size + v as usize];
-                        hole_u = u;
-                        hole_v = v;
-                    }
-                }
-            } else {
-                if hole_u == anchor {
-                    visits[group * size + hole_v as usize].fetch_add(1, AtomicOrdering::Relaxed);
-                    visit_energy[hole_v as usize].fetch_add(h as f64 / ENERGY_ONE, AtomicOrdering::Relaxed);
-                }
-                steps += 1;
-                let cell = hole_u as usize * size + hole_v as usize;
-                let add_below = moves[2 * cell];
-                let left_below = moves[2 * cell + 1];
-                let x = philox_next_u64(&mut rng);
-                unsafe {
-                    if x < add_below {
-                        set(&work, ROW, hole_u, hole_v);
-                        set(&work, COL, hole_v, hole_u);
-                        h += energy[cell];
-                        hole_u = NONE;
-                    } else if x < left_below {
-                        // left slide: the left hole takes over a matched column
-                        let z = alias_draw(row_alias.as_ptr(), hole_u, n, &mut rng);
-                        if z != hole_v {
-                            let y = get(&work, COL, z);
-                            set(&work, ROW, y, NONE);
-                            set(&work, ROW, hole_u, z);
-                            set(&work, COL, z, hole_u);
-                            h += energy[hole_u as usize * size + z as usize] - energy[y as usize * size + z as usize];
-                            hole_u = y;
-                        }
-                    } else if x - left_below < left_below - add_below {
-                        // right slide: the right hole takes over a matched row
-                        let y = alias_draw(col_alias.as_ptr(), hole_v, n, &mut rng);
-                        if y != hole_u {
-                            let z = get(&work, ROW, y);
-                            set(&work, ROW, y, hole_v);
-                            set(&work, COL, hole_v, y);
-                            set(&work, COL, z, NONE);
-                            h += energy[y as usize * size + hole_v as usize] - energy[y as usize * size + z as usize];
-                            hole_v = z;
-                        }
-                    }
-                }
-            }
-        }
-
-        let mut u = 0u32;
-        while u < n {
-            unsafe { *stored.add(u as usize) = get(&work, ROW, u) as u16 };
-            u += 1;
-        }
+        let tables = FarTables { row_alias, col_alias, moves, energy };
+        let mut rng = Stream32::new(seeds[slot]);
+        let mut tally = DeviceTally { visits, first: (slot as u32 % groups) as usize * size, visit_energy };
+        // SAFETY: `sigma` and `next` hold `count` rows of n, the lane two
+        // arrays of n, and the tables are n x n.
+        let chain = unsafe {
+            let lane = lane(scratch.as_mut_ptr(), slot, size, staged);
+            let mut chain = far_chain::begin(&lane, sigma.as_ptr().add(slot * size), &tables);
+            far_chain::run(&lane, &tables, anchor, cycles, budget, &mut rng, &mut chain, &mut tally);
+            far_chain::store(&lane, next.as_mut_ptr().add(slot * size));
+            chain
+        };
         if let Some(out) = cycles_out.get_mut(index) {
-            *out = perfect_steps;
+            *out = chain.perfect_steps;
         }
         if let Some(out) = status_out.get_mut(thread::index_1d()) {
-            *out = steps | (hole_u as u64) << 32 | (hole_v as u64) << 48;
+            *out = chain.steps | (chain.hole_u as u64) << 32 | (chain.hole_v as u64) << 48;
         }
         if let Some(out) = energy_out.get_mut(thread::index_1d()) {
-            *out = perfect_energy;
+            *out = chain.perfect_energy.to_bits();
+        }
+        if let Some(out) = position_out.get_mut(thread::index_1d()) {
+            let (blocks, left) = rng.position();
+            *out = blocks << 3 | left as u64;
         }
     }
 
@@ -692,11 +352,14 @@ fn fits_shared(words: usize) -> bool {
 /// Most particles resident at once, and the device memory they may take.
 const MAX_PARTICLES: usize = 1 << 20;
 const MEMORY_BUDGET: usize = 8 << 30;
-/// The kernels index vertices with 16-bit words; the two highest values
-/// mark "unassigned" and "more than one row here".
-const MAX_N: usize = 0xFFFD;
 
-pub struct Cuda<'a> {
+/// Number of CUDA devices on this host.
+pub fn device_count() -> Result<usize> {
+    Ok(CudaContext::device_count()? as usize)
+}
+
+/// The population on one GPU. `T` is the type of the chains' waiting times.
+pub struct Cuda<'a, T: DeviceCopy> {
     scaled: &'a Scaled,
     name: String,
     stream: Arc<CudaStream>,
@@ -705,7 +368,8 @@ pub struct Cuda<'a> {
     count: usize,
     energy: DeviceBuffer<f64>,
     log_gap: DeviceBuffer<f64>,
-    /// The energies in the FAR kernel's fixed point.
+    /// The energies in the chains' fixed point, on the host and the device.
+    energy_bits: Vec<i64>,
     energy_fixed: DeviceBuffer<i64>,
     /// `Tables::id` of the row alias table on the device, and of the FAR
     /// tables (column alias, move thresholds); 0 when there is none.
@@ -720,11 +384,12 @@ pub struct Cuda<'a> {
     /// Working arrays when they do not fit shared memory.
     scratch: DeviceBuffer<u16>,
     events: DeviceBuffer<u64>,
-    time: DeviceBuffer<f32>,
+    time: DeviceBuffer<T>,
     energy_out: DeviceBuffer<f64>,
     gap_out: DeviceBuffer<f64>,
     cycles_out: DeviceBuffer<u64>,
     fixed_out: DeviceBuffer<i64>,
+    position_out: DeviceBuffer<u64>,
     /// Steps per cycle a FAR launch allows before a chain is handed to the
     /// host; tuned so that a few percent of the chains overrun.
     far_budget: f64,
@@ -742,7 +407,7 @@ struct FarSeconds {
     host_chains: f64,
 }
 
-impl Drop for Cuda<'_> {
+impl<T: DeviceCopy> Drop for Cuda<'_, T> {
     fn drop(&mut self) {
         if self.far_seconds.calls > 0 {
             debug!(far = ?self.far_seconds, budget_per_cycle = self.far_budget, "CUDA engine FAR calls");
@@ -750,27 +415,14 @@ impl Drop for Cuda<'_> {
     }
 }
 
-/// Alias tables in the kernels' packed form:
-/// (48-bit keep threshold << 16) | alias index.
-fn pack_alias((prob, alias): (&[f64], &[u32])) -> Vec<u64> {
-    const ONE: f64 = (1u64 << 48) as f64;
-    prob.iter().zip(alias).map(|(&p, &a)| (((p * ONE) as u64).min((1 << 48) - 1) << 16) | a as u64).collect()
-}
-
-/// A probability as a fraction of 2^64.
-fn fraction(p: f64) -> u64 {
-    (p * 18446744073709551616.0) as u64
-}
-
-impl<'a> Cuda<'a> {
-    /// Number of CUDA devices on this host.
-    pub fn device_count() -> Result<usize> {
-        Ok(CudaContext::device_count()? as usize)
-    }
-
+impl<'a, T> Cuda<'a, T>
+where
+    T: Float + AsPrimitive<u64> + DeviceCopy + Send + Sync,
+{
     /// The engine on device `ordinal`.
     pub fn new(scaled: &'a Scaled, ordinal: usize) -> Result<Self> {
         let n = scaled.n;
+        let energy_bits = scaled.fixed_energy();
         ensure!(n <= MAX_N, "the CUDA engine supports n up to {MAX_N}");
         let ctx = CudaContext::new(ordinal).with_context(|| format!("opening CUDA device {ordinal}"))?;
         let stream = ctx.default_stream();
@@ -779,16 +431,14 @@ impl<'a> Cuda<'a> {
         info!(%device, staged = fits_shared(lane_words(n)), far_staged = fits_shared(2 * n), "CUDA engine ready");
         Ok(Cuda {
             scaled,
-            name: format!("cuda:{ordinal} ({device})"),
+            name: format!("cuda:{ordinal} ({device}, {})", std::any::type_name::<T>()),
             module,
             first_id: 0,
             count: 0,
             energy: DeviceBuffer::from_host(&stream, &scaled.energy)?,
             log_gap: DeviceBuffer::from_host(&stream, &scaled.log_gap)?,
-            energy_fixed: DeviceBuffer::from_host(
-                &stream,
-                &scaled.energy.iter().map(|e| (e * ENERGY_ONE).round() as i64).collect::<Vec<_>>(),
-            )?,
+            energy_fixed: DeviceBuffer::from_host(&stream, &energy_bits)?,
+            energy_bits,
             row_id: 0,
             far_id: 0,
             row_alias: DeviceBuffer::zeroed(&stream, 1)?,
@@ -803,6 +453,7 @@ impl<'a> Cuda<'a> {
             gap_out: DeviceBuffer::zeroed(&stream, 1)?,
             cycles_out: DeviceBuffer::zeroed(&stream, 1)?,
             fixed_out: DeviceBuffer::zeroed(&stream, 1)?,
+            position_out: DeviceBuffer::zeroed(&stream, 1)?,
             far_budget: 64.0,
             far_seconds: FarSeconds::default(),
             stream,
@@ -830,35 +481,21 @@ impl<'a> Cuda<'a> {
     }
 
     /// Put the row alias table of `tables` on the device, unless it is there.
-    fn sync_row(&mut self, tables: &Tables) -> Result<()> {
+    fn sync_row(&mut self, tables: &Tables<u64>) -> Result<()> {
         if self.row_id != tables.id {
-            self.row_alias = DeviceBuffer::from_host(&self.stream, &pack_alias(tables.row_alias()))?;
+            self.row_alias = DeviceBuffer::from_host(&self.stream, &tables.packed_rows)?;
             self.row_id = tables.id;
         }
         Ok(())
     }
 
     /// Likewise the tables only the FAR kernel reads.
-    fn sync_far(&mut self, tables: &Tables) -> Result<()> {
-        if self.far_id == tables.id {
-            return Ok(());
+    fn sync_far(&mut self, tables: &Tables<u64>) -> Result<()> {
+        if self.far_id != tables.id {
+            self.col_alias = DeviceBuffer::from_host(&self.stream, &tables.packed_cols)?;
+            self.moves = DeviceBuffer::from_host(&self.stream, &tables.far_moves)?;
+            self.far_id = tables.id;
         }
-        let n = self.scaled.n;
-        self.col_alias = DeviceBuffer::from_host(&self.stream, &pack_alias(tables.col_alias()))?;
-        let mut moves = Vec::with_capacity(2 * n * n);
-        for u in 0..n {
-            for v in 0..n {
-                // the move probabilities of far.rs
-                let b = tables.b[u * n + v];
-                let half_inv_w = 0.5 / tables.hole_weight(u, v);
-                let add = n as f64 * b * half_inv_w;
-                let slide = tables.s[v] * half_inv_w;
-                moves.push(fraction(add));
-                moves.push(fraction(add + slide));
-            }
-        }
-        self.moves = DeviceBuffer::from_host(&self.stream, &moves)?;
-        self.far_id = tables.id;
         Ok(())
     }
 
@@ -879,6 +516,7 @@ impl<'a> Cuda<'a> {
         self.gap_out = DeviceBuffer::zeroed(&self.stream, count)?;
         self.cycles_out = DeviceBuffer::zeroed(&self.stream, count)?;
         self.fixed_out = DeviceBuffer::zeroed(&self.stream, count)?;
+        self.position_out = DeviceBuffer::zeroed(&self.stream, count)?;
         Ok(())
     }
 
@@ -910,7 +548,13 @@ impl<'a> Cuda<'a> {
     }
 }
 
-impl Engine for Cuda<'_> {
+impl<T> Engine for Cuda<'_, T>
+where
+    T: Float + AsPrimitive<u64> + DeviceCopy + Send + Sync,
+{
+    type Data = T;
+    type Counter = u64;
+
     fn name(&self) -> String {
         self.name.clone()
     }
@@ -935,7 +579,7 @@ impl Engine for Cuda<'_> {
 
     fn anneal(
         &mut self,
-        tables: &Tables,
+        tables: &Tables<u64>,
         stages: &StageSchedule,
         stage_time: f64,
         max_trials: u64,
@@ -947,15 +591,12 @@ impl Engine for Cuda<'_> {
         self.first_id = first_id;
         self.resize(count)?;
         self.sync_row(tables)?;
-        // P(unassign) = 1 / (1 + a) as a 64-bit threshold; a > 0 keeps it below 2^64
-        let unassign: Vec<u64> =
-            stages.activities.iter().map(|a| fraction(1.0 / (1.0 + a))).collect();
-        let unassign = DeviceBuffer::from_host(&self.stream, &unassign)?;
-        let ticks_per_time = (STAGE_TICKS as f64 / stage_time) as f32;
+        let unassign = DeviceBuffer::from_host(&self.stream, &stages.unassign::<u64>())?;
+        let ticks_per_time = T::from(STAGE_TICKS as f64 / stage_time).unwrap();
         let event_cap = stages.event_cap(n, stage_time);
         let mut cost = SampleCost::default();
-        // A trial that misses is run again with a fresh stream, like the
-        // CPU sampler; only the particles still missing are relaunched.
+        // A trial that misses is run again on a stream of its own; only the
+        // particles still missing are relaunched.
         let mut pending: Vec<u32> = (0..count as u32).collect();
         for trial in 0..max_trials {
             if pending.is_empty() {
@@ -975,7 +616,7 @@ impl Engine for Cuda<'_> {
             // distinct particles below `count`, and every per-slot buffer
             // holds at least `pending.len()` entries.
             unsafe {
-                self.module.anneal(
+                self.module.anneal::<T>(
                     self.stream.as_ref(),
                     config,
                     &self.row_alias,
@@ -988,9 +629,8 @@ impl Engine for Cuda<'_> {
                     n as u32,
                     pending.len() as u32,
                     staged,
-                    stages.stages() as u32,
                     ticks_per_time,
-                    1 + stages.penalty as u64,
+                    stages.fast(),
                     event_cap,
                 )
             }?;
@@ -1016,7 +656,7 @@ impl Engine for Cuda<'_> {
         Ok(cost)
     }
 
-    fn mutate(&mut self, tables: &Tables, perfect_time: f64, stream: Stream) -> Result<MutateCost> {
+    fn mutate(&mut self, tables: &Tables<u64>, perfect_time: f64, stream: Stream) -> Result<MutateCost> {
         let n = self.scaled.n;
         self.sync_row(tables)?;
         let seeds: Vec<u64> = (0..self.count as u64)
@@ -1024,13 +664,13 @@ impl Engine for Cuda<'_> {
             .collect();
         let seeds = DeviceBuffer::from_host(&self.stream, &seeds)?;
         let penalty = penalty(n);
-        let unassign_below = fraction(1.0 / (1.0 + penalty));
+        let unassign_below: u64 = fraction(1.0 / (1.0 + penalty));
         let (config, staged) = self.config(self.count, lane_words(n));
         // SAFETY: the arguments match the kernel; `sigma` holds count rows
         // of n, `scratch` the working state when it is not staged, and the
         // dynamic shared memory the block's working state when it is.
         unsafe {
-            self.module.mutate(
+            self.module.mutate::<T>(
                 self.stream.as_ref(),
                 config,
                 &self.row_alias,
@@ -1042,7 +682,7 @@ impl Engine for Cuda<'_> {
                 n as u32,
                 self.count as u32,
                 staged,
-                perfect_time as f32,
+                T::from(perfect_time).unwrap(),
                 1 + penalty as u64,
                 unassign_below,
                 mutate_event_cap(n, perfect_time),
@@ -1054,7 +694,7 @@ impl Engine for Cuda<'_> {
         for (events, time) in events.iter().zip(time) {
             cost.events += events & !OVER_BUDGET;
             cost.over_budget += (events & OVER_BUDGET != 0) as u64;
-            cost.time += time as f64;
+            cost.time += time.to_f64().unwrap();
         }
         Ok(cost)
     }
@@ -1091,7 +731,7 @@ impl Engine for Cuda<'_> {
 
     fn far(
         &mut self,
-        tables: &Tables,
+        tables: &Tables<u64>,
         cycles: u64,
         max_steps: u64,
         groups: usize,
@@ -1104,10 +744,10 @@ impl Engine for Cuda<'_> {
         let seeds: Vec<u64> = (0..self.count as u64)
             .map(|p| stream_seed(stream.seed, stream.phase, stream.level, self.first_id + p))
             .collect();
-        let seeds = DeviceBuffer::from_host(&self.stream, &seeds)?;
+        let device_seeds = DeviceBuffer::from_host(&self.stream, &seeds)?;
         let visits = DeviceBuffer::<u64>::zeroed(&self.stream, groups * n)?.wrap_elem::<DeviceAtomicU64>();
-        let visit_energy = DeviceBuffer::<f64>::zeroed(&self.stream, n)?.wrap_elem::<DeviceAtomicF64>();
-        let budget = (self.far_budget * cycles as f64).ceil() as u64 + 32;
+        let visit_energy = DeviceBuffer::<i64>::zeroed(&self.stream, n)?.wrap_elem::<DeviceAtomicI64>();
+        let budget = ((self.far_budget * cycles as f64).ceil() as u64 + 32).min(max_steps);
         // the FAR chain keeps a matching and its inverse, and no list
         let (config, staged) = self.config(self.count, 2 * n);
         self.far_seconds.calls += 1;
@@ -1124,14 +764,16 @@ impl Engine for Cuda<'_> {
                 &self.col_alias,
                 &self.moves,
                 &self.energy_fixed,
-                &seeds,
+                &device_seeds,
                 &visits,
                 &visit_energy,
-                &mut self.sigma,
+                &self.sigma,
+                &mut self.next,
                 &mut self.scratch,
                 &mut self.cycles_out,
                 &mut self.events,
                 &mut self.fixed_out,
+                &mut self.position_out,
                 n as u32,
                 self.count as u32,
                 staged,
@@ -1148,21 +790,32 @@ impl Engine for Cuda<'_> {
         let status = self.events.to_host_vec(&self.stream)?;
         let chain_energy = self.fixed_out.to_host_vec(&self.stream)?;
         let visits = visits.peel_elem::<u64>().to_host_vec(&self.stream)?;
+        let visit_energy = visit_energy.peel_elem::<i64>().to_host_vec(&self.stream)?;
+        // the device adds the energies of a class into 64 bits
+        let h_max = self.scaled.h_max();
+        for v in 0..n {
+            let class: u64 = visits.iter().skip(v).step_by(n).sum();
+            ensure!(
+                class as f64 * h_max < Energy::MAX.to_num::<f64>(),
+                "the energy sum of hole class {v} can overflow; use fewer cycles per call"
+            );
+        }
         let mut round = FarRound {
             cycles: vec![0; groups],
             visits: visits.chunks(n).map(|row| row.to_vec()).collect(),
-            visit_energy: visit_energy.peel_elem::<f64>().to_host_vec(&self.stream)?,
-            perfect_energy: 0.0,
+            visit_energy: visit_energy.iter().map(|&bits| EnergySum::from(Energy::from_bits(bits))).collect(),
+            perfect_energy: EnergySum::ZERO,
             steps: 0,
             capped: 0,
         };
-        let hole_of = |status: u64| ((status >> 32) & 0xFFFF, status >> 48);
+        let steps_of = |status: u64| status & 0xFFFF_FFFF;
+        let hole_of = |status: u64| (((status >> 32) & 0xFFFF) as u32, (status >> 48) as u32);
         let mut late: Vec<u32> = Vec::new();
-        for (particle, ((&done, &status), energy)) in done.iter().zip(&status).zip(chain_energy).enumerate() {
+        for (particle, ((&done, &status), &energy)) in done.iter().zip(&status).zip(&chain_energy).enumerate() {
             round.cycles[particle % groups] += done;
-            round.steps += status & 0xFFFF_FFFF;
-            round.perfect_energy += energy as f64 / ENERGY_ONE;
-            if done < cycles || hole_of(status).0 != NONE as u64 {
+            round.steps += steps_of(status);
+            round.perfect_energy += EnergySum::from(Energy::from_bits(energy));
+            if done < cycles || hole_of(status).0 != NONE {
                 late.push(particle as u32);
             }
         }
@@ -1177,48 +830,81 @@ impl Engine for Cuda<'_> {
         self.far_seconds.readback += clock.elapsed().as_secs_f64();
         self.far_seconds.late_chains += late.len() as u64;
         if late.is_empty() {
+            std::mem::swap(&mut self.sigma, &mut self.next);
             return Ok(round);
         }
         let clock = Instant::now();
 
-        // Finish the late chains on the host, from where they stopped.
+        // Continue the late chains on the host: the same chain on the same
+        // stream, from where the device stopped it.
         let targets = DeviceBuffer::from_host(&self.stream, &late)?;
-        let mut rows = DeviceBuffer::<u16>::zeroed(&self.stream, late.len() * n)?;
+        let positions = self.position_out.to_host_vec(&self.stream)?;
         let (config, _) = self.config(late.len(), 0);
-        // SAFETY: the arguments match the kernel; `rows` holds one row per
-        // late chain and every target is below `count`.
-        unsafe {
-            self.module.gather(self.stream.as_ref(), config, &self.sigma, &targets, &mut rows, n as u32, late.len() as u32)
-        }?;
-        let mut host_rows: Vec<u32> = rows
-            .to_host_vec(&self.stream)?
-            .iter()
-            .map(|&v| if v as u32 == NONE { permanent_core::sampler::NONE } else { v as u32 })
-            .collect();
-        let scaled = self.scaled;
-        let first_id = self.first_id;
-        let finished: Vec<(u32, far::FarStats)> = host_rows
+        let gather = |from: &DeviceBuffer<u16>, targets: &DeviceBuffer<u32>| -> Result<Vec<u16>> {
+            let count = targets.len();
+            let mut rows = DeviceBuffer::<u16>::zeroed(&self.stream, count * n)?;
+            // SAFETY: the arguments match the kernel; `rows` holds one row
+            // per target and every target is below `count`.
+            unsafe { self.module.gather(self.stream.as_ref(), config, from, targets, &mut rows, n as u32, count as u32) }?;
+            Ok(rows.to_host_vec(&self.stream)?)
+        };
+        let mut rows = gather(&self.next, &targets)?;
+        let far_tables = tables.far(&self.energy_bits);
+        let anchor = tables.anchor as u32;
+        // one small record per chain: a round's tables are too large to
+        // build for every task of the pool
+        let finished: Vec<(FarChain, ChainTally)> = rows
             .par_chunks_mut(n)
             .zip(&late)
-            .map(|(row, &particle)| {
-                let (hole_u, hole_v) = hole_of(status[particle as usize]);
-                let hole = (hole_u != NONE as u64).then_some((hole_u as usize, hole_v as usize));
-                let seed = stream_seed(stream.seed, stream.phase, stream.level, first_id + particle as u64);
-                // a stream of its own, apart from the kernel's Philox one
-                let mut rng = SmallRng::seed_from_u64(mix(!seed));
-                let left = cycles - done[particle as usize];
-                (particle, far::resume(tables, &scaled.energy, row, hole, left, max_steps, &mut rng))
-            })
+            .map_init(
+                || vec![0u16; 2 * n],
+                |words, (row, &particle)| {
+                    let particle = particle as usize;
+                    let (hole_u, hole_v) = hole_of(status[particle]);
+                    let position = positions[particle];
+                    let mut rng = Stream32::at(seeds[particle], position >> 3, (position & 7) as u32);
+                    let lane = Lane::on(words, n);
+                    let mut tally = ChainTally::new(n);
+                    // SAFETY: `row` holds n words, the lane two arrays of n,
+                    // and the tables are n x n.
+                    let chain = unsafe {
+                        let mut chain = far_chain::begin(&lane, row.as_ptr(), &far_tables);
+                        chain.hole_u = hole_u;
+                        chain.hole_v = hole_v;
+                        chain.perfect_steps = done[particle];
+                        chain.steps = steps_of(status[particle]);
+                        far_chain::run(&lane, &far_tables, anchor, cycles, max_steps, &mut rng, &mut chain, &mut tally);
+                        far_chain::store(&lane, row.as_mut_ptr());
+                        chain
+                    };
+                    (chain, tally)
+                },
+            )
             .collect();
-        for (particle, stats) in finished {
-            round.add(particle as usize % groups, &stats);
+        // a chain that ran out of steps leaves its particle where it was
+        let mut capped: Vec<u32> = Vec::new();
+        for (index, ((chain, tally), &particle)) in finished.iter().zip(&late).enumerate() {
+            let particle = particle as usize;
+            let complete = chain.hole_u == NONE && chain.perfect_steps == cycles;
+            round.add(particle % groups, tally);
+            round.close(particle % groups, chain, done[particle], steps_of(status[particle]), !complete);
+            if !complete {
+                capped.push(index as u32);
+            }
         }
-        let words: Vec<u16> = host_rows.iter().map(|&v| v as u16).collect();
-        let rows = DeviceBuffer::from_host(&self.stream, &words)?;
+        if !capped.is_empty() {
+            let from: Vec<u32> = capped.iter().map(|&index| late[index as usize]).collect();
+            let starts = gather(&self.sigma, &DeviceBuffer::from_host(&self.stream, &from)?)?;
+            for (start, &index) in starts.chunks(n).zip(&capped) {
+                rows[index as usize * n..][..n].copy_from_slice(start);
+            }
+        }
+        let rows = DeviceBuffer::from_host(&self.stream, &rows)?;
         // SAFETY: as for the gather above; the targets are distinct.
         unsafe {
-            self.module.scatter(self.stream.as_ref(), config, &rows, &targets, &mut self.sigma, n as u32, late.len() as u32)
+            self.module.scatter(self.stream.as_ref(), config, &rows, &targets, &mut self.next, n as u32, late.len() as u32)
         }?;
+        std::mem::swap(&mut self.sigma, &mut self.next);
         self.far_seconds.host_chains += clock.elapsed().as_secs_f64();
         Ok(round)
     }
@@ -1300,9 +986,14 @@ mod test {
     /// From one fixed matching, a long mutation lands on the target.
     #[test]
     fn a_long_mutation_reaches_the_target_distribution() {
+        long_mutation::<f32>();
+        long_mutation::<f64>();
+    }
+
+    fn long_mutation<T: Float + AsPrimitive<u64> + DeviceCopy + Send + Sync>() {
         let scaled = instance();
-        let tables = Tables::build(&scaled, BETA, &LOG_W, 0);
-        let mut cuda = Cuda::new(&scaled, 0).unwrap();
+        let tables = Tables::<u64>::build(&scaled, BETA, &LOG_W, 0);
+        let mut cuda = Cuda::<T>::new(&scaled, 0).unwrap();
         let start: Vec<u32> = (0..COUNT).flat_map(|_| [0, 1, 2, 3]).collect();
         cuda.load(&start, 0).unwrap();
         let cost = cuda.mutate(&tables, 24.0, Stream { seed: 5, phase: 1, level: 0 }).unwrap();
@@ -1314,11 +1005,16 @@ mod test {
     /// mutation of exact samples keeps it.
     #[test]
     fn the_sampler_and_a_short_mutation_keep_the_target_distribution() {
+        sampler_and_short_mutation::<f32>();
+        sampler_and_short_mutation::<f64>();
+    }
+
+    fn sampler_and_short_mutation<T: Float + AsPrimitive<u64> + DeviceCopy + Send + Sync>() {
         let scaled = instance();
-        let tables = Tables::build(&scaled, BETA, &LOG_W, 0);
+        let tables = Tables::<u64>::build(&scaled, BETA, &LOG_W, 0);
         let stages = StageSchedule::new(scaled.n, 32.0);
         let stage_time = stages.rigorous_stage_time(1e-3);
-        let mut cuda = Cuda::new(&scaled, 0).unwrap();
+        let mut cuda = Cuda::<T>::new(&scaled, 0).unwrap();
         let cost = cuda
             .anneal(&tables, &stages, stage_time, 64, COUNT, 0, Stream { seed: 5, phase: 2, level: 0 })
             .unwrap();
@@ -1338,7 +1034,7 @@ mod test {
         let n = scaled.n;
         let (beta, anchor) = (0.8, 1);
         let log_w = [0.5, 0.0, -0.7, 0.2];
-        let tables = Tables::build(&scaled, beta, &log_w, anchor);
+        let tables = Tables::<u64>::build(&scaled, beta, &log_w, anchor);
         let lambda = |u: usize, v: usize| (-beta * scaled.energy[u * n + v]).exp();
         let perms = permutations(n);
         let weights: Vec<f64> = perms.iter().map(|p| (-beta * scaled.energy_of(p)).exp()).collect();
@@ -1349,7 +1045,7 @@ mod test {
             z_hole[v] += w / lambda(anchor, v);
         }
         let stages = StageSchedule::new(n, 32.0);
-        let mut cuda = Cuda::new(&scaled, 0).unwrap();
+        let mut cuda = Cuda::<f32>::new(&scaled, 0).unwrap();
         cuda.anneal(&tables, &stages, stages.rigorous_stage_time(1e-3), 64, 8192, 0, Stream { seed: 9, phase: 1, level: 0 })
             .unwrap();
         let groups = 16;
@@ -1373,12 +1069,12 @@ mod test {
             let learned = log_w[v].exp() * anchor_norm * tables.hole_weight(anchor, v) * cycles as f64
                 / ((n * n) as f64 * visits as f64);
             assert!((learned / ideal - 1.0).abs() < 0.03, "v={v}: learned {learned:.5}, ideal {ideal:.5}");
-            visit_energy += round.visit_energy[v];
+            visit_energy += round.visit_energy[v].to_num::<f64>();
         }
         // the population is still on the target, and the energy sums are sane
         check(&scaled, beta, &cuda.energies().unwrap());
         let mean: f64 = perms.iter().zip(&weights).map(|(p, w)| scaled.energy_of(p) * w / z_perfect).sum();
-        assert!((round.perfect_energy / cycles as f64 / mean - 1.0).abs() < 0.02);
+        assert!((round.perfect_energy.to_num::<f64>() / cycles as f64 / mean - 1.0).abs() < 0.02);
         assert!(visit_energy > 0.0);
     }
 
@@ -1388,7 +1084,7 @@ mod test {
         let scaled = instance();
         let perms = permutations(scaled.n);
         let flat: Vec<u32> = perms.iter().flatten().copied().collect();
-        let mut cuda = Cuda::new(&scaled, 0).unwrap();
+        let mut cuda = Cuda::<f32>::new(&scaled, 0).unwrap();
         cuda.load(&flat, 0).unwrap();
         let before = cuda.energies().unwrap();
         let ancestors: Vec<u32> = (0..perms.len() as u32).rev().collect();
@@ -1397,5 +1093,39 @@ mod test {
         let expected: Vec<f64> = before.iter().rev().copied().collect();
         assert_eq!(after, expected);
         assert_eq!(before, perms.iter().map(|p| scaled.energy_of(p)).collect::<Vec<_>>());
+    }
+
+    /// FAR is integer arithmetic on a seeded stream, so the rayon engine, a
+    /// full launch and a launch that hands most chains to the host must
+    /// return the same round and leave the same population.
+    #[test]
+    fn far_matches_the_rayon_engine_exactly() {
+        use permanent_rayon::Rayon;
+        let n = 24;
+        let mut a = vec![0.0; n * n];
+        for u in 0..n {
+            for v in 0..n {
+                if (u * 5 + v * 3) % 4 != 1 || u == v {
+                    a[u * n + v] = (((u * 7 + v * 11) % 13) as f64 - 6.0).exp();
+                }
+            }
+        }
+        let Prepared::Scaled(scaled) = prepare(&Problem { n, a }) else { unreachable!() };
+        let log_w: Vec<f64> = (0..n).map(|v| (n as f64).ln() + 0.1 * (v % 5) as f64).collect();
+        let tables = Tables::<u64>::build(&scaled, 0.6, &log_w, 3);
+        let identity: Vec<u32> = (0..4096).flat_map(|_| 0..n as u32).collect();
+        let stream = Stream { seed: 11, phase: 4, level: 2 };
+        let mut rayon = Rayon::<f32, Stream32>::new(&scaled);
+        rayon.load(&identity, 100).unwrap();
+        // 40 steps per cycle is too few for some chains, which are then capped
+        let expected = rayon.far(&tables, 50, 2000, 16, stream).unwrap();
+        assert!(expected.capped > 0 && expected.capped < 4096);
+        for budget in [64.0, 0.5] {
+            let mut cuda = Cuda::<f32>::new(&scaled, 0).unwrap();
+            cuda.load(&identity, 100).unwrap();
+            cuda.far_budget = budget;
+            assert_eq!(cuda.far(&tables, 50, 2000, 16, stream).unwrap(), expected, "device budget {budget}");
+            assert_eq!(cuda.energies().unwrap(), rayon.energies().unwrap());
+        }
     }
 }

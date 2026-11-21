@@ -14,10 +14,13 @@ doctest = false
 [dependencies]
 permanent-core.workspace = true
 anyhow.workspace = true
-rand.workspace = true
 rayon.workspace = true
+num-traits.workspace = true
 tracing.workspace = true
 cuda-device = { git = "https://github.com/NVIDIA/cuda-rust.git" }
 cuda-host = { git = "https://github.com/NVIDIA/cuda-rust.git" }
 # Has to come from the same repository as cuda-host, which depends on it.
 cuda-core = { git = "https://github.com/NVIDIA/cuda-rust.git" }
+
+[dev-dependencies]
+permanent-rayon.workspace = true
