@@ -110,7 +110,7 @@ mod kernels {
     /// fast: 1 + J. cursor: one counter, zero at launch.
     #[kernel(unchecked_indexing)]
     #[allow(clippy::too_many_arguments)]
-    pub fn mutate<T: Float>(
+    pub fn mutate<T: Float + AsPrimitive<u64>>(
         alias: &[u64],
         seeds: &[u64],
         cursor: &[DeviceAtomicU64],

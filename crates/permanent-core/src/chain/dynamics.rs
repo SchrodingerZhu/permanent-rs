@@ -5,7 +5,9 @@
 //! takes are comparisons of random bits with integers: the ring rates are
 //! exact integers (the penalty J = 32 n^2 is one) and the probabilities are
 //! thresholds from the tables. Only the waiting times are floating point,
-//! in the engine's real type `T`.
+//! in the engine's real type `T`, and each is turned into ticks of an
+//! integer clock before it is added to anything: sums of waiting times are
+//! exact, so a chain's precision does not depend on how many events it has.
 
 use num_traits::{AsPrimitive, Float, PrimInt, Unsigned};
 use rand::RngExt;
@@ -18,6 +20,8 @@ use super::matching::Matching;
 
 /// Stage time of the annealing sampler, in ticks of its integer clock.
 pub const STAGE_TICKS: u64 = 1 << 40;
+/// Perfect time of a move, in ticks of its integer clock.
+pub const MOVE_TICKS: u64 = 1 << 40;
 
 /// An exponential waiting time of rate 1 from 32 random bits.
 #[inline(always)]
@@ -112,26 +116,27 @@ pub unsafe fn mutate<C, T, R>(
 ) -> Moved<T>
 where
     C: PrimInt + Unsigned + AsPrimitive<u32>,
-    T: Float,
+    T: Float + AsPrimitive<u64>,
     R: Rng,
     StandardUniform: Distribution<C>,
 {
-    let mut remaining = perfect_time;
-    let mut time = T::zero();
+    let ticks_per_time = T::from(MOVE_TICKS).unwrap() / perfect_time;
+    let mut remaining = MOVE_TICKS;
+    let mut ticks = 0u64;
     let mut events = 0u64;
     let mut over_budget = false;
     loop {
         let conflicted_rate = matching.conflicted as u64 * fast;
         let rate = (n - matching.conflicted) as u64 + conflicted_rate;
-        let dt = exponential::<T>(rng.next_u32()) / T::from(rate).unwrap();
+        let dt: u64 = (exponential::<T>(rng.next_u32()) * (ticks_per_time / T::from(rate).unwrap())).as_();
         if matching.is_perfect() {
             if dt >= remaining {
-                time = time + remaining;
+                ticks += remaining;
                 break;
             }
-            remaining = remaining - dt;
+            remaining -= dt;
         }
-        time = time + dt;
+        ticks += dt;
         events += 1;
         if events > event_cap {
             over_budget = true;
@@ -143,7 +148,7 @@ where
             break;
         }
     }
-    Moved { events, time, over_budget }
+    Moved { events, time: T::from(ticks).unwrap() / ticks_per_time, over_budget }
 }
 
 /// What an annealing trial did; it produced a sample when the matching it

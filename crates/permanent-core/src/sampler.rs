@@ -281,7 +281,7 @@ pub(crate) mod test {
     /// the real type `T`, and compare the outputs with the target.
     fn check<T>(perfect_time: f64, draws: usize, mut start: impl FnMut(&mut SmallRng, &[f64]) -> usize)
     where
-        T: num_traits::Float,
+        T: num_traits::Float + num_traits::AsPrimitive<u64>,
     {
         let scaled = test_instance();
         let n = scaled.n;
@@ -347,5 +347,55 @@ pub(crate) mod test {
         };
         check::<f64>(0.3, 200_000, exact);
         check::<f32>(0.3, 200_000, exact);
+    }
+
+    /// A move adds up its waiting times in integer ticks, so in single
+    /// precision it takes the path of double precision and reports the
+    /// same elapsed time, however many events it has.
+    #[test]
+    fn single_precision_keeps_the_time_of_a_long_move() {
+        let scaled = test_instance();
+        let n = scaled.n;
+        let tables = Tables::<u64>::build(&scaled, 0.6, &[0.3, -0.4, 1.0, 0.0], 0);
+        let perfect_time = 1024.0;
+        let cap = mutate_event_cap(n, perfect_time);
+        let fast = 1 + penalty(n) as u64;
+        let unassign_below: u64 = fraction(1.0 / (1.0 + penalty(n)));
+        let start: Vec<u16> = (0..n as u16).collect();
+        let mut memory = vec![0u16; words(n)];
+        let mut matching = Matching::new(Lane::on(&mut memory, n));
+        for seed in 0..8 {
+            // SAFETY: `start` is a permutation of n, the lane holds
+            // words(n) words and the tables are n x n
+            let (single, double) = unsafe {
+                matching.load(start.as_ptr());
+                let single = mutate::<u64, f32, _>(
+                    &mut matching,
+                    n as u32,
+                    &tables.packed_rows,
+                    perfect_time as f32,
+                    fast,
+                    unassign_below,
+                    cap,
+                    &mut Stream::new(mix(seed)),
+                );
+                matching.load(start.as_ptr());
+                let double = mutate::<u64, f64, _>(
+                    &mut matching,
+                    n as u32,
+                    &tables.packed_rows,
+                    perfect_time,
+                    fast,
+                    unassign_below,
+                    cap,
+                    &mut Stream::new(mix(seed)),
+                );
+                (single, double)
+            };
+            assert_eq!(single.events, double.events, "seed {seed}");
+            let error = (single.time as f64 - double.time) / double.time;
+            // two roundings of f32
+            assert!(error.abs() < 2.0 * f32::EPSILON as f64, "seed {seed}: relative error {error:e}");
+        }
     }
 }
