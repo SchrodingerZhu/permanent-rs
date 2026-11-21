@@ -177,7 +177,6 @@ impl<C: PrimInt + Unsigned + Send + Sync> Tables<C> {
 }
 
 impl<C> Tables<C> {
-
     /// FAR hole-class weight W(u,v) = 1 + n B + s_v (1 - B) + (s_v - B).
     #[inline]
     pub fn hole_weight(&self, u: usize, v: usize) -> f64 {
