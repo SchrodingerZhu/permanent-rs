@@ -134,9 +134,10 @@ shared memory while a warp's worth fits (n up to about 370) and kept in
 global memory beyond. FAR chains have very uneven lengths, so a FAR launch
 gives each chain a step budget and the few that overrun it are finished on
 host threads. A launch lasts as long as its longest particle, and a Phase 2
-population leaves most of the device idle, so the segments of one rank are
-swept at the same time, each by an engine on a CUDA stream of its own; the
-result is the same as sweeping them one after another.
+population leaves most of the device idle, so while the working state fits
+shared memory the segments of one rank are swept at the same time, each by
+an engine on a CUDA stream of its own, as many as fill the device's
+multiprocessors; the result is the same as sweeping them one after another.
 
 ## MPI
 

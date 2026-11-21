@@ -687,14 +687,17 @@ where
     }
 
     fn concurrency(&self, particles: usize) -> usize {
-        // As many populations as fill the device. The last may fit only in
-        // part: some of its blocks then wait, which still costs less than
-        // sweeping it after the others.
-        let mut threads = self.threads_at_once(lane_words(self.scaled.n));
+        // With the working state in global memory a launch is bound by
+        // memory traffic, not by its longest particle: at n = 512 three
+        // populations of 27,600 moved at once take three times as long as
+        // one.
         if self.needs_scratch() {
-            threads = threads.min(UNSTAGED_THREADS);
+            return 1;
         }
-        threads.div_ceil(particles.max(1)).max(1)
+        // Otherwise as many populations as fill the device. The last may
+        // fit only in part: some of its blocks then wait, which still
+        // costs less than sweeping it after the others.
+        self.threads_at_once(lane_words(self.scaled.n)).div_ceil(particles.max(1)).max(1)
     }
 
     fn fork(&self) -> Result<Self> {
