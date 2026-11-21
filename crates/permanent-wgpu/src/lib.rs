@@ -729,6 +729,10 @@ mod test {
             #[cfg(not(target_family = "wasm"))]
             #[test]
             fn $name() {
+                if !has_gpu() {
+                    eprintln!("skipped: no GPU adapter on this machine");
+                    return;
+                }
                 cubecl::future::block_on($body);
             }
 
@@ -739,6 +743,16 @@ mod test {
                 $body.await;
             }
         };
+    }
+
+    /// Whether a hardware adapter exists. The software ones lack features CubeCL asks for.
+    #[cfg(not(target_family = "wasm"))]
+    fn has_gpu() -> bool {
+        use cubecl::wgpu::wgpu::{Backends, DeviceType, Instance, InstanceDescriptor};
+        let instance = Instance::new(InstanceDescriptor::new_without_display_handle());
+        cubecl::future::block_on(instance.enumerate_adapters(Backends::PRIMARY))
+            .iter()
+            .any(|adapter| adapter.get_info().device_type != DeviceType::Cpu)
     }
 
     async fn engine(scaled: &Scaled) -> Wgpu<'_> {
