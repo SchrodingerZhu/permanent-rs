@@ -12,11 +12,12 @@
 //! its inverse, and a short list of the vertices in a collision. The
 //! penalty J keeps collisions rare at every activity, which is what makes a
 //! short list enough; a particle that overflows it is treated like one that
-//! hit its event cap. Once a warp's worth of state no longer fits shared
-//! memory (n above about 370), the state lives in global memory instead,
-//! which measures faster than staging fewer particles per block as long as
-//! the state of the threads running at once sits in the device's cache; a
-//! mutation launch then runs fewer threads than particles to keep it there.
+//! hit its event cap. Once a warp's worth of state no longer fits the
+//! shared memory every device gives a block (n above about 370), the
+//! mutation kernel opts in to what this device allows and takes the block
+//! size that keeps the most particles on a multiprocessor; the other
+//! kernels, and a mutation whose state fits no block, keep the state in
+//! global memory instead.
 //!
 //! The chains are those of `permanent_core::chain`, the same code the rayon
 //! engine runs, compiled here for the device: every probability decision
@@ -409,9 +410,10 @@ fn warp_idle(events: &[u64], flags: u64) -> f64 {
 }
 
 /// Most threads of a mutation launch whose working state is in global
-/// memory. With more, the state of the threads running at once outgrows the
-/// device's cache: at n = 512 a GH200 moves 2^18 particles 1.7 times slower
-/// with a thread each than 2^16 particles.
+/// memory, which is where it is when one particle's state exceeds the shared
+/// memory a block may opt in to. With more, the state of the threads running
+/// at once outgrows the device's cache: at n = 512 a GH200 moves 2^18
+/// particles 1.7 times slower with a thread each than 2^16 particles.
 const UNSTAGED_THREADS: usize = 1 << 16;
 /// Most particles resident at once, and the device memory they may take.
 const MAX_PARTICLES: usize = 1 << 20;
@@ -442,6 +444,17 @@ impl Multiprocessors {
     }
 }
 
+/// Blocks that stage their working state in shared memory.
+#[derive(Debug, Clone, Copy)]
+struct Staged {
+    /// Threads per block.
+    block: u32,
+    /// Shared memory of a block, in bytes.
+    shared: u32,
+    /// Threads of such blocks a multiprocessor runs at once.
+    resident: u32,
+}
+
 /// Number of CUDA devices on this host.
 pub fn device_count() -> Result<usize> {
     Ok(CudaContext::device_count()? as usize)
@@ -457,6 +470,9 @@ pub struct Cuda<'a, T: DeviceCopy> {
     /// their launches at the same time.
     stream: Arc<CudaStream>,
     module: kernels::LoadedModule,
+    /// How the mutation kernel stages its working state; `None` when the
+    /// state of one particle exceeds the shared memory of a block.
+    mutation: Option<Staged>,
     first_id: u64,
     count: usize,
     energy: DeviceBuffer<f64>,
@@ -524,6 +540,7 @@ where
         info!(
             %device,
             staged = fits_shared(lane_words(n)),
+            mutation = ?engine.mutation,
             far_staged = fits_shared(2 * n),
             threads_at_once = engine.threads_at_once(lane_words(n)),
             "CUDA engine ready"
@@ -541,12 +558,14 @@ where
         let energy_bits = scaled.fixed_energy();
         let stream = context.new_stream()?;
         let module = kernels::load(&context).context("loading the kernels; device code is built by `cargo oxide`")?;
+        let mutation = Self::stage_mutation(&module, multiprocessors.shared, lane_words(scaled.n))?;
         Ok(Cuda {
             scaled,
             name,
             context,
             multiprocessors,
             module,
+            mutation,
             first_id: 0,
             count: 0,
             energy: DeviceBuffer::from_host(&stream, &scaled.energy)?,
@@ -572,6 +591,37 @@ where
             far_seconds: FarSeconds::default(),
             stream,
         })
+    }
+
+    /// The blocks of the mutation kernel for `words` words of working state
+    /// per particle, where a block may opt in to `limit` bytes of shared
+    /// memory: of the block sizes whose state fits, the one that keeps the
+    /// most threads on a multiprocessor, as the driver computes it for this
+    /// kernel. Shared memory is what bounds that number once the state is
+    /// large, and a thread takes any particle, so nothing is lost by a
+    /// block of less than a warp. Of two sizes that keep as many threads
+    /// the larger wins: it puts them in fewer warps, and a multiprocessor
+    /// issues instructions by the warp.
+    fn stage_mutation(module: &kernels::LoadedModule, limit: usize, words: usize) -> Result<Option<Staged>> {
+        let function = module.as_cuda_module().load_function(kernels::mutate_ptx_name::<T>())?;
+        let bytes = |block: u32| block as usize * words * size_of::<u16>();
+        let sizes = || (0..=BLOCK.ilog2()).rev().map(|log| 1 << log).filter(|&block| bytes(block) <= limit);
+        // opt in before asking the driver about blocks that need it
+        match sizes().next() {
+            Some(block) if bytes(block) > SHARED_LIMIT => {
+                function.set_max_dynamic_shared_memory_bytes(bytes(block) as u32)?
+            }
+            _ => {}
+        }
+        let mut best: Option<Staged> = None;
+        for block in sizes() {
+            let shared = bytes(block) as u32;
+            let resident = block * function.max_active_blocks_per_multiprocessor(block, shared)?;
+            if best.is_none_or(|staged| resident > staged.resident) {
+                best = Some(Staged { block, shared, resident });
+            }
+        }
+        Ok(best)
     }
 
     /// `data` on the device. The memory is allocated and freed in the order
@@ -719,10 +769,10 @@ where
     }
 
     fn concurrency(&self, particles: usize) -> usize {
-        // With the working state in global memory a launch is bound by
-        // memory traffic, not by its longest particle: at n = 512 three
-        // populations of 27,600 moved at once take three times as long as
-        // one.
+        // A state that large leaves the sampler in global memory and the
+        // mutation kernel with shared memory for fewer threads than a
+        // population has particles, so populations moved at once would
+        // share the device, not fill it.
         if self.needs_scratch() {
             return 1;
         }
@@ -902,8 +952,13 @@ where
         let cursor = self.zeros::<u64>(1)?.wrap_elem::<DeviceAtomicU64>();
         let penalty = penalty(n);
         let unassign_below: u64 = fraction(1.0 / (1.0 + penalty));
-        let threads = if self.needs_scratch() { self.count.min(UNSTAGED_THREADS) } else { self.count };
-        let (config, staged) = self.config(threads, lane_words(n));
+        let (config, staged) = match self.mutation {
+            Some(Staged { block, shared, .. }) => {
+                let grid = (self.count as u32).div_ceil(block);
+                (LaunchConfig { grid_dim: (grid, 1, 1), block_dim: (block, 1, 1), shared_mem_bytes: shared }, 1)
+            }
+            None => self.config(self.count.min(UNSTAGED_THREADS), lane_words(n)),
+        };
         // SAFETY: the arguments match the kernel; `sigma` holds count rows
         // of n, `scratch` the working state when it is not staged, and the
         // dynamic shared memory the block's working state when it is.
