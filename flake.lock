@@ -1,5 +1,22 @@
 {
   "nodes": {
+    "cuda-rust": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1794955605,
+        "narHash": "sha256-0sIcfh7t38bJCqXSQhcTxRPc0OFIW7fR1WlzdVrIHCs=",
+        "owner": "NVIDIA",
+        "repo": "cuda-rust",
+        "rev": "860375a18b01f9dd928c3cd65d5ebf64490673a7",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NVIDIA",
+        "repo": "cuda-rust",
+        "rev": "860375a18b01f9dd928c3cd65d5ebf64490673a7",
+        "type": "github"
+      }
+    },
     "flake-utils": {
       "inputs": {
         "systems": "systems"
@@ -70,6 +87,7 @@
     },
     "root": {
       "inputs": {
+        "cuda-rust": "cuda-rust",
         "flake-utils": "flake-utils",
         "nix-gl-host": "nix-gl-host",
         "nixpkgs": "nixpkgs_2",

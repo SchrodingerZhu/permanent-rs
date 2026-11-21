@@ -13,6 +13,12 @@
     # Run-time discovery of the host NVIDIA driver libraries on non-NixOS
     # hosts (see driverLibPath below for why this cannot come from nixpkgs).
     nix-gl-host.url = "github:numtide/nix-gl-host";
+    # The source of cargo-oxide, at the revision Cargo.lock has for the
+    # cuda-oxide crates.
+    cuda-rust = {
+      url = "github:NVIDIA/cuda-rust/860375a18b01f9dd928c3cd65d5ebf64490673a7";
+      flake = false;
+    };
   };
 
   outputs =
@@ -22,12 +28,13 @@
       flake-utils,
       rust-overlay,
       nix-gl-host,
+      cuda-rust,
     }:
     flake-utils.lib.eachDefaultSystem (
       system:
       let
         # The CUDA toolkit is unfree, so this flake instantiates its own
-        # nixpkgs with `allowUnfree`. Only the CUDA dev shell pulls unfree
+        # nixpkgs with `allowUnfree`. Only the default dev shell pulls unfree
         # paths in; the packages below never reference them.
         pkgs = import nixpkgs {
           inherit system;
@@ -87,13 +94,29 @@
           exec ${pkgs.deno}/bin/deno "$command" --preload ${./misc/ci/deno-shim.js} "$@"
         '';
 
-        rustDevPackages = with pkgs; [
-          cargo
-          rustc
-          clippy
-          rustfmt
-          rust-analyzer
-        ];
+        # `cargo oxide`, which builds the cuda backend. It compiles its
+        # compiler plugin on first use, from the checkout Cargo made of the
+        # cuda-oxide crates, so only the command itself is built here.
+        cargoOxide =
+          (pkgs.makeRustPlatform {
+            cargo = pinnedToolchain;
+            rustc = pinnedToolchain;
+          }).buildRustPackage
+            {
+              pname = "cargo-oxide";
+              version = (pkgs.lib.importTOML "${cuda-rust}/cuda-oxide/crates/cargo-oxide/Cargo.toml").package.version;
+              src = cuda-rust;
+              sourceRoot = "source/cuda-oxide";
+              cargoLock = {
+                lockFile = "${cuda-rust}/cuda-oxide/Cargo.lock";
+                allowBuiltinFetchGit = true;
+              };
+              cargoBuildFlags = [ "--package" "cargo-oxide" ];
+              doCheck = false;
+            };
+
+        # CUDA exists for Linux only.
+        withCuda = pkgs.stdenv.hostPlatform.isLinux;
 
         # `libcuda.so` ships with the NVIDIA *driver*, never with the
         # toolkit, so it cannot come from nixpkgs. NixOS exposes it at
@@ -109,8 +132,15 @@
         # loader then finds the system's drivers by itself.
         vulkanLibPath = pkgs.lib.makeLibraryPath [ pkgs.vulkan-loader ];
 
+        # What NVIDIA's Vulkan driver asks for beside the libraries nixglhost
+        # collects: libxcb, and libEGL, through which it reaches its EGL half.
+        nvidiaVulkanLibPath = pkgs.lib.makeLibraryPath [
+          pkgs.libxcb
+          pkgs.libglvnd
+        ];
+
         # The program with the rayon backend. The cuda backend is built with
-        # cuda-oxide inside the cuda shell.
+        # `cargo oxide` inside the dev shell.
         permanent =
           { withMpi }:
           pkgs.rustPlatform.buildRustPackage {
@@ -153,18 +183,52 @@
         # `mpirun -n R permanent ...`
         packages.mpi = permanent { withMpi = true; };
 
+        # `nix develop` — every feature builds here: the pinned toolchain, an
+        # MPI and libclang for its bindings, the Vulkan loader for the wgpu
+        # backend, and on Linux CUDA 13 with `cargo oxide` for the cuda
+        # backend (`cargo oxide build -- --profile cuda --features cuda`).
+        # Everything but the NVIDIA driver comes from nixpkgs.
         devShells.default = pkgs.mkShell {
-          packages = rustDevPackages;
-          env.RUST_BACKTRACE = "1";
-          env.LD_LIBRARY_PATH = vulkanLibPath;
-        };
-
-        # `nix develop .#mpi` — for `cargo build --features mpi`.
-        devShells.mpi = pkgs.mkShell {
-          packages = rustDevPackages ++ [ pkgs.mpi ];
+          packages = [
+            pinnedToolchain
+            pkgs.rust-analyzer
+            pkgs.mpi
+          ]
+          ++ pkgs.lib.optionals withCuda [
+            cudaEnv
+            libclang
+            cargoOxide
+            nixglhost
+          ];
+          # the MPI and CUDA bindings are generated with bindgen
           nativeBuildInputs = [ pkgs.rustPlatform.bindgenHook ];
-          env.RUST_BACKTRACE = "1";
-          env.LD_LIBRARY_PATH = vulkanLibPath;
+
+          env = {
+            RUST_BACKTRACE = "1";
+            LD_LIBRARY_PATH = vulkanLibPath;
+          }
+          // pkgs.lib.optionalAttrs withCuda {
+            CUDA_PATH = "${cudaEnv}";
+            CUDA_HOME = "${cudaEnv}";
+            LD_LIBRARY_PATH = "${pkgs.lib.makeLibraryPath [ cudaEnv ]}:${driverLibPath}:${vulkanLibPath}";
+          };
+          # NixOS has the driver at driverLibPath; elsewhere nixglhost
+          # finds it. Where it lives somewhere nixglhost does not look (a
+          # container with /usr/lib64-nvidia, say), add that directory to
+          # LD_LIBRARY_PATH by hand.
+          shellHook = pkgs.lib.optionalString withCuda ''
+            if [ -e /proc/driver/nvidia ] && [ ! -d ${driverLibPath} ]; then
+              driver=$(nixglhost -p 2>/dev/null || true)
+              if [ -n "$driver" ]; then
+                export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$driver:${nvidiaVulkanLibPath}"
+              fi
+              # where libEGL finds the driver's EGL half, for Vulkan
+              egl=$(nixglhost printenv __EGL_VENDOR_LIBRARY_DIRS 2>/dev/null || true)
+              if [ -n "$egl" ]; then
+                export __EGL_VENDOR_LIBRARY_DIRS="$egl"
+              fi
+            fi
+          '';
         };
 
         # `nix develop .#ci` — what CI runs in: the pinned toolchain, wasmer
@@ -183,42 +247,6 @@
           env.RUST_BACKTRACE = "1";
           env.LD_LIBRARY_PATH = vulkanLibPath;
           env.VK_DRIVER_FILES = "${pkgs.mesa}/share/vulkan/icd.d/lvp_icd.${pkgs.stdenv.hostPlatform.parsed.cpu.name}.json";
-        };
-
-        # `nix develop .#cuda` — for the cuda backend: `cargo oxide build --
-        # --profile cuda --features cuda`. Everything but the driver comes from
-        # nixpkgs. cargo-oxide itself is not packaged: it fetches and builds
-        # its compiler backend on first use, so install it once inside this
-        # shell with the command the shell prints.
-        devShells.cuda = pkgs.mkShell {
-          packages = [
-            pinnedToolchain
-            cudaEnv
-            libclang
-            pkgs.mpi
-            nixglhost
-          ];
-          nativeBuildInputs = [ pkgs.rustPlatform.bindgenHook ];
-
-          env.RUST_BACKTRACE = "1";
-          env.CUDA_PATH = "${cudaEnv}";
-          env.CUDA_HOME = "${cudaEnv}";
-          env.LD_LIBRARY_PATH = "${pkgs.lib.makeLibraryPath [ cudaEnv ]}:${driverLibPath}:${vulkanLibPath}";
-          shellHook = ''
-            # keep cargo-installed tools of this shell apart from the user's
-            export CARGO_HOME="''${CARGO_HOME:-$HOME/.cargo}"
-            export PATH="$CARGO_HOME/bin:$PATH"
-            # Where the driver lives somewhere nixglhost does not look (a
-            # container with /usr/lib64-nvidia, say), add that directory to
-            # LD_LIBRARY_PATH by hand.
-            if [ ! -d /run/opengl-driver/lib ]; then
-              export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$(nixglhost -p 2>/dev/null || true)"
-            fi
-            if ! command -v cargo-oxide >/dev/null; then
-              echo "cargo-oxide is not installed; run:"
-              echo "  cargo install --locked --git https://github.com/NVIDIA/cuda-rust.git cargo-oxide"
-            fi
-          '';
         };
       }
     );

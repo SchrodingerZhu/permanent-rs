@@ -196,14 +196,12 @@ fails stops the whole run.
 
     nix build              # the program with the rayon backend, tests included
     nix build .#mpi        # with MPI
-    nix develop            # cargo and rustc
-    nix develop .#mpi      # plus an MPI and libclang for its bindings
-    nix develop .#cuda     # the pinned toolchain and CUDA 13
+    nix develop            # every feature builds here: the pinned toolchain, MPI, CUDA 13, cargo oxide
     nix develop .#ci       # what CI runs in: wasm targets, wasmer, Deno, a software Vulkan driver
 
-The `cuda` backend is built inside the `cuda` shell with `cargo oxide`,
-which the shell tells you how to install; the NVIDIA driver comes from the
-host.
+The `cuda` backend is built inside the shell with `cargo oxide`, as above;
+only the NVIDIA driver comes from the host. CUDA is in the shell on Linux
+only.
 
 ## Layout
 
