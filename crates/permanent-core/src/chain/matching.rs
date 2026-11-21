@@ -129,18 +129,12 @@ impl Matching {
         self.conflicted += 1;
     }
 
+    /// Take the `index`-th row off the collision list.
     #[inline(always)]
-    unsafe fn drop_conflict(&mut self, u: u32) {
-        let mut i = 0;
-        while i < self.conflicted {
-            unsafe {
-                if self.conflict(i) == u {
-                    self.conflicted -= 1;
-                    self.lane.set(LIST, i, self.conflict(self.conflicted));
-                    return;
-                }
-            }
-            i += 1;
+    unsafe fn drop_conflict(&mut self, index: u32) {
+        self.conflicted -= 1;
+        if index != self.conflicted {
+            unsafe { self.lane.set(LIST, index, self.conflict(self.conflicted)) };
         }
     }
 
@@ -162,22 +156,31 @@ impl Matching {
                 self.lane.set(COL, v, NONE);
                 return;
             }
-            self.drop_conflict(u);
-            // if one row is left on v, it is no longer in a collision
+            // one pass over the list: where u is, and the other rows on v.
+            // If one is left, it is no longer in a collision.
+            let mut index = 0;
             let mut left = 0u32;
             let mut last = NONE;
+            let mut last_index = 0;
             let mut i = 0;
             while i < self.conflicted {
                 let w = self.conflict(i);
-                if self.lane.get(ROW, w) == v {
+                if w == u {
+                    index = i;
+                } else if self.lane.get(ROW, w) == v {
                     left += 1;
                     last = w;
+                    last_index = i;
                 }
                 i += 1;
             }
             if left == 1 {
-                self.drop_conflict(last);
+                // the later entry first, so that the earlier one stays put
+                self.drop_conflict(index.max(last_index));
+                self.drop_conflict(index.min(last_index));
                 self.lane.set(COL, v, last);
+            } else {
+                self.drop_conflict(index);
             }
         }
     }

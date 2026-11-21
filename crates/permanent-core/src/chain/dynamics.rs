@@ -36,6 +36,7 @@ pub fn exponential<T: Float>(bits: u32) -> T {
 ///
 /// # Safety
 /// `alias` must be the packed row alias table of an n x n matrix.
+#[allow(clippy::too_many_arguments)]
 #[inline(always)]
 unsafe fn ring<C, R>(
     matching: &mut Matching,
