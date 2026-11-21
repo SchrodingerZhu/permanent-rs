@@ -297,13 +297,7 @@ pub fn far(
         let mut h_high = 0u32;
         let mut sum_low = 0u32;
         let mut sum_high = 0u32;
-        // The matching writes every entry of the inverse, but in scattered
-        // order; writing it once in order first measured a fifth faster.
-        let mut v = 0usize;
-        while v < size {
-            lane_set(scratch, rows, size + v, NONE);
-            v += 1;
-        }
+        // the inverse entry of a free column is never read, so none is cleared
         let mut u = 0usize;
         while u < size {
             let v = sigma[particle * size + u];
@@ -352,7 +346,6 @@ pub fn far(
                     let u = u32::mul_hi(next_u32(&mut rng), n);
                     let v = lane_get(scratch, rows, u as usize);
                     lane_set(scratch, rows, u as usize, NONE);
-                    lane_set(scratch, rows, size + v as usize, NONE);
                     let cell = energies + 2 * (u as usize * size + v as usize);
                     let e_low = tables[cell];
                     let mut borrow = 0u32;
@@ -434,7 +427,6 @@ pub fn far(
                             let z = lane_get(scratch, rows, y as usize);
                             lane_set(scratch, rows, y as usize, hole_v);
                             lane_set(scratch, rows, size + hole_v as usize, y);
-                            lane_set(scratch, rows, size + z as usize, NONE);
                             let plus = energies + 2 * (y as usize * size + hole_v as usize);
                             let minus = energies + 2 * (y as usize * size + z as usize);
                             let low = h_low + tables[plus];
