@@ -1,2 +1,7 @@
-[build]
+# not for wasm, which has no native CPU to tune for
+[target.'cfg(not(target_family = "wasm"))']
 rustflags = ["-C", "target-cpu=native"]
+
+# CubeCL draws from the system generator, which a browser provides through JavaScript
+[target.wasm32-unknown-unknown]
+rustflags = ["--cfg", 'getrandom_backend="wasm_js"']

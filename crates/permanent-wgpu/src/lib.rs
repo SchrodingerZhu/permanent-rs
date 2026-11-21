@@ -81,6 +81,23 @@ impl<'a> Wgpu<'a> {
         Self::on(scaled, device.client())
     }
 
+    /// The engine on the browser's WebGPU adapter.
+    #[cfg(target_family = "wasm")]
+    pub async fn new(scaled: &'a Scaled) -> Result<Self> {
+        use cubecl::Device;
+        use cubecl::device::WgpuDeviceKind;
+        use cubecl::wgpu::{WebGpu, WgpuDevice, init_setup_async};
+        use std::sync::atomic::{AtomicBool, Ordering};
+        // A browser hands out its adapter asynchronously, and CubeCL takes
+        // one setup per device; once it is done, the client below finds it.
+        static SET_UP: AtomicBool = AtomicBool::new(false);
+        if !SET_UP.swap(true, Ordering::Relaxed) {
+            init_setup_async::<WebGpu>(&WgpuDevice::default(), Default::default()).await;
+        }
+        let device = Device::wgpu(WgpuDeviceKind::default()).map_err(|error| anyhow!("no WebGPU device: {error:?}"))?;
+        Self::on(scaled, device.client())
+    }
+
     /// The engine on the device behind `client`.
     pub fn on(scaled: &'a Scaled, client: Client) -> Result<Self> {
         let n = scaled.n;
@@ -506,14 +523,47 @@ mod blocking {
     }
 }
 
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(test)]
 mod test {
+    //! Each test body is an `async fn` over the engine's own operations, run
+    //! to completion natively and by the wasm test harness in a runtime
+    //! with WebGPU.
+
     use super::*;
     use permanent_core::chain::stream::Stream as Philox;
     use permanent_core::engine::Engine;
     use permanent_core::problem::Problem;
     use permanent_core::scaling::{Prepared, prepare};
     use permanent_rayon::Rayon;
+
+    #[cfg(target_family = "wasm")]
+    use wasm_bindgen_test::wasm_bindgen_test;
+
+    /// Declare a test that runs `$body` natively and in wasm.
+    macro_rules! on_both {
+        ($(#[$doc:meta])* $name:ident, $body:expr) => {
+            $(#[$doc])*
+            #[cfg(not(target_family = "wasm"))]
+            #[test]
+            fn $name() {
+                cubecl::future::block_on($body);
+            }
+
+            $(#[$doc])*
+            #[cfg(target_family = "wasm")]
+            #[wasm_bindgen_test]
+            async fn $name() {
+                $body.await;
+            }
+        };
+    }
+
+    async fn engine(scaled: &Scaled) -> Wgpu<'_> {
+        #[cfg(not(target_family = "wasm"))]
+        return Wgpu::new(scaled).unwrap();
+        #[cfg(target_family = "wasm")]
+        return Wgpu::new(scaled).await.unwrap();
+    }
 
     fn instance() -> Scaled {
         let problem = Problem {
@@ -581,93 +631,101 @@ mod test {
     const LOG_W: [f64; 4] = [0.3, -0.4, 1.0, 0.0];
     const COUNT: usize = 200_000;
 
-    /// From one fixed matching, a long mutation lands on the target, also
-    /// when a dispatch is far too short for it.
-    #[test]
-    fn a_long_mutation_reaches_the_target_distribution() {
-        let scaled = instance();
-        let tables = Tables::<u64>::build(&scaled, BETA, &LOG_W, 0);
-        for budget in [1 << 16, 7] {
-            let mut wgpu = Wgpu::new(&scaled).unwrap();
-            wgpu.budget = budget;
-            let start: Vec<u32> = (0..COUNT).flat_map(|_| [0, 1, 2, 3]).collect();
-            Engine::load(&mut wgpu, &start, 0).unwrap();
-            let cost = Engine::mutate(&mut wgpu, &tables, 24.0, Stream { seed: 5, phase: 1, level: 0 }).unwrap();
+    on_both!(
+        /// From one fixed matching, a long mutation lands on the target, also
+        /// when a dispatch is far too short for it.
+        a_long_mutation_reaches_the_target_distribution,
+        async {
+            let scaled = instance();
+            let tables = Tables::<u64>::build(&scaled, BETA, &LOG_W, 0);
+            for budget in [1 << 16, 7] {
+                let mut wgpu = engine(&scaled).await;
+                wgpu.budget = budget;
+                let start: Vec<u32> = (0..COUNT).flat_map(|_| [0, 1, 2, 3]).collect();
+                wgpu.load(&start, 0);
+                let cost = wgpu.mutate(&tables, 24.0, Stream { seed: 5, phase: 1, level: 0 }).await.unwrap();
+                assert_eq!(cost.over_budget, 0);
+                check(&scaled, BETA, &wgpu.energies().await.unwrap());
+            }
+        }
+    );
+
+    on_both!(
+        /// The sampler's accepted trials follow the target, and a short
+        /// mutation of exact samples keeps it.
+        the_sampler_and_a_short_mutation_keep_the_target_distribution,
+        async {
+            let scaled = instance();
+            let tables = Tables::<u64>::build(&scaled, BETA, &LOG_W, 0);
+            let stages = StageSchedule::new(scaled.n, 32.0);
+            let stage_time = stages.rigorous_stage_time(1e-3);
+            let mut wgpu = engine(&scaled).await;
+            let stream = Stream { seed: 5, phase: 2, level: 0 };
+            let cost = wgpu.anneal(&tables, &stages, stage_time, 64, COUNT, 0, stream).await.unwrap();
             assert_eq!(cost.over_budget, 0);
-            check(&scaled, BETA, &Engine::energies(&mut wgpu).unwrap());
+            assert!(COUNT as f64 / cost.trials as f64 > 0.2);
+            check(&scaled, BETA, &wgpu.energies().await.unwrap());
+            let cost = wgpu.mutate(&tables, 0.3, Stream { seed: 5, phase: 3, level: 0 }).await.unwrap();
+            assert_eq!(cost.over_budget, 0);
+            check(&scaled, BETA, &wgpu.energies().await.unwrap());
         }
-    }
+    );
 
-    /// The sampler's accepted trials follow the target, and a short
-    /// mutation of exact samples keeps it.
-    #[test]
-    fn the_sampler_and_a_short_mutation_keep_the_target_distribution() {
-        let scaled = instance();
-        let tables = Tables::<u64>::build(&scaled, BETA, &LOG_W, 0);
-        let stages = StageSchedule::new(scaled.n, 32.0);
-        let stage_time = stages.rigorous_stage_time(1e-3);
-        let mut wgpu = Wgpu::new(&scaled).unwrap();
-        let stream = Stream { seed: 5, phase: 2, level: 0 };
-        let cost = Engine::anneal(&mut wgpu, &tables, &stages, stage_time, 64, COUNT, 0, stream).unwrap();
-        assert_eq!(cost.over_budget, 0);
-        assert!(COUNT as f64 / cost.trials as f64 > 0.2);
-        check(&scaled, BETA, &Engine::energies(&mut wgpu).unwrap());
-        let cost = Engine::mutate(&mut wgpu, &tables, 0.3, Stream { seed: 5, phase: 3, level: 0 }).unwrap();
-        assert_eq!(cost.over_budget, 0);
-        check(&scaled, BETA, &Engine::energies(&mut wgpu).unwrap());
-    }
-
-    /// Resampling copies whole particles.
-    #[test]
-    fn resampling_copies_particles() {
-        let scaled = instance();
-        let perms = permutations(scaled.n);
-        let flat: Vec<u32> = perms.iter().flatten().copied().collect();
-        let mut wgpu = Wgpu::new(&scaled).unwrap();
-        Engine::load(&mut wgpu, &flat, 0).unwrap();
-        let ancestors: Vec<u32> = (0..100).map(|i| (i * 7 % perms.len()) as u32).collect();
-        Engine::resample(&mut wgpu, &ancestors).unwrap();
-        let rows = cubecl::future::block_on(wgpu.particles()).unwrap();
-        for (row, &ancestor) in rows.chunks(scaled.n).zip(&ancestors) {
-            assert_eq!(row, perms[ancestor as usize]);
+    on_both!(
+        /// Resampling copies whole particles.
+        resampling_copies_particles,
+        async {
+            let scaled = instance();
+            let perms = permutations(scaled.n);
+            let flat: Vec<u32> = perms.iter().flatten().copied().collect();
+            let mut wgpu = engine(&scaled).await;
+            wgpu.load(&flat, 0);
+            let ancestors: Vec<u32> = (0..100).map(|i| (i * 7 % perms.len()) as u32).collect();
+            wgpu.resample(&ancestors);
+            let rows = wgpu.particles().await.unwrap();
+            for (row, &ancestor) in rows.chunks(scaled.n).zip(&ancestors) {
+                assert_eq!(row, perms[ancestor as usize]);
+            }
         }
-    }
+    );
 
-    /// The FAR kernel follows the same integer arithmetic and the same
-    /// streams as the generic chain, so it must return the same round and
-    /// leave the same population as the rayon engine on those streams,
-    /// however short a dispatch is.
-    #[test]
-    fn far_matches_the_rayon_engine_exactly() {
-        let n = 24;
-        let mut a = vec![0.0; n * n];
-        for u in 0..n {
-            for v in 0..n {
-                if (u * 5 + v * 3) % 4 != 1 || u == v {
-                    a[u * n + v] = (((u * 7 + v * 11) % 13) as f64 - 6.0).exp();
+    on_both!(
+        /// The FAR kernel follows the same integer arithmetic and the same
+        /// streams as the generic chain, so it must return the same round and
+        /// leave the same population as the rayon engine on those streams,
+        /// however short a dispatch is.
+        far_matches_the_rayon_engine_exactly,
+        async {
+            let n = 24;
+            let mut a = vec![0.0; n * n];
+            for u in 0..n {
+                for v in 0..n {
+                    if (u * 5 + v * 3) % 4 != 1 || u == v {
+                        a[u * n + v] = (((u * 7 + v * 11) % 13) as f64 - 6.0).exp();
+                    }
+                }
+            }
+            let Prepared::Scaled(scaled) = prepare(&Problem { n, a }) else { unreachable!() };
+            let log_w: Vec<f64> = (0..n).map(|v| (n as f64).ln() + 0.1 * (v % 5) as f64).collect();
+            let tables = Tables::<u64>::build(&scaled, 0.6, &log_w, 3);
+            let identity: Vec<u32> = (0..4096).flat_map(|_| 0..n as u32).collect();
+            let stream = Stream { seed: 11, phase: 4, level: 2 };
+            let mut rayon = Rayon::<f32, Philox>::new(&scaled);
+            rayon.load(&identity, 100).unwrap();
+            // 40 steps per cycle is too few for some chains, which are then capped
+            let expected = rayon.far(&tables, 50, 2000, 16, stream).unwrap();
+            assert!(expected.capped > 0 && expected.capped < 4096);
+            let energies = rayon.energies().unwrap();
+            for budget in [1 << 16, 300] {
+                let mut wgpu = engine(&scaled).await;
+                wgpu.budget = budget;
+                wgpu.load(&identity, 100);
+                assert_eq!(wgpu.far(&tables, 50, 2000, 16, stream).await.unwrap(), expected, "budget {budget}");
+                let measured = wgpu.energies().await.unwrap();
+                for (measured, exact) in measured.iter().zip(&energies) {
+                    assert!((measured - exact).abs() < 1e-6, "{measured} against {exact}");
                 }
             }
         }
-        let Prepared::Scaled(scaled) = prepare(&Problem { n, a }) else { unreachable!() };
-        let log_w: Vec<f64> = (0..n).map(|v| (n as f64).ln() + 0.1 * (v % 5) as f64).collect();
-        let tables = Tables::<u64>::build(&scaled, 0.6, &log_w, 3);
-        let identity: Vec<u32> = (0..4096).flat_map(|_| 0..n as u32).collect();
-        let stream = Stream { seed: 11, phase: 4, level: 2 };
-        let mut rayon = Rayon::<f32, Philox>::new(&scaled);
-        rayon.load(&identity, 100).unwrap();
-        // 40 steps per cycle is too few for some chains, which are then capped
-        let expected = rayon.far(&tables, 50, 2000, 16, stream).unwrap();
-        assert!(expected.capped > 0 && expected.capped < 4096);
-        let energies = rayon.energies().unwrap();
-        for budget in [1 << 16, 300] {
-            let mut wgpu = Wgpu::new(&scaled).unwrap();
-            wgpu.budget = budget;
-            Engine::load(&mut wgpu, &identity, 100).unwrap();
-            assert_eq!(Engine::far(&mut wgpu, &tables, 50, 2000, 16, stream).unwrap(), expected, "budget {budget}");
-            let measured = Engine::energies(&mut wgpu).unwrap();
-            for (measured, exact) in measured.iter().zip(&energies) {
-                assert!((measured - exact).abs() < 1e-6, "{measured} against {exact}");
-            }
-        }
-    }
+    );
 }

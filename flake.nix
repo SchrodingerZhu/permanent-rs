@@ -64,6 +64,29 @@
         # The toolchain of rust-toolchain.toml, with its wasm targets.
         pinnedToolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
 
+        # The wasm test runner has to be the wasm-bindgen of Cargo.lock, to
+        # the patch version, which nixpkgs does not track.
+        wasmBindgenCli = pkgs.buildWasmBindgenCli rec {
+          src = pkgs.fetchCrate {
+            pname = "wasm-bindgen-cli";
+            version = "0.2.130";
+            hash = "sha256-9Og1O/6/VC3sc5hBjoIWBErmLW2UHGMsTQO+6+m/dng=";
+          };
+          cargoDeps = pkgs.rustPlatform.fetchCargoVendor {
+            inherit src;
+            inherit (src) pname version;
+            hash = "sha256-j81sUf1m5yXU4FJfGj7GV+hdqVCV8mRmNb0QIsMCjqw=";
+          };
+        };
+
+        # Deno with misc/ci/deno-shim.js loaded first, which makes up for two
+        # gaps between Deno and what the wasm-bindgen test glue and wgpu expect.
+        denoForWasmTests = pkgs.writeShellScriptBin "deno" ''
+          command=$1
+          shift
+          exec ${pkgs.deno}/bin/deno "$command" --preload ${./misc/ci/deno-shim.js} "$@"
+        '';
+
         rustDevPackages = with pkgs; [
           cargo
           rustc
@@ -138,13 +161,18 @@
         };
 
         # `nix develop .#ci` — what CI runs in: the pinned toolchain, wasmer
-        # for the WASI build, and Mesa's software Vulkan driver so the wgpu
-        # backend has an adapter on a machine without a GPU.
+        # for the WASI build, Deno and the wasm-bindgen test runner for the
+        # wgpu engine in wasm (Deno has WebGPU), and Mesa's software Vulkan
+        # driver so wgpu has an adapter on a machine without a GPU.
         devShells.ci = pkgs.mkShell {
           packages = [
             pinnedToolchain
             pkgs.wasmer
+            denoForWasmTests
+            wasmBindgenCli
           ];
+          env.CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER = "wasm-bindgen-test-runner";
+          env.WASM_BINDGEN_USE_DENO = "1";
           env.RUST_BACKTRACE = "1";
           env.LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [ pkgs.vulkan-loader ];
           env.VK_DRIVER_FILES = "${pkgs.mesa}/share/vulkan/icd.d/lvp_icd.${pkgs.stdenv.hostPlatform.parsed.cpu.name}.json";

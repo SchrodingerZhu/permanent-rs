@@ -15,7 +15,9 @@ permanent-rayon = { path = "crates/permanent-rayon" }
 permanent-cuda = { path = "crates/permanent-cuda" }
 permanent-wgpu = { path = "crates/permanent-wgpu" }
 anyhow = "1.0.104"
-rand = "0.10.2"
+# without the system generator, which wasm32-unknown-unknown lacks; the
+# command line, which draws seeds from it, turns it on
+rand = { version = "0.10.2", default-features = false, features = ["std"] }
 rayon = "1.12.0"
 tracing = "0.1.44"
 num-traits = "0.2.19"

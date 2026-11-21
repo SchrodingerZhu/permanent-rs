@@ -1,8 +1,9 @@
 name: CI
 
 # Every step runs inside `nix develop .#ci`: the Rust toolchain pinned in
-# rust-toolchain.toml with its wasm targets, wasmer, and a software Vulkan
-# driver for the wgpu backend, all from the flake.
+# rust-toolchain.toml with its wasm targets, wasmer, Deno with the
+# wasm-bindgen test runner, and a software Vulkan driver for the wgpu
+# backend, all from the flake.
 on:
   push:
     branches: [main]
@@ -33,6 +34,10 @@ jobs:
         run: >
           nix develop .#ci --command cargo clippy --locked --target wasm32-wasip1
           -p permanent-cli --no-default-features --features rayon -- -D warnings
+      - name: Clippy for the browser
+        run: >
+          nix develop .#ci --command cargo clippy --locked --target wasm32-unknown-unknown
+          -p permanent-wgpu --all-targets -- -D warnings
 
   host:
     name: host
@@ -66,3 +71,18 @@ jobs:
           nix develop .#ci --command misc/ci/against-exact.sh
           wasmer run --mapdir /data:"$PWD/data" target/wasm32-wasip1/release/permanent.wasm --
           /data/weighted-16.mtx --exact --seed 1
+
+  webgpu:
+    name: wgpu engine in wasm through WebGPU
+    runs-on: ubuntu-26.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v22
+      - name: Build dev shell
+        run: nix develop .#ci --command true
+      # the engine's own tests, run by Deno, whose WebGPU sits on the
+      # software Vulkan driver here
+      - name: Test
+        run: >
+          nix develop .#ci --command cargo test --locked --release
+          -p permanent-wgpu --target wasm32-unknown-unknown
