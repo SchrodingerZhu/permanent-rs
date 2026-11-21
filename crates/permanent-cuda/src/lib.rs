@@ -384,14 +384,31 @@ const UNSTAGED_THREADS: usize = 1 << 16;
 /// Most particles resident at once, and the device memory they may take.
 const MAX_PARTICLES: usize = 1 << 20;
 const MEMORY_BUDGET: usize = 8 << 30;
-/// Particle threads of all the engines of a device that may run at the
-/// same time when their working state is in shared memory.
-const CONCURRENT_THREADS: usize = 1 << 16;
-/// Most trials of a sampler launch that retries a few particles: about as
-/// many as run at once without waiting for one another. At n = 128 a GH200
-/// takes 0.51 s for 12,740 trials, 0.58 s for twice and 1.17 s for five
-/// times as many.
-const SAMPLER_TRIALS: usize = 1 << 15;
+/// Particles a sampler launch that retries may expect to leave missing.
+/// It weighs one more launch against trials that are not needed, both in
+/// units of one trial's duration, so it does not depend on the device.
+const EXPECTED_MISSING: f64 = 0.5;
+
+/// What a device reports about its multiprocessors.
+#[derive(Debug, Clone, Copy)]
+struct Multiprocessors {
+    count: usize,
+    /// Most threads one of them runs at once.
+    threads: usize,
+    /// Shared memory of one of them, taken as the most a block may opt in
+    /// to: all of it but a reserved kilobyte on the devices so far.
+    shared: usize,
+}
+
+impl Multiprocessors {
+    fn of(context: &CudaContext) -> Result<Self> {
+        Ok(Multiprocessors {
+            count: context.multiprocessor_count()? as usize,
+            threads: context.max_threads_per_multiprocessor()? as usize,
+            shared: context.max_opt_in_shared_memory_per_block()? as usize,
+        })
+    }
+}
 
 /// Number of CUDA devices on this host.
 pub fn device_count() -> Result<usize> {
@@ -403,6 +420,7 @@ pub struct Cuda<'a, T: DeviceCopy> {
     scaled: &'a Scaled,
     name: String,
     context: Arc<CudaContext>,
+    multiprocessors: Multiprocessors,
     /// A stream of this engine's own, so that engines of one context run
     /// their launches at the same time.
     stream: Arc<CudaStream>,
@@ -468,12 +486,26 @@ where
         ensure!(n <= MAX_N, "the CUDA engine supports n up to {MAX_N}");
         let context = CudaContext::new(ordinal).with_context(|| format!("opening CUDA device {ordinal}"))?;
         let device = context.device_name()?;
-        info!(%device, staged = fits_shared(lane_words(n)), far_staged = fits_shared(2 * n), "CUDA engine ready");
-        Self::on(scaled, context, format!("cuda:{ordinal} ({device}, {})", std::any::type_name::<T>()))
+        let multiprocessors = Multiprocessors::of(&context)?;
+        let name = format!("cuda:{ordinal} ({device}, {})", std::any::type_name::<T>());
+        let engine = Self::on(scaled, context, multiprocessors, name)?;
+        info!(
+            %device,
+            staged = fits_shared(lane_words(n)),
+            far_staged = fits_shared(2 * n),
+            threads_at_once = engine.threads_at_once(lane_words(n)),
+            "CUDA engine ready"
+        );
+        Ok(engine)
     }
 
     /// An engine with no particles in `context`.
-    fn on(scaled: &'a Scaled, context: Arc<CudaContext>, name: String) -> Result<Self> {
+    fn on(
+        scaled: &'a Scaled,
+        context: Arc<CudaContext>,
+        multiprocessors: Multiprocessors,
+        name: String,
+    ) -> Result<Self> {
         let energy_bits = scaled.fixed_energy();
         let stream = context.new_stream()?;
         let module = kernels::load(&context).context("loading the kernels; device code is built by `cargo oxide`")?;
@@ -481,6 +513,7 @@ where
             scaled,
             name,
             context,
+            multiprocessors,
             module,
             first_id: 0,
             count: 0,
@@ -540,6 +573,20 @@ where
             shared_mem_bytes: shared as u32,
         };
         (config, staged as u32)
+    }
+
+    /// Particle threads of `words` words of working state each that the
+    /// device runs at once, over all the launches in flight: every
+    /// multiprocessor takes blocks until its threads or its shared memory
+    /// are used up, and further blocks wait for one of those to finish.
+    fn threads_at_once(&self, words: usize) -> usize {
+        let (config, staged) = self.config(1, words);
+        let block = config.block_dim.0 as usize;
+        let mut blocks = self.multiprocessors.threads / block;
+        if staged != 0 {
+            blocks = blocks.min(self.multiprocessors.shared / config.shared_mem_bytes as usize);
+        }
+        self.multiprocessors.count * blocks.max(1) * block
     }
 
     /// Whether some kernel keeps its working state in `scratch`.
@@ -640,12 +687,18 @@ where
     }
 
     fn concurrency(&self, particles: usize) -> usize {
-        let threads = if self.needs_scratch() { UNSTAGED_THREADS } else { CONCURRENT_THREADS };
-        (threads / particles.max(1)).max(1)
+        // As many populations as fill the device. The last may fit only in
+        // part: some of its blocks then wait, which still costs less than
+        // sweeping it after the others.
+        let mut threads = self.threads_at_once(lane_words(self.scaled.n));
+        if self.needs_scratch() {
+            threads = threads.min(UNSTAGED_THREADS);
+        }
+        threads.div_ceil(particles.max(1)).max(1)
     }
 
     fn fork(&self) -> Result<Self> {
-        Self::on(self.scaled, self.context.clone(), self.name.clone())
+        Self::on(self.scaled, self.context.clone(), self.multiprocessors, self.name.clone())
     }
 
     fn load(&mut self, perms: &[u32], first_id: u64) -> Result<()> {
@@ -674,8 +727,8 @@ where
         // A trial that misses is run again on a stream of its own. A launch
         // lasts as long as one trial however few it holds, so once the miss
         // rate is known a launch runs the next few trials of every particle
-        // still missing, each into a row of its own: enough to expect less
-        // than half a particle left. A particle takes its first hit, the
+        // still missing, each into a row of its own: enough to expect
+        // EXPECTED_MISSING left. A particle takes its first hit, the
         // sample it would get from running its trials one at a time.
         let mut pending: Vec<u32> = (0..count as u32).collect();
         let mut tried = 0u64;
@@ -685,9 +738,9 @@ where
                 1
             } else {
                 let miss = 1.0 - cost.accepted as f64 / cost.trials as f64;
-                ((2.0 * pending.len() as f64).ln() / -miss.ln()).ceil() as u64
+                ((pending.len() as f64 / EXPECTED_MISSING).ln() / -miss.ln()).ceil() as u64
             };
-            let most = ((SAMPLER_TRIALS / pending.len()) as u64).clamp(1, max_trials - tried);
+            let most = ((self.threads_at_once(lane_words(n)) / pending.len()) as u64).clamp(1, max_trials - tried);
             let attempts = wanted.clamp(1, most);
             let slots = pending.len() * attempts as usize;
             let seeds: Vec<u64> = pending
