@@ -8,16 +8,17 @@
 //! alone.
 //!
 //! How many particles a multiprocessor runs at once is set by how much
-//! shared memory each needs, so the working state is kept to the matching,
-//! its inverse, and a short list of the vertices in a collision. The
-//! penalty J keeps collisions rare at every activity, which is what makes a
-//! short list enough; a particle that overflows it is treated like one that
-//! hit its event cap. Once a warp's worth of state no longer fits the
-//! shared memory every device gives a block (n above about 370), the
-//! mutation kernel opts in to what this device allows and takes the block
-//! size that keeps the most particles on a multiprocessor; the other
-//! kernels, and a mutation whose state fits no block, keep the state in
-//! global memory instead.
+//! shared memory each needs, so the working state of the dynamics is kept
+//! to one array over the columns and a short list of the rows in a
+//! collision (`permanent_core::chain::matching`). The penalty J keeps
+//! collisions rare at every activity, which is what makes a short list
+//! enough; a particle that overflows it is treated like one that hit its
+//! event cap. Once a warp's worth of state no longer fits the shared memory
+//! every device gives a block (n above about 670 for the dynamics, 380 for
+//! FAR, which keeps a matching and its inverse), the mutation kernel opts
+//! in to what this device allows and takes the block size that keeps the
+//! most particles on a multiprocessor; the other kernels, and a mutation
+//! whose state fits no block, keep the state in global memory instead.
 //!
 //! The chains are those of `permanent_core::chain`, the same code the rayon
 //! engine runs, compiled here for the device: every probability decision
@@ -60,6 +61,12 @@ const OVER_BUDGET: u64 = 1 << 63;
 /// Set in a trial's event count when it ended on a perfect matching.
 const PERFECT: u64 = 1 << 62;
 
+/// Words of a particle's slot of `scratch`, which takes the working state of
+/// any kernel: a relaxed assignment, or the two arrays of a FAR chain.
+fn slot_words(n: usize) -> usize {
+    lane_words(n).max(2 * n)
+}
+
 /// This thread's lane: one of its block's shared memory when `staged`, where
 /// the stride puts the lanes of a warp in distinct banks, else its slot of
 /// `scratch`.
@@ -70,7 +77,7 @@ unsafe fn lane(scratch: *mut u16, slot: usize, n: usize, staged: u32) -> Lane {
             let shared: *mut u16 = DynamicSharedArray::<u16>::get();
             Lane::new(shared.add(thread::threadIdx_x() as usize), thread::blockDim_x() as usize, n)
         } else {
-            Lane::new(scratch.add(slot * lane_words(n)), 1, n)
+            Lane::new(scratch.add(slot * slot_words(n)), 1, n)
         }
     }
 }
@@ -670,7 +677,7 @@ where
 
     /// Whether some kernel keeps its working state in `scratch`.
     fn needs_scratch(&self) -> bool {
-        !fits_shared(lane_words(self.scaled.n))
+        !fits_shared(slot_words(self.scaled.n))
     }
 
     /// Put the row alias table of `tables` on the device, unless it is there.
@@ -701,7 +708,7 @@ where
         self.count = count;
         self.sigma = self.zeros(count * n)?;
         self.next = self.zeros(count * n)?;
-        let scratch = if self.needs_scratch() { count * lane_words(n) } else { 1 };
+        let scratch = if self.needs_scratch() { count * slot_words(n) } else { 1 };
         self.scratch = self.zeros(scratch)?;
         self.events = self.zeros(count)?;
         self.time = self.zeros(count)?;
@@ -754,7 +761,7 @@ where
 
     fn capacity(&self) -> usize {
         let n = self.scaled.n;
-        let scratch = if self.needs_scratch() { lane_words(n) } else { 0 };
+        let scratch = if self.needs_scratch() { slot_words(n) } else { 0 };
         let per_particle = (2 * n + scratch) * size_of::<u16>() + 48;
         MAX_PARTICLES.min(MEMORY_BUDGET / per_particle)
     }
@@ -844,7 +851,7 @@ where
             let own_row: Vec<u32> = (0..slots as u32).collect();
             let own_row = self.device(&own_row)?;
             let mut rows = self.zeros::<u16>(slots * n)?;
-            let scratch = if self.needs_scratch() { slots * lane_words(n) } else { 1 };
+            let scratch = if self.needs_scratch() { slots * slot_words(n) } else { 1 };
             let mut scratch = self.zeros::<u16>(scratch)?;
             let mut events = self.zeros::<u64>(slots)?;
             let (config, staged) = self.config(slots, lane_words(n));

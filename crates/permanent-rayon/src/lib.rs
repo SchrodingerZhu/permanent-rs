@@ -98,7 +98,7 @@ where
             .map_init(
                 || vec![0u16; words(n)],
                 |memory, (particle, row)| {
-                    let mut matching = Matching::new(Lane::on(memory, n));
+                    let mut matching = Matching::on(memory, n);
                     let seed = this.seed(stream, particle);
                     let mut cost = SampleCost::default();
                     // a trial that misses is run again on a stream of its own
@@ -158,7 +158,7 @@ where
             .map_init(
                 || vec![0u16; words(n)],
                 |memory, (particle, row)| {
-                    let mut matching = Matching::new(Lane::on(memory, n));
+                    let mut matching = Matching::on(memory, n);
                     let seed = stream_seed(stream.seed, stream.phase, stream.level, first_id + particle as u64);
                     let mut rng = G::seed_from_u64(seed);
                     // SAFETY: `row` is a perfect matching on n rows, the lane

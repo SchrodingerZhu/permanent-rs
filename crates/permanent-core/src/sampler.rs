@@ -172,7 +172,6 @@ impl MutateCost {
 pub(crate) mod test {
     use super::*;
     use crate::chain::dynamics::{STAGE_TICKS, mutate, trial};
-    use crate::chain::lane::Lane;
     use crate::chain::matching::{Matching, words};
     use crate::chain::stream::Stream;
     use crate::problem::Problem;
@@ -252,7 +251,7 @@ pub(crate) mod test {
         let perms = permutations(n);
         let weights: Vec<f64> = perms.iter().map(|p| (-beta * scaled.energy_of(p)).exp()).collect();
         let mut memory = vec![0u16; words(n)];
-        let mut matching = Matching::new(Lane::on(&mut memory, n));
+        let mut matching = Matching::on(&mut memory, n);
         let mut histogram: HashMap<Vec<u16>, usize> = HashMap::new();
         let draws = 20_000;
         for draw in 0..draws as u64 {
@@ -304,7 +303,7 @@ pub(crate) mod test {
         let unassign_below: u64 = fraction(1.0 / (1.0 + penalty(n)));
         let mut pick_rng = SmallRng::seed_from_u64(5);
         let mut memory = vec![0u16; words(n)];
-        let mut matching = Matching::new(Lane::on(&mut memory, n));
+        let mut matching = Matching::on(&mut memory, n);
         let mut histogram: HashMap<Vec<u16>, usize> = HashMap::new();
         for draw in 0..draws as u64 {
             let mut sample: Vec<u16> = perms[start(&mut pick_rng, &weights)].iter().map(|&v| v as u16).collect();
@@ -372,7 +371,7 @@ pub(crate) mod test {
         let unassign_below: u64 = fraction(1.0 / (1.0 + penalty(n)));
         let start: Vec<u16> = (0..n as u16).collect();
         let mut memory = vec![0u16; words(n)];
-        let mut matching = Matching::new(Lane::on(&mut memory, n));
+        let mut matching = Matching::on(&mut memory, n);
         for seed in 0..8 {
             // SAFETY: `start` is a permutation of n, the lane holds
             // words(n) words and the tables are n x n

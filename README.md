@@ -130,11 +130,12 @@ produces no device code.
     cargo oxide test -- --profile cuda -p permanent-cuda        # needs a GPU
 
 Every population operation runs on the device. A particle's working state
-is its matching, the inverse and a short list of collisions, staged in
-shared memory while a warp's worth fits (n up to about 370). Beyond that
-the mutation kernel stages smaller blocks, of the size that keeps the most
-particles on a multiprocessor of the device, and the other kernels keep the
-state in global memory. FAR chains have very uneven lengths, so a FAR launch
+in the dynamics is one array over the columns (which row is on each) and a
+short list of collisions, staged in shared memory while a warp's worth fits
+(n up to about 670; 380 for FAR, which keeps a matching and its inverse).
+Beyond that the mutation kernel stages smaller blocks, of the size that
+keeps the most particles on a multiprocessor of the device, and the other
+kernels keep the state in global memory. FAR chains have very uneven lengths, so a FAR launch
 gives each chain a step budget and the few that overrun it are finished on
 host threads. A launch lasts as long as its longest particle, and a Phase 2
 population leaves most of the device idle, so while the working state fits

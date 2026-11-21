@@ -13,6 +13,7 @@ use num_traits::{AsPrimitive, Float, PrimInt, Unsigned};
 use rand_core::Rng;
 
 use super::far::alias_draw;
+use super::lane::NONE;
 use super::matching::Matching;
 use super::{at_least, below, scaled_below};
 
@@ -55,21 +56,25 @@ unsafe fn ring<C, R>(
     let conflicted = scaled_below(word, rate, conflicted_rate, rng);
     unsafe {
         let mut u;
+        let mut seat;
         if conflicted {
-            u = matching.conflict(below(rng.next_u32(), matching.conflicted));
+            (u, seat) = matching.lift_conflict(below(rng.next_u32(), matching.conflicted));
         } else {
-            // uniform over the rows outside the list, by rejection
+            // uniform over the rows outside the list: each has a column for
+            // its seat, and the other columns are rejected
             loop {
-                u = below(rng.next_u32(), n);
-                if !matching.is_conflicted(u) {
+                seat = below(rng.next_u32(), n);
+                u = matching.lift(seat);
+                if u != NONE {
                     break;
                 }
             }
         }
-        matching.remove(u);
         if at_least(unassign_below, rng) {
             let v = alias_draw(alias, u, n, rng);
-            matching.place(u, v);
+            matching.place(u, seat, v);
+        } else {
+            matching.park(u, seat);
         }
     }
 }

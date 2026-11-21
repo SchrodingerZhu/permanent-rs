@@ -4,8 +4,9 @@
 
 /// "No vertex": an unmatched row, a free column, or no hole.
 pub const NONE: u32 = u16::MAX as u32;
-/// Largest matrix whose vertices fit a word below the sentinels.
-pub const MAX_N: usize = (NONE - 2) as usize;
+/// Largest matrix of the chains: a vertex takes 15 bits of a word, below the
+/// sentinels, which leaves a relaxed assignment one bit to mark a row with.
+pub const MAX_N: usize = (1 << 15) - 2;
 
 /// The matching as row -> column.
 pub const ROW: usize = 0;
@@ -29,8 +30,7 @@ impl Lane {
         Lane { base, stride, n }
     }
 
-    /// A lane on host memory. `words` must outlive its use and hold what
-    /// the chain addresses, as for [`Lane::new`].
+    /// A lane of two arrays on host memory, which must outlive its use.
     pub fn on(words: &mut [u16], n: usize) -> Self {
         assert!(n <= MAX_N && words.len() >= 2 * n);
         Lane { base: words.as_mut_ptr(), stride: 1, n }
