@@ -440,8 +440,7 @@ fn run_segment<E: Engine>(
     let mut runs = vec![SegmentRun { segment, ln_ratio: 0.0, fresh: f64::NAN, carried: f64::NAN }; count];
     let mut weights = vec![0.0f64; particles];
     let mut ancestors = Vec::with_capacity(count * particles);
-    for i in first..=end {
-        let level = &levels[i];
+    for (i, level) in levels.iter().enumerate().take(end + 1).skip(first) {
         if i > first {
             let stream = Stream { seed, phase: PHASE_MUTATE, level: i as u64 };
             mutate.add(engine.mutate(&tables(level), config.mutation_time, stream)?);
@@ -574,12 +573,12 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
                 self.diagnostics.learn_capped_chains += far.capped;
                 for g in 0..groups {
                     group_cycles[g] += far.cycles[g];
-                    for v in 0..n {
-                        group_visits[g][v] += far.visits[g][v];
+                    for (total, visits) in group_visits[g].iter_mut().zip(&far.visits[g]) {
+                        *total += visits;
                     }
                 }
-                for v in 0..n {
-                    energy_sums[v] += far.visit_energy[v].to_num::<f64>();
+                for (total, energy) in energy_sums.iter_mut().zip(&far.visit_energy) {
+                    *total += energy.to_num::<f64>();
                 }
                 energy_sums[n] += far.perfect_energy.to_num::<f64>();
                 // Over all ranks: cycles, groups, visits_v; and the second
@@ -646,8 +645,7 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
             self.diagnostics.check_min = self.diagnostics.check_min.min(check);
             self.diagnostics.check_max = self.diagnostics.check_max.max(check);
             if iteration == 0 {
-                self.diagnostics.worst_first_correction =
-                    self.diagnostics.worst_first_correction.max(worst_correction);
+                self.diagnostics.worst_first_correction = self.diagnostics.worst_first_correction.max(worst_correction);
             }
             let mean_perfect = energy_sums[n] / total_cycles as f64;
             for v in 0..n {

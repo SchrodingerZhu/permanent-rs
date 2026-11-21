@@ -3,11 +3,15 @@
 //! per-temperature variance that sizes Phase 2, and the report as it is
 //! written.
 
+// the dashboard's state is built on wasm, but nothing draws it there
+#![cfg_attr(target_family = "wasm", allow(dead_code))]
+
 use std::sync::mpsc::{Receiver, TryRecvError};
 use std::time::{Duration, Instant};
 
 use ratatui::Frame;
 use ratatui::buffer::Buffer;
+#[cfg(not(target_family = "wasm"))]
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style, Stylize};
@@ -226,11 +230,8 @@ impl Widget for Heatmap<'_> {
             return;
         }
         let n = self.rows[0].len();
-        let (min, max) = self
-            .rows
-            .iter()
-            .flatten()
-            .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), &x| (lo.min(x), hi.max(x)));
+        let (min, max) =
+            self.rows.iter().flatten().fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), &x| (lo.min(x), hi.max(x)));
         let w = n.min(area.width as usize);
         let h = levels.div_ceil(2).min(area.height as usize);
         for y in 0..h {
@@ -249,13 +250,9 @@ impl Widget for Heatmap<'_> {
 }
 
 fn render(frame: &mut Frame, app: &App) {
-    let [header, body, log, footer] = Layout::vertical([
-        Constraint::Length(3),
-        Constraint::Min(12),
-        Constraint::Length(10),
-        Constraint::Length(1),
-    ])
-    .areas(frame.area());
+    let [header, body, log, footer] =
+        Layout::vertical([Constraint::Length(3), Constraint::Min(12), Constraint::Length(10), Constraint::Length(1)])
+            .areas(frame.area());
 
     let (ratio, label) = app.progress();
     let gauge = Gauge::default()
@@ -288,10 +285,7 @@ fn render(frame: &mut Frame, app: &App) {
         log,
     );
 
-    frame.render_widget(
-        Line::from(vec![Span::raw(" q ").bold(), Span::raw("quit")]),
-        footer,
-    );
+    frame.render_widget(Line::from(vec![Span::raw(" q ").bold(), Span::raw("quit")]), footer);
 }
 
 fn render_stats(frame: &mut Frame, app: &App, area: Rect) {
@@ -315,18 +309,12 @@ fn render_stats(frame: &mut Frame, app: &App, area: Rect) {
         lines.push(Line::from(format!("islands       {islands}")));
         lines.push(Line::from(format!("ln(per)       {ln_permanent:.5} ± {std_error:.5}")));
         let style = if app.phase == Phase::Done { Style::new().fg(Color::Green).bold() } else { Style::new() };
-        lines.push(Line::from(vec![
-            Span::raw("permanent     "),
-            Span::styled(scientific(ln_permanent), style),
-        ]));
+        lines.push(Line::from(vec![Span::raw("permanent     "), Span::styled(scientific(ln_permanent), style)]));
         if let Some(exact) = app.exact {
             let error = 100.0 * ((ln_permanent - exact).exp() - 1.0);
             let style = if error.abs() < 5.0 { Style::new().fg(Color::Green) } else { Style::new().fg(Color::Yellow) };
             lines.push(Line::from(format!("exact         {}", scientific(exact))));
-            lines.push(Line::from(vec![
-                Span::raw("rel error     "),
-                Span::styled(format!("{error:+.2}%"), style),
-            ]));
+            lines.push(Line::from(vec![Span::raw("rel error     "), Span::styled(format!("{error:+.2}%"), style)]));
         }
     }
     lines.push(Line::from(format!("elapsed       {}", format_duration(app.elapsed()))));
@@ -339,8 +327,7 @@ fn render_chart(frame: &mut Frame, area: Rect, title: &str, data: &[(f64, f64)],
         return;
     }
     let x_max = data.last().map(|p| p.0).unwrap_or(1.0).max(1.0);
-    let (y_min, y_max) =
-        data.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), p| (lo.min(p.1), hi.max(p.1)));
+    let (y_min, y_max) = data.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), p| (lo.min(p.1), hi.max(p.1)));
     let margin = ((y_max - y_min) * 0.05).max(0.01);
     let (y_min, y_max) = (y_min - margin, y_max + margin);
     let dataset = Dataset::default()
@@ -353,6 +340,12 @@ fn render_chart(frame: &mut Frame, area: Rect, title: &str, data: &[(f64, f64)],
         .x_axis(Axis::default().bounds([0.0, x_max]).labels(["0".to_string(), format!("{x_max:.0}")]))
         .y_axis(Axis::default().bounds([y_min, y_max]).labels([format!("{y_min:.2}"), format!("{y_max:.2}")]));
     frame.render_widget(chart, area);
+}
+
+/// There is no terminal to take over on wasm.
+#[cfg(target_family = "wasm")]
+pub fn run(_: Receiver<TuiEvent>) -> std::io::Result<Outcome> {
+    Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "the dashboard is not available on wasm"))
 }
 
 /// Apply the events received so far. A worker that is gone without having
@@ -374,6 +367,7 @@ fn drain(app: &mut App, rx: &Receiver<TuiEvent>) {
 
 /// Run the dashboard until the user quits. The run keeps going behind it;
 /// the caller decides what quitting early means.
+#[cfg(not(target_family = "wasm"))]
 pub fn run(rx: Receiver<TuiEvent>) -> std::io::Result<Outcome> {
     let mut terminal = ratatui::init();
     let mut app = App::new();

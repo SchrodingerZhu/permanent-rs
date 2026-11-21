@@ -177,8 +177,8 @@ fn init_logging(cli: &Cli, root: bool) -> anyhow::Result<()> {
     let builder = tracing_subscriber::fmt().with_env_filter(filter);
     match &cli.log_file {
         Some(path) if root => {
-            let file = std::fs::File::create(path)
-                .map_err(|error| anyhow::anyhow!("creating {}: {error}", path.display()))?;
+            let file =
+                std::fs::File::create(path).map_err(|error| anyhow::anyhow!("creating {}: {error}", path.display()))?;
             builder.with_ansi(false).with_writer(Mutex::new(file)).init();
         }
         // the dashboard owns the terminal
@@ -256,8 +256,12 @@ fn run<C: Comm>(cli: &Cli, problem: &Problem, comm: &C, reporter: &Reporter) -> 
             let device = (cli.device + comm.node_rank()) % devices;
             debug!(rank = comm.rank(), device, devices, "cuda device");
             match cli.precision.unwrap_or(Precision::F32) {
-                Precision::F32 => estimate(cli, &scaled, &config, exact, Cuda::<f32>::new(&scaled, device)?, comm, reporter),
-                Precision::F64 => estimate(cli, &scaled, &config, exact, Cuda::<f64>::new(&scaled, device)?, comm, reporter),
+                Precision::F32 => {
+                    estimate(cli, &scaled, &config, exact, Cuda::<f32>::new(&scaled, device)?, comm, reporter)
+                }
+                Precision::F64 => {
+                    estimate(cli, &scaled, &config, exact, Cuda::<f64>::new(&scaled, device)?, comm, reporter)
+                }
             }
         }
     }
@@ -388,12 +392,7 @@ fn estimate<E: Engine, C: Comm>(
         "  segments:                    {} (independent; each starts from fresh sampler draws)",
         plan.segments.len()
     );
-    say!(
-        reporter,
-        "  islands x particles:         {} x {} per segment",
-        plan.islands,
-        plan.particles
-    );
+    say!(reporter, "  islands x particles:         {} x {} per segment", plan.islands, plan.particles);
     say!(
         reporter,
         "  variance per island:         planned {:.4} (sum of step variances {:.3}, margin 2); bound factor {:.2}",
@@ -401,12 +400,7 @@ fn estimate<E: Engine, C: Comm>(
         plan.relvar_sum,
         plan.mixing_factor
     );
-    say!(
-        reporter,
-        "  target std error of ln(per): {:.4} (interval z = {:.3})",
-        session.sigma_target,
-        session.z
-    );
+    say!(reporter, "  target std error of ln(per): {:.4} (interval z = {:.3})", session.sigma_target, session.z);
     say!(reporter, "  sampler stage time:          {:.4}", plan.stage_time);
     if plan.predicted_events > 0.0 {
         say!(reporter, "  predicted:                   ~{:.3e} mutation events", plan.predicted_events);

@@ -172,7 +172,12 @@ pub trait Engine: Send {
     ) -> anyhow::Result<SampleCost>;
 
     /// Apply the mutation kernel K_t of `sampler.rs` to every particle.
-    fn mutate(&mut self, tables: &Tables<Self::Counter>, perfect_time: f64, stream: Stream) -> anyhow::Result<MutateCost>;
+    fn mutate(
+        &mut self,
+        tables: &Tables<Self::Counter>,
+        perfect_time: f64,
+        stream: Stream,
+    ) -> anyhow::Result<MutateCost>;
 
     /// Energy of every particle.
     fn energies(&mut self) -> anyhow::Result<Vec<f64>>;

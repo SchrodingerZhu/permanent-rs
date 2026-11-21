@@ -61,7 +61,8 @@
         # cuda-oxide generates its driver bindings with bindgen.
         libclang = pkgs.llvmPackages_21.libclang;
 
-        cudaToolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+        # The toolchain of rust-toolchain.toml, with its wasm targets.
+        pinnedToolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
 
         rustDevPackages = with pkgs; [
           cargo
@@ -136,6 +137,19 @@
           env.RUST_BACKTRACE = "1";
         };
 
+        # `nix develop .#ci` — what CI runs in: the pinned toolchain, wasmer
+        # for the WASI build, and Mesa's software Vulkan driver so the wgpu
+        # backend has an adapter on a machine without a GPU.
+        devShells.ci = pkgs.mkShell {
+          packages = [
+            pinnedToolchain
+            pkgs.wasmer
+          ];
+          env.RUST_BACKTRACE = "1";
+          env.LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [ pkgs.vulkan-loader ];
+          env.VK_DRIVER_FILES = "${pkgs.mesa}/share/vulkan/icd.d/lvp_icd.${pkgs.stdenv.hostPlatform.parsed.cpu.name}.json";
+        };
+
         # `nix develop .#cuda` — for the cuda backend: `cargo oxide build --
         # --profile cuda --features cuda`. Everything but the driver comes from
         # nixpkgs. cargo-oxide itself is not packaged: it fetches and builds
@@ -143,7 +157,7 @@
         # shell with the command the shell prints.
         devShells.cuda = pkgs.mkShell {
           packages = [
-            cudaToolchain
+            pinnedToolchain
             cudaEnv
             libclang
             pkgs.mpi
