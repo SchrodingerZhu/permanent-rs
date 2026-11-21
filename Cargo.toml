@@ -38,10 +38,11 @@ lto = "off"
 
 # Full fat-LTO profile for production static WebAssembly bundles:
 # `./misc/build-web.sh --lto`
+# Keep `strip` unset so wasm-bindgen can read the `target_features` custom
+# section; `wasm-bindgen --remove-name-section` and `wasm-opt` strip afterward.
 [profile.wasm-release]
 inherits = "release"
 opt-level = 3
 lto = true
 codegen-units = 1
 debug = false
-strip = "symbols"
