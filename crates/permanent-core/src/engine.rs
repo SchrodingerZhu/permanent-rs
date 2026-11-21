@@ -115,6 +115,10 @@ impl Tally for VisitList {
     }
 }
 
+/// Default Phase 1 population size for engines that do not override
+/// [`Engine::learn_particles`] / [`AsyncEngine::learn_particles`].
+pub const DEFAULT_LEARN_PARTICLES: usize = 4096;
+
 pub trait Engine: Send {
     /// Type of the waiting times in the move and the annealing sampler.
     type Data: Float;
@@ -129,7 +133,7 @@ pub trait Engine: Send {
     /// The Phase 1 population this engine handles well: FAR learning needs
     /// a fixed total of cycles, so more particles mean fewer cycles each.
     fn learn_particles(&self) -> usize {
-        4096
+        DEFAULT_LEARN_PARTICLES
     }
 
     /// How many populations of `particles` the engine moves at the same
@@ -191,40 +195,32 @@ pub trait Engine: Send {
         stream: Stream,
     ) -> anyhow::Result<FarRound>;
 
-    /// One matching from the current population, for live inspection.
-    fn sample_particle(&mut self) -> anyhow::Result<Option<Vec<u32>>> {
-        Ok(None)
+    /// Up to `count` matchings from the start of the current population,
+    /// flattened as rows of n, for live inspection.
+    fn head(&mut self, _count: usize) -> anyhow::Result<Vec<u32>> {
+        Ok(Vec::new())
     }
 }
 
 /// Asynchronous counterpart of [`Engine`], for backends such as WebGPU in a
 /// browser where device readbacks cannot block.
 ///
-/// Any synchronous [`Engine`] adapts via [`Blocking`]. Returned futures are not
-/// required to be `Send`, since browser WebGPU promises live on a single thread.
+/// Methods mirror [`Engine`]. Any synchronous [`Engine`] adapts via
+/// [`Blocking`]. Returned futures are not required to be `Send`, since browser
+/// WebGPU promises live on a single thread.
 pub trait AsyncEngine {
-    /// Type of the waiting times in the move and the annealing sampler.
     type Data: Float;
-    /// Type of the random thresholds the chains compare against.
     type Counter: PrimInt + Unsigned + Send + Sync;
 
     fn name(&self) -> String;
-
-    /// Most particles the engine can hold.
     fn capacity(&self) -> usize;
 
-    /// The Phase 1 population this engine handles well: FAR learning needs
-    /// a fixed total of cycles, so more particles mean fewer cycles each.
     fn learn_particles(&self) -> usize {
-        4096
+        DEFAULT_LEARN_PARTICLES
     }
 
-    /// Replace the population by the perfect matchings in `perms` (rows of
-    /// n); `first_id` is the global id of the first one.
     fn load(&mut self, perms: &[u32], first_id: u64) -> anyhow::Result<()>;
 
-    /// Replace the population by `count` perfect matchings drawn from
-    /// nothing with the annealing sampler of `sampler.rs`.
     #[allow(clippy::too_many_arguments)]
     fn anneal(
         &mut self,
@@ -237,7 +233,6 @@ pub trait AsyncEngine {
         stream: Stream,
     ) -> impl Future<Output = anyhow::Result<SampleCost>>;
 
-    /// Apply the mutation kernel K_t of `sampler.rs` to every particle.
     fn mutate(
         &mut self,
         tables: &Tables<Self::Counter>,
@@ -245,18 +240,10 @@ pub trait AsyncEngine {
         stream: Stream,
     ) -> impl Future<Output = anyhow::Result<MutateCost>>;
 
-    /// Energy of every particle.
     fn energies(&mut self) -> impl Future<Output = anyhow::Result<Vec<f64>>>;
-
-    /// Regularization log-gap of every particle.
     fn log_gaps(&mut self) -> impl Future<Output = anyhow::Result<Vec<f64>>>;
-
-    /// Particle p becomes a copy of the former particle `ancestors[p]`.
     fn resample(&mut self, ancestors: &[u32]) -> anyhow::Result<()>;
 
-    /// Run every particle through `cycles` FAR cycles (`chain/far.rs`),
-    /// leaving it on the perfect matching its chain stops on. Particle p
-    /// reports into group p % groups.
     fn far(
         &mut self,
         tables: &Tables<Self::Counter>,
@@ -266,9 +253,9 @@ pub trait AsyncEngine {
         stream: Stream,
     ) -> impl Future<Output = anyhow::Result<FarRound>>;
 
-    /// One matching from the current population, for live inspection.
-    fn sample_particle(&mut self) -> impl Future<Output = anyhow::Result<Option<Vec<u32>>>> {
-        core::future::ready(Ok(None))
+    /// See [`Engine::head`].
+    fn head(&mut self, _count: usize) -> impl Future<Output = anyhow::Result<Vec<u32>>> {
+        core::future::ready(Ok(Vec::new()))
     }
 }
 
@@ -341,7 +328,7 @@ impl<E: Engine> AsyncEngine for Blocking<E> {
         core::future::ready(self.0.far(tables, cycles, max_steps, groups, stream))
     }
 
-    fn sample_particle(&mut self) -> impl Future<Output = anyhow::Result<Option<Vec<u32>>>> {
-        core::future::ready(self.0.sample_particle())
+    fn head(&mut self, count: usize) -> impl Future<Output = anyhow::Result<Vec<u32>>> {
+        core::future::ready(self.0.head(count))
     }
 }

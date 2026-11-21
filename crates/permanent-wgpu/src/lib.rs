@@ -144,16 +144,21 @@ impl<'a> Wgpu<'a> {
     pub async fn new(scaled: &'a Scaled) -> Result<Self> {
         use cubecl::Device;
         use cubecl::device::WgpuDeviceKind;
-        use cubecl::wgpu::{WebGpu, WgpuDevice, try_init_setup_async};
+        use cubecl::wgpu::{WebGpu, WgpuDevice, WgpuInitError, try_init_setup_async};
         use std::sync::atomic::{AtomicBool, Ordering};
         // A browser hands out its adapter asynchronously, and CubeCL takes
         // one setup per device; once it is done, the client below finds it.
+        // Overlapping calls may both race through setup; CubeCL reports the
+        // loser with `WgpuInitError::Registration`, after which the winner's
+        // device is already registered and usable.
         static SET_UP: AtomicBool = AtomicBool::new(false);
         if !SET_UP.load(Ordering::Acquire) {
-            try_init_setup_async::<WebGpu>(&WgpuDevice::default(), Default::default())
-                .await
-                .map_err(|error| anyhow!("no WebGPU device: {error}"))?;
-            SET_UP.store(true, Ordering::Release);
+            match try_init_setup_async::<WebGpu>(&WgpuDevice::default(), Default::default()).await {
+                Ok(_) | Err(WgpuInitError::Registration { .. }) => {
+                    SET_UP.store(true, Ordering::Release);
+                }
+                Err(error) => return Err(anyhow!("no WebGPU device: {error}")),
+            }
         }
         let device = Device::wgpu(WgpuDeviceKind::default()).map_err(|error| anyhow!("no WebGPU device: {error:?}"))?;
         Self::on(scaled, device.client())
@@ -305,27 +310,16 @@ impl<'a> Wgpu<'a> {
         self.read(&self.sigma).await
     }
 
-    /// One matching from the current population, preferring one supported on
-    /// the matrix's nonzero entries. Reads only a small prefix from the device.
-    pub async fn sample_particle(&self) -> Result<Option<Vec<u32>>> {
-        let n = self.scaled.n;
-        if self.count == 0 {
-            return Ok(None);
+    /// Up to `count` matchings from the start of the current population,
+    /// flattened as rows of n. Reads only that prefix from the device.
+    pub async fn head(&self, count: usize) -> Result<Vec<u32>> {
+        let take = self.count.min(count);
+        if take == 0 {
+            return Ok(Vec::new());
         }
-        let take = self.count.min(16);
-        let unused = ((self.count - take) * n * size_of::<u32>()) as u64;
-        let head = if unused > 0 { self.sigma.clone().offset_end(unused) } else { self.sigma.clone() };
-        let words = self.read(&head).await?;
-        let mut fallback = None;
-        for perm in words.chunks_exact(n) {
-            if self.scaled.log_gap_of(perm).is_finite() {
-                return Ok(Some(perm.to_vec()));
-            }
-            if fallback.is_none() {
-                fallback = Some(perm.to_vec());
-            }
-        }
-        Ok(fallback)
+        let unused = ((self.count - take) * self.scaled.n * size_of::<u32>()) as u64;
+        let slice = if unused > 0 { self.sigma.clone().offset_end(unused) } else { self.sigma.clone() };
+        self.read(&slice).await
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -836,8 +830,8 @@ impl permanent_core::engine::AsyncEngine for Wgpu<'_> {
         Wgpu::far(self, tables, cycles, max_steps, groups, stream)
     }
 
-    fn sample_particle(&mut self) -> impl Future<Output = Result<Option<Vec<u32>>>> {
-        Wgpu::sample_particle(self)
+    fn head(&mut self, count: usize) -> impl Future<Output = Result<Vec<u32>>> {
+        Wgpu::head(self, count)
     }
 }
 
@@ -913,8 +907,8 @@ mod blocking {
             block_on(Wgpu::far(self, tables, cycles, max_steps, groups, stream))
         }
 
-        fn sample_particle(&mut self) -> Result<Option<Vec<u32>>> {
-            block_on(Wgpu::sample_particle(self))
+        fn head(&mut self, count: usize) -> Result<Vec<u32>> {
+            block_on(Wgpu::head(self, count))
         }
     }
 }

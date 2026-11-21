@@ -55,7 +55,7 @@ use rand::rngs::SmallRng;
 use rand::seq::SliceRandom;
 use rand::{RngExt, SeedableRng};
 use rayon::prelude::*;
-use std::ops::{Deref, DerefMut, Range};
+use std::ops::Range;
 #[cfg(not(target_family = "wasm"))]
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -214,6 +214,10 @@ pub enum Verdict {
 }
 
 /// Returned when a caller cancels an in-flight run via its cancellation flag.
+///
+/// After cancellation the engine holds a mid-run population and the session's
+/// internal stream counter has advanced; drop the session rather than reusing
+/// it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Cancelled;
 
@@ -246,8 +250,9 @@ fn poll_ready<F: Future>(future: F) -> F::Output {
 pub enum Progress<'a> {
     /// Phase 1 fixed one more temperature.
     Level { index: usize, level: &'a Level },
-    /// A matching drawn from the active population at `beta`, when sample
-    /// capture is enabled; `valid` is true when it avoids every zero entry of A.
+    /// The first particle of the active population at `beta` (exchangeable
+    /// with the rest of its island), emitted when sample capture is enabled;
+    /// `valid` is true when it avoids every zero entry of A.
     Sample { beta: f64, matching: &'a [u32], valid: bool },
     /// Phase 2 finished `done` of this rank's `total` temperature sweeps;
     /// `partial` is where the sweep that just moved stands.
@@ -540,7 +545,10 @@ async fn run_segment<E: AsyncEngine>(
                 run.carried = mean;
             }
             if capture_sample {
-                sample = engine.sample_particle().await?;
+                let head = engine.head(1).await?;
+                if head.len() >= n {
+                    sample = Some(head[..n].to_vec());
+                }
             }
             tick(Partial::of(segment, i, &runs));
             break;
@@ -794,12 +802,16 @@ impl<'a, E: AsyncEngine, C: Comm> AsyncSession<'a, E, C> {
     }
 
     /// Stop cooperatively with [`Cancelled`] once `flag` becomes `true`.
+    ///
+    /// Once cancelled, the engine holds a mid-run population and the internal
+    /// stream counter has advanced; drop the session rather than calling
+    /// `learn_schedule` or `estimate` again.
     pub fn cancel_flag(&mut self, flag: &'a AtomicBool) {
         self.cancel = Some(flag);
     }
 
-    /// When enabled, emit `Progress::Sample` snapshots from the active
-    /// population during Phase 1 and at the end of Phase 2.
+    /// When enabled, emit `Progress::Sample` with the first particle of the
+    /// active population during Phase 1 and at the end of Phase 2.
     pub fn capture_samples(&mut self, enabled: bool) {
         self.capture_samples = enabled;
     }
@@ -822,12 +834,15 @@ impl<'a, E: AsyncEngine, C: Comm> AsyncSession<'a, E, C> {
     }
 
     async fn emit_sample(&mut self, beta: f64) -> anyhow::Result<()> {
-        if self.capture_samples
-            && let Some(matching) = self.engine.sample_particle().await?
-        {
-            let valid = self.scaled.log_gap_of(&matching).is_finite();
-            if let Some(observer) = self.observer.as_mut() {
-                observer(Progress::Sample { beta, matching: &matching, valid });
+        if self.capture_samples {
+            let head = self.engine.head(1).await?;
+            let n = self.scaled.n;
+            if head.len() >= n {
+                let matching = &head[..n];
+                let valid = self.scaled.log_gap_of(matching).is_finite();
+                if let Some(observer) = self.observer.as_mut() {
+                    observer(Progress::Sample { beta, matching, valid });
+                }
             }
         }
         Ok(())
@@ -1358,23 +1373,27 @@ pub struct Session<'a, E: Engine, C: Comm> {
     inner: AsyncSession<'a, Blocking<E>, C>,
 }
 
-impl<'a, E: Engine, C: Comm> Deref for Session<'a, E, C> {
-    type Target = AsyncSession<'a, Blocking<E>, C>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
-impl<'a, E: Engine, C: Comm> DerefMut for Session<'a, E, C> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.inner
-    }
-}
-
 impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
     pub fn new(scaled: &'a Scaled, config: &'a Config, engine: E, comm: &'a C) -> anyhow::Result<Self> {
         Ok(Session { inner: AsyncSession::new(scaled, config, Blocking(engine), comm)? })
+    }
+
+    pub fn observe(&mut self, observer: impl FnMut(Progress<'_>) + 'a) {
+        self.inner.observe(observer);
+    }
+
+    /// See [`AsyncSession::cancel_flag`].
+    pub fn cancel_flag(&mut self, flag: &'a AtomicBool) {
+        self.inner.cancel_flag(flag);
+    }
+
+    /// See [`AsyncSession::capture_samples`].
+    pub fn capture_samples(&mut self, enabled: bool) {
+        self.inner.capture_samples(enabled);
+    }
+
+    pub fn engine_name(&self) -> String {
+        self.inner.engine_name()
     }
 
     pub fn engine(&self) -> &E {
@@ -1385,9 +1404,32 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
         &mut self.inner.engine.0
     }
 
+    pub fn stages(&self) -> &StageSchedule {
+        &self.inner.stages
+    }
+
+    pub fn diagnostics(&self) -> &Diagnostics {
+        &self.inner.diagnostics
+    }
+
+    /// Target standard error of ln(estimate).
+    pub fn sigma_target(&self) -> f64 {
+        self.inner.sigma_target
+    }
+
+    /// Normal quantile of the reported interval.
+    pub fn z(&self) -> f64 {
+        self.inner.z
+    }
+
     /// Phase 1: build the temperature schedule and learn weights along it.
     pub fn learn_schedule(&mut self) -> anyhow::Result<Vec<Level>> {
         poll_ready(self.inner.learn_schedule())
+    }
+
+    /// Segments, particles and islands for Phase 2.
+    pub fn plan(&self, levels: &[Level]) -> Plan {
+        self.inner.plan(levels)
     }
 
     /// Phase 2: run islands of every segment until the measured standard
@@ -1399,367 +1441,7 @@ impl<'a, E: Engine, C: Comm> Session<'a, E, C> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::chain::dynamics::{self, STAGE_TICKS};
-    use crate::chain::far;
-    use crate::chain::lane::{Lane, NONE};
-    use crate::chain::matching::{Matching, words};
-    use crate::chain::stream::Stream as Philox;
-    use crate::comm::Solo;
-    use crate::engine::{FarRound, GroupTally};
-    use crate::problem::Problem;
-    use crate::sampler::{mutate_event_cap, penalty};
-    use crate::scaling::{Prepared, prepare};
-    use crate::stats::mix;
-    use crate::tables::fraction;
-    use std::task::{Context, Poll, Waker};
-
-    /// Minimal single-threaded CPU engine for lightweight unit tests.
-    struct MiniEngine<'a> {
-        scaled: &'a Scaled,
-        energy: Vec<i64>,
-        sigma: Vec<u16>,
-        first_id: u64,
-        lanes: usize,
-    }
-
-    impl<'a> MiniEngine<'a> {
-        fn new(scaled: &'a Scaled, lanes: usize) -> Self {
-            MiniEngine { scaled, energy: scaled.fixed_energy(), sigma: Vec::new(), first_id: 0, lanes }
-        }
-    }
-
-    impl Engine for MiniEngine<'_> {
-        type Data = f64;
-        type Counter = u64;
-
-        fn name(&self) -> String {
-            "mini".into()
-        }
-
-        fn capacity(&self) -> usize {
-            1 << 20
-        }
-
-        fn concurrency(&self, _particles: usize) -> usize {
-            self.lanes
-        }
-
-        fn fork(&self) -> anyhow::Result<Self> {
-            Ok(MiniEngine::new(self.scaled, self.lanes))
-        }
-
-        fn load(&mut self, perms: &[u32], first_id: u64) -> anyhow::Result<()> {
-            self.sigma = perms.iter().map(|&v| v as u16).collect();
-            self.first_id = first_id;
-            Ok(())
-        }
-
-        fn anneal(
-            &mut self,
-            tables: &Tables<u64>,
-            stages: &StageSchedule,
-            stage_time: f64,
-            max_trials: u64,
-            count: usize,
-            first_id: u64,
-            stream: Stream,
-        ) -> anyhow::Result<SampleCost> {
-            let n = self.scaled.n;
-            let cap = stages.event_cap(n, stage_time);
-            let unassign = stages.unassign::<u64>();
-            let ticks_per_time = STAGE_TICKS as f64 / stage_time;
-            self.first_id = first_id;
-            let mut sigma = vec![0u16; count * n];
-            let mut memory = vec![0u16; words(n)];
-            let mut cost = SampleCost::default();
-            for (particle, row) in sigma.chunks_mut(n).enumerate() {
-                let mut matching = Matching::on(&mut memory, n);
-                let seed = stream_seed(stream.seed, stream.phase, stream.level, first_id + particle as u64);
-                let mut ok = false;
-                for trial in 0..max_trials {
-                    let mut rng = Philox::new(mix(seed.wrapping_add(trial)));
-                    // SAFETY: lane holds words(n) words and tables are n x n
-                    let outcome = unsafe {
-                        dynamics::trial::<u64, f64, _>(
-                            &mut matching,
-                            n as u32,
-                            &tables.packed_rows,
-                            &unassign,
-                            ticks_per_time,
-                            stages.fast(),
-                            cap,
-                            &mut rng,
-                        )
-                    };
-                    cost.trials += 1;
-                    cost.events += outcome.events;
-                    if !outcome.over_budget && matching.is_perfect() {
-                        cost.accepted += 1;
-                        // SAFETY: row holds n words
-                        unsafe { matching.store(row.as_mut_ptr()) };
-                        ok = true;
-                        break;
-                    }
-                    cost.over_budget += outcome.over_budget as u64;
-                }
-                anyhow::ensure!(ok, "sampler failed");
-            }
-            self.sigma = sigma;
-            Ok(cost)
-        }
-
-        fn mutate(&mut self, tables: &Tables<u64>, perfect_time: f64, stream: Stream) -> anyhow::Result<MutateCost> {
-            let n = self.scaled.n;
-            let cap = mutate_event_cap(n, perfect_time);
-            let pen = penalty(n);
-            let unassign_below: u64 = fraction(1.0 / (1.0 + pen));
-            let mut memory = vec![0u16; words(n)];
-            let mut cost = MutateCost::default();
-            for (particle, row) in self.sigma.chunks_mut(n).enumerate() {
-                let mut matching = Matching::on(&mut memory, n);
-                let seed = stream_seed(stream.seed, stream.phase, stream.level, self.first_id + particle as u64);
-                let mut rng = Philox::new(seed);
-                // SAFETY: row is a permutation of n, lane holds words(n), tables are n x n
-                let moved = unsafe {
-                    matching.load(row.as_ptr());
-                    let moved = dynamics::mutate::<u64, f64, _>(
-                        &mut matching,
-                        n as u32,
-                        &tables.packed_rows,
-                        perfect_time,
-                        1 + pen as u64,
-                        unassign_below,
-                        cap,
-                        &mut rng,
-                    );
-                    if !moved.over_budget {
-                        matching.store(row.as_mut_ptr());
-                    }
-                    moved
-                };
-                cost.events += moved.events;
-                cost.time += moved.time;
-                cost.over_budget += moved.over_budget as u64;
-            }
-            Ok(cost)
-        }
-
-        fn energies(&mut self) -> anyhow::Result<Vec<f64>> {
-            let n = self.scaled.n;
-            Ok(self
-                .sigma
-                .chunks(n)
-                .map(|row| row.iter().enumerate().map(|(u, &v)| self.scaled.energy[u * n + v as usize]).sum())
-                .collect())
-        }
-
-        fn log_gaps(&mut self) -> anyhow::Result<Vec<f64>> {
-            let n = self.scaled.n;
-            Ok(self
-                .sigma
-                .chunks(n)
-                .map(|row| row.iter().enumerate().map(|(u, &v)| self.scaled.log_gap[u * n + v as usize]).sum())
-                .collect())
-        }
-
-        fn resample(&mut self, ancestors: &[u32]) -> anyhow::Result<()> {
-            let n = self.scaled.n;
-            let mut next = vec![0u16; ancestors.len() * n];
-            for (row, &ancestor) in next.chunks_mut(n).zip(ancestors) {
-                let a = ancestor as usize;
-                row.copy_from_slice(&self.sigma[a * n..(a + 1) * n]);
-            }
-            self.sigma = next;
-            Ok(())
-        }
-
-        fn far(
-            &mut self,
-            tables: &Tables<u64>,
-            cycles: u64,
-            max_steps: u64,
-            groups: usize,
-            stream: Stream,
-        ) -> anyhow::Result<FarRound> {
-            let n = self.scaled.n;
-            let far_tables = tables.far(&self.energy);
-            let anchor = tables.anchor as u32;
-            let mut round = FarRound::new(n, groups);
-            let mut memory = vec![0u16; 2 * n];
-            for (particle, row) in self.sigma.chunks_mut(n).enumerate() {
-                let lane = Lane::on(&mut memory, n);
-                let group = particle % groups;
-                let seed = stream_seed(stream.seed, stream.phase, stream.level, self.first_id + particle as u64);
-                let mut rng = Philox::new(seed);
-                let mut tally = GroupTally { round: &mut round, group };
-                // SAFETY: row is a permutation of n, lane holds 2n, tables are n x n
-                let chain = unsafe {
-                    let mut chain = far::begin(&lane, row.as_ptr(), &far_tables);
-                    far::run(&lane, &far_tables, anchor, cycles, max_steps, &mut rng, &mut chain, &mut tally);
-                    chain
-                };
-                let complete = chain.hole_u == NONE && chain.perfect_steps == cycles;
-                if complete {
-                    // SAFETY: row holds n words
-                    unsafe { far::store(&lane, row.as_mut_ptr()) };
-                }
-                round.close(group, &chain, 0, 0, !complete);
-            }
-            Ok(round)
-        }
-
-        fn sample_particle(&mut self) -> anyhow::Result<Option<Vec<u32>>> {
-            let n = self.scaled.n;
-            if self.sigma.len() < n {
-                return Ok(None);
-            }
-            let take = (self.sigma.len() / n).min(16);
-            let mut fallback = None;
-            for p in 0..take {
-                let perm: Vec<u32> = self.sigma[p * n..(p + 1) * n].iter().map(|&v| v as u32).collect();
-                if self.scaled.log_gap_of(&perm).is_finite() {
-                    return Ok(Some(perm));
-                }
-                if fallback.is_none() {
-                    fallback = Some(perm);
-                }
-            }
-            Ok(fallback)
-        }
-    }
-
-    /// Future that yields `Pending` once before returning `value`, verifying
-    /// `AsyncSession` handles genuine suspension points.
-    async fn yield_once<T>(value: T) -> T {
-        struct Yield(bool);
-        impl Future for Yield {
-            type Output = ();
-            fn poll(mut self: std::pin::Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<()> {
-                if self.0 {
-                    Poll::Ready(())
-                } else {
-                    self.0 = true;
-                    Poll::Pending
-                }
-            }
-        }
-        Yield(false).await;
-        value
-    }
-
-    /// Drives a future that only suspends on `yield_once` to completion.
-    fn drive<F: Future>(future: F) -> F::Output {
-        let mut future = std::pin::pin!(future);
-        let mut cx = Context::from_waker(Waker::noop());
-        loop {
-            if let Poll::Ready(output) = future.as_mut().poll(&mut cx) {
-                return output;
-            }
-        }
-    }
-
-    /// Wraps `MiniEngine` as a genuinely suspending `AsyncEngine`.
-    struct YieldingEngine<'a>(MiniEngine<'a>);
-
-    impl AsyncEngine for YieldingEngine<'_> {
-        type Data = f64;
-        type Counter = u64;
-
-        fn name(&self) -> String {
-            self.0.name()
-        }
-
-        fn capacity(&self) -> usize {
-            self.0.capacity()
-        }
-
-        fn load(&mut self, perms: &[u32], first_id: u64) -> anyhow::Result<()> {
-            self.0.load(perms, first_id)
-        }
-
-        fn anneal(
-            &mut self,
-            tables: &Tables<u64>,
-            stages: &StageSchedule,
-            stage_time: f64,
-            max_trials: u64,
-            count: usize,
-            first_id: u64,
-            stream: Stream,
-        ) -> impl Future<Output = anyhow::Result<SampleCost>> {
-            let res = self.0.anneal(tables, stages, stage_time, max_trials, count, first_id, stream);
-            yield_once(res)
-        }
-
-        fn mutate(
-            &mut self,
-            tables: &Tables<u64>,
-            perfect_time: f64,
-            stream: Stream,
-        ) -> impl Future<Output = anyhow::Result<MutateCost>> {
-            let res = self.0.mutate(tables, perfect_time, stream);
-            yield_once(res)
-        }
-
-        fn energies(&mut self) -> impl Future<Output = anyhow::Result<Vec<f64>>> {
-            let res = self.0.energies();
-            yield_once(res)
-        }
-
-        fn log_gaps(&mut self) -> impl Future<Output = anyhow::Result<Vec<f64>>> {
-            let res = self.0.log_gaps();
-            yield_once(res)
-        }
-
-        fn resample(&mut self, ancestors: &[u32]) -> anyhow::Result<()> {
-            self.0.resample(ancestors)
-        }
-
-        fn far(
-            &mut self,
-            tables: &Tables<u64>,
-            cycles: u64,
-            max_steps: u64,
-            groups: usize,
-            stream: Stream,
-        ) -> impl Future<Output = anyhow::Result<FarRound>> {
-            let res = self.0.far(tables, cycles, max_steps, groups, stream);
-            yield_once(res)
-        }
-
-        fn sample_particle(&mut self) -> impl Future<Output = anyhow::Result<Option<Vec<u32>>>> {
-            let res = self.0.sample_particle();
-            yield_once(res)
-        }
-    }
-
-    fn tiny_scaled() -> Scaled {
-        let problem = Problem {
-            n: 4,
-            a: vec![
-                3.0, 1.0, 0.0, 0.5, //
-                0.2, 2.0, 1.0, 0.0, //
-                0.0, 0.7, 4.0, 1.0, //
-                1.0, 0.0, 0.3, 2.5,
-            ],
-        };
-        let Prepared::Scaled(scaled) = prepare(&problem) else { unreachable!() };
-        scaled
-    }
-
-    fn tiny_config() -> Config {
-        Config {
-            epsilon: 0.5,
-            delta: 0.05,
-            seed: 7,
-            learn_particles: Some(128),
-            particles: Some(16),
-            islands: Some(8),
-            segments: Some(2),
-            ..Default::default()
-        }
-    }
+    use super::rank_share;
 
     #[test]
     fn ranks_share_every_island_once_and_evenly() {
@@ -1778,92 +1460,5 @@ mod tests {
             assert!(runs.iter().flatten().all(|&times| times == 1), "{segments} segments, {ranks} ranks");
             assert!(loads.iter().max().unwrap() - loads.iter().min().unwrap() <= 1, "{loads:?}");
         }
-    }
-
-    /// `AsyncSession` (over genuine `Pending` yields) and synchronous `Session`
-    /// (both single-lane and multi-lane) must produce bit-for-bit identical
-    /// schedules and estimates for the same seed.
-    #[test]
-    fn async_and_sync_sessions_match_bit_for_bit() {
-        let scaled = tiny_scaled();
-        let config = tiny_config();
-
-        let mut sync_one = Session::new(&scaled, &config, MiniEngine::new(&scaled, 1), &Solo).unwrap();
-        let sync_levels = sync_one.learn_schedule().unwrap();
-        let sync_plan = sync_one.plan(&sync_levels);
-        let sync_est = sync_one.estimate(&sync_levels, &sync_plan).unwrap();
-
-        let mut sync_two = Session::new(&scaled, &config, MiniEngine::new(&scaled, 2), &Solo).unwrap();
-        let sync2_levels = sync_two.learn_schedule().unwrap();
-        let sync2_plan = sync_two.plan(&sync2_levels);
-        let sync2_est = sync_two.estimate(&sync2_levels, &sync2_plan).unwrap();
-
-        let mut samples = Vec::new();
-        let mut async_session =
-            AsyncSession::new(&scaled, &config, YieldingEngine(MiniEngine::new(&scaled, 1)), &Solo).unwrap();
-        async_session.capture_samples(true);
-        async_session.observe(|progress| {
-            if let Progress::Sample { beta, matching, valid } = progress {
-                samples.push((beta, matching.to_vec(), valid));
-            }
-        });
-        let (async_levels, async_est) = drive(async {
-            let levels = async_session.learn_schedule().await.unwrap();
-            let plan = async_session.plan(&levels);
-            let est = async_session.estimate(&levels, &plan).await.unwrap();
-            (levels, est)
-        });
-        drop(async_session);
-
-        assert_eq!(sync_levels.len(), async_levels.len());
-        for (a, b) in sync_levels.iter().zip(&async_levels) {
-            assert_eq!(a.beta, b.beta);
-            assert_eq!(a.log_w, b.log_w);
-            assert_eq!(a.step, b.step);
-        }
-        assert_eq!(sync_est.ln_permanent, async_est.ln_permanent);
-        assert_eq!(sync_est.std_error, async_est.std_error);
-        assert_eq!(sync_est.ln_permanent, sync2_est.ln_permanent);
-        assert_eq!(sync_est.std_error, sync2_est.std_error);
-        // One sample per learned temperature plus at least one at beta = 1 from Phase 2.
-        assert!(samples.len() > async_levels.len());
-        let (last_beta, last_matching, last_valid) = samples.last().unwrap();
-        assert_eq!(*last_beta, 1.0);
-        assert_eq!(last_matching.len(), scaled.n);
-        assert!(*last_valid);
-    }
-
-    #[test]
-    fn cancellation_stops_in_flight_run() {
-        let scaled = tiny_scaled();
-        let config = tiny_config();
-
-        // Cancel during Phase 1 after the first learned temperature.
-        let cancel_p1 = AtomicBool::new(false);
-        let mut session =
-            AsyncSession::new(&scaled, &config, YieldingEngine(MiniEngine::new(&scaled, 1)), &Solo).unwrap();
-        session.cancel_flag(&cancel_p1);
-        session.observe(|progress| {
-            if matches!(progress, Progress::Level { .. }) {
-                cancel_p1.store(true, Ordering::Relaxed);
-            }
-        });
-        let err = drive(session.learn_schedule()).unwrap_err();
-        assert!(err.is::<Cancelled>(), "expected Cancelled, got {err:#}");
-
-        // Cancel during Phase 2 after the first temperature sweep.
-        let cancel_p2 = AtomicBool::new(false);
-        let mut session =
-            AsyncSession::new(&scaled, &config, YieldingEngine(MiniEngine::new(&scaled, 1)), &Solo).unwrap();
-        let levels = drive(session.learn_schedule()).unwrap();
-        let plan = session.plan(&levels);
-        session.cancel_flag(&cancel_p2);
-        session.observe(|progress| {
-            if matches!(progress, Progress::Sweep { .. }) {
-                cancel_p2.store(true, Ordering::Relaxed);
-            }
-        });
-        let err = drive(session.estimate(&levels, &plan)).unwrap_err();
-        assert!(err.is::<Cancelled>(), "expected Cancelled, got {err:#}");
     }
 }
