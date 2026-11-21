@@ -38,8 +38,8 @@ use anyhow::{Context, Result, ensure};
 use cuda_core::{CudaContext, DeviceBuffer, DeviceCopy, LaunchConfig, Stream as CudaStream};
 use cuda_device::atomic::{AtomicOrdering, DeviceAtomicI64, DeviceAtomicU64};
 use cuda_device::{DisjointSlice, DynamicSharedArray, device, kernel, thread};
-use num_traits::{AsPrimitive, Float};
 use cuda_host::cuda_module;
+use num_traits::{AsPrimitive, Float};
 use permanent_core::chain::dynamics::{self, STAGE_TICKS};
 use permanent_core::chain::far::{self as far_chain, FarChain, FarTables, Tally};
 use permanent_core::chain::lane::{Lane, MAX_N, NONE};
@@ -201,8 +201,16 @@ mod kernels {
         // and the targets are distinct particles of `sigma`.
         let (trial, perfect) = unsafe {
             let mut matching = Matching::new(lane(scratch.as_mut_ptr(), slot, size, staged));
-            let trial =
-                dynamics::trial::<u64, T, _>(&mut matching, n, alias, unassign, ticks_per_time, fast, event_cap, &mut rng);
+            let trial = dynamics::trial::<u64, T, _>(
+                &mut matching,
+                n,
+                alias,
+                unassign,
+                ticks_per_time,
+                fast,
+                event_cap,
+                &mut rng,
+            );
             let perfect = !trial.over_budget && matching.is_perfect();
             if perfect {
                 matching.store(sigma.as_mut_ptr().add(targets[slot] as usize * size));
@@ -210,7 +218,14 @@ mod kernels {
             (trial, perfect)
         };
         if let Some(out) = events_out.get_mut(index) {
-            *out = trial.events | if perfect { PERFECT } else if trial.over_budget { OVER_BUDGET } else { 0 };
+            *out = trial.events
+                | if perfect {
+                    PERFECT
+                } else if trial.over_budget {
+                    OVER_BUDGET
+                } else {
+                    0
+                };
         }
     }
 
@@ -1064,7 +1079,9 @@ where
             let mut rows = self.zeros::<u16>(count * n)?;
             // SAFETY: the arguments match the kernel; `rows` holds one row
             // per target and every target is below `count`.
-            unsafe { self.module.gather(self.stream.as_ref(), config, from, targets, &mut rows, n as u32, count as u32) }?;
+            unsafe {
+                self.module.gather(self.stream.as_ref(), config, from, targets, &mut rows, n as u32, count as u32)
+            }?;
             Ok(rows.to_host_vec(&self.stream)?)
         };
         let mut rows = gather(&self.next, &targets)?;
@@ -1121,7 +1138,15 @@ where
         let rows = self.device(&rows)?;
         // SAFETY: as for the gather above; the targets are distinct.
         unsafe {
-            self.module.scatter(self.stream.as_ref(), config, &rows, &targets, &mut self.next, n as u32, late.len() as u32)
+            self.module.scatter(
+                self.stream.as_ref(),
+                config,
+                &rows,
+                &targets,
+                &mut self.next,
+                n as u32,
+                late.len() as u32,
+            )
         }?;
         std::mem::swap(&mut self.sigma, &mut self.next);
         self.far_seconds.host_chains += clock.elapsed().as_secs_f64();
@@ -1234,9 +1259,8 @@ mod test {
         let stages = StageSchedule::new(scaled.n, 32.0);
         let stage_time = stages.rigorous_stage_time(1e-3);
         let mut cuda = Cuda::<T>::new(&scaled, 0).unwrap();
-        let cost = cuda
-            .anneal(&tables, &stages, stage_time, 64, COUNT, 0, Stream { seed: 5, phase: 2, level: 0 })
-            .unwrap();
+        let cost =
+            cuda.anneal(&tables, &stages, stage_time, 64, COUNT, 0, Stream { seed: 5, phase: 2, level: 0 }).unwrap();
         assert_eq!(cost.over_budget, 0);
         assert!(COUNT as f64 / cost.trials as f64 > 0.2);
         check(&scaled, BETA, &cuda.energies().unwrap());
@@ -1265,8 +1289,16 @@ mod test {
         }
         let stages = StageSchedule::new(n, 32.0);
         let mut cuda = Cuda::<f32>::new(&scaled, 0).unwrap();
-        cuda.anneal(&tables, &stages, stages.rigorous_stage_time(1e-3), 64, 8192, 0, Stream { seed: 9, phase: 1, level: 0 })
-            .unwrap();
+        cuda.anneal(
+            &tables,
+            &stages,
+            stages.rigorous_stage_time(1e-3),
+            64,
+            8192,
+            0,
+            Stream { seed: 9, phase: 1, level: 0 },
+        )
+        .unwrap();
         let groups = 16;
         let round = cuda.far(&tables, 200, u64::MAX >> 1, groups, Stream { seed: 9, phase: 2, level: 0 }).unwrap();
         // a budget this short hands most chains to the host part-way

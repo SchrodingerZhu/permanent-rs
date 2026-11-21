@@ -1,3 +1,5 @@
 [toolchain]
 channel = "1.99.1"
 components = ["rust-src", "rustc-dev", "clippy", "rustfmt", "llvm-tools"]
+# permanent-cli runs under a WASI runtime; permanent-wgpu must build for the browser
+targets = ["wasm32-wasip1", "wasm32-unknown-unknown"]

@@ -132,11 +132,7 @@ fn hungarian(n: usize, cost: &[f64]) -> Option<(Vec<usize>, Vec<f64>)> {
 
 pub fn prepare(problem: &Problem) -> Prepared {
     let n = problem.n;
-    let cost: Vec<f64> = problem
-        .a
-        .iter()
-        .map(|&x| if x > 0.0 { -x.ln() } else { f64::INFINITY })
-        .collect();
+    let cost: Vec<f64> = problem.a.iter().map(|&x| if x > 0.0 { -x.ln() } else { f64::INFINITY }).collect();
     let Some((matching, v)) = hungarian(n, &cost) else {
         return Prepared::Zero;
     };
@@ -168,14 +164,7 @@ pub fn prepare(problem: &Problem) -> Prepared {
         energy[index] = (-raised).max(0.0);
         log_gap[index] = log_a[index] - raised;
     }
-    Prepared::Scaled(Scaled {
-        n,
-        energy,
-        log_gap,
-        log_scale,
-        log_inv_tau: -log_tau,
-        matching,
-    })
+    Prepared::Scaled(Scaled { n, energy, log_gap, log_scale, log_inv_tau: -log_tau, matching })
 }
 
 #[cfg(test)]
@@ -214,10 +203,7 @@ mod test {
             let n = 3 + trial % 6;
             let p = random_problem(n, 0.6, &mut rng);
             let Prepared::Scaled(s) = prepare(&p) else { panic!("has the diagonal") };
-            let a_prime = Problem {
-                n,
-                a: (0..n * n).map(|i| (-s.energy[i] + s.log_gap[i]).exp()).collect(),
-            };
+            let a_prime = Problem { n, a: (0..n * n).map(|i| (-s.energy[i] + s.log_gap[i]).exp()).collect() };
             let a_tilde = Problem { n, a: s.energy.iter().map(|e| (-e).exp()).collect() };
             for u in 0..n {
                 let sum: f64 = a_prime.a[u * n..(u + 1) * n].iter().sum();

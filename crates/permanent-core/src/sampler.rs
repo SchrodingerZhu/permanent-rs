@@ -171,12 +171,12 @@ impl MutateCost {
 #[cfg(test)]
 pub(crate) mod test {
     use super::*;
-    use crate::problem::Problem;
-    use crate::scaling::{Prepared, Scaled, prepare};
     use crate::chain::dynamics::{STAGE_TICKS, mutate, trial};
     use crate::chain::lane::Lane;
     use crate::chain::matching::{Matching, words};
     use crate::chain::stream::Stream;
+    use crate::problem::Problem;
+    use crate::scaling::{Prepared, Scaled, prepare};
     use crate::stats::mix;
     use crate::tables::Tables;
     use rand::rngs::SmallRng;
@@ -261,7 +261,16 @@ pub(crate) mod test {
                 let mut rng = Stream::new(mix(mix(draw).wrapping_add(attempt)));
                 // SAFETY: the lane holds words(n) words and the tables are n x n
                 let outcome = unsafe {
-                    trial(&mut matching, n as u32, &tables.packed_rows, &unassign, ticks_per_time, schedule.fast(), cap, &mut rng)
+                    trial(
+                        &mut matching,
+                        n as u32,
+                        &tables.packed_rows,
+                        &unassign,
+                        ticks_per_time,
+                        schedule.fast(),
+                        cap,
+                        &mut rng,
+                    )
                 };
                 assert!(!outcome.over_budget);
                 if matching.is_perfect() {

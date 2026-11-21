@@ -12,9 +12,9 @@
 use num_traits::{AsPrimitive, Float, PrimInt, Unsigned};
 use rand_core::Rng;
 
-use super::{at_least, below, scaled_below};
 use super::far::alias_draw;
 use super::matching::Matching;
+use super::{at_least, below, scaled_below};
 
 /// Stage time of the annealing sampler, in ticks of its integer clock.
 pub const STAGE_TICKS: u64 = 1 << 40;

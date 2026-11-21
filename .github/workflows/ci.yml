@@ -1,0 +1,68 @@
+name: CI
+
+# Every step runs inside `nix develop .#ci`: the Rust toolchain pinned in
+# rust-toolchain.toml with its wasm targets, wasmer, and a software Vulkan
+# driver for the wgpu backend, all from the flake.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: format and clippy
+    runs-on: ubuntu-26.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v22
+      - name: Build dev shell
+        run: nix develop .#ci --command true
+      - name: Format
+        run: nix develop .#ci --command cargo fmt --all --check
+      - name: Clippy on the host
+        run: nix develop .#ci --command cargo clippy --locked --all-targets -- -D warnings
+      - name: Clippy for WASI
+        run: >
+          nix develop .#ci --command cargo clippy --locked --target wasm32-wasip1
+          -p permanent-cli --no-default-features --features rayon -- -D warnings
+
+  host:
+    name: host
+    runs-on: ubuntu-26.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v22
+      - name: Build dev shell
+        run: nix develop .#ci --command true
+      - name: Test
+        run: nix develop .#ci --command cargo test --locked --release
+      - name: Run against an exact permanent
+        run: >
+          nix develop .#ci --command misc/ci/against-exact.sh
+          cargo run --locked --release -- data/weighted-16.mtx --exact --seed 1
+
+  wasi:
+    name: WASI under wasmer
+    runs-on: ubuntu-26.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v22
+      - name: Build dev shell
+        run: nix develop .#ci --command true
+      - name: Build
+        run: >
+          nix develop .#ci --command cargo build --locked --release --target wasm32-wasip1
+          -p permanent-cli --no-default-features --features rayon
+      - name: Run against an exact permanent
+        run: >
+          nix develop .#ci --command misc/ci/against-exact.sh
+          wasmer run --mapdir /data:"$PWD/data" target/wasm32-wasip1/release/permanent.wasm --
+          /data/weighted-16.mtx --exact --seed 1
