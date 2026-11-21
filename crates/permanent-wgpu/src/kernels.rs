@@ -95,7 +95,69 @@ fn next_u32(rng: &mut Array<u32>) -> u32 {
     }
     let left = rng[8] - 1;
     rng[8] = left;
-    rng[(7 - left) as usize]
+    // fixed indices only: a compiler keeps such an array in registers
+    let mut out = rng[7];
+    if left == 3 {
+        out = rng[4];
+    } else if left == 2 {
+        out = rng[5];
+    } else if left == 1 {
+        out = rng[6];
+    }
+    out
+}
+
+/// Read a chain's stream from its state.
+#[cube]
+fn load_stream(state: &mut [u32], at: usize, rng: &mut Array<u32>) {
+    rng[0] = state[at];
+    rng[1] = state[at + 1];
+    rng[2] = state[at + 2];
+    rng[3] = state[at + 3];
+    rng[4] = state[at + 4];
+    rng[5] = state[at + 5];
+    rng[6] = state[at + 6];
+    rng[7] = state[at + 7];
+    rng[8] = state[at + 8];
+}
+
+/// Write a chain's stream to its state.
+#[cube]
+fn store_stream(state: &mut [u32], at: usize, rng: &mut Array<u32>) {
+    state[at] = rng[0];
+    state[at + 1] = rng[1];
+    state[at + 2] = rng[2];
+    state[at + 3] = rng[3];
+    state[at + 4] = rng[4];
+    state[at + 5] = rng[5];
+    state[at + 6] = rng[6];
+    state[at + 7] = rng[7];
+    state[at + 8] = rng[8];
+}
+
+// The FAR tally: chains still running, chains that ran out of steps, the
+// 64-bit totals of steps and of perfect energy over the chains that ended,
+// then for each column the 64-bit energy sum of the visits to its hole
+// class, the visits of each group to each class, the cycles of each
+// group's chains that ended, and the particles still running.
+pub const LATE: usize = 0;
+pub const CAPPED_CHAINS: usize = 1;
+pub const STEPS_TOTAL: usize = 2;
+pub const ENERGY_TOTAL: usize = 4;
+pub const CLASSES: usize = 6;
+
+/// Add the 64-bit (low, high) to the two words of `tally` at `at`. The sum
+/// is exact once every thread is done: the previous low word tells a
+/// thread whether its own addition carried.
+#[cube]
+fn add64(tally: &[Atomic<u32>], at: usize, low: u32, high: u32) {
+    let before = tally[at].fetch_add(low);
+    let after = before + low;
+    let mut carry = 0u32;
+    if after < before {
+        carry = 1;
+    }
+    tally[at + 1].fetch_add(high + carry);
 }
 
 /// Whether the 64-bit (ah, al) is below (bh, bl).
@@ -122,13 +184,13 @@ fn alias_draw(tables: &[u32], table: usize, line: u32, n: u32, rng: &mut Array<u
 }
 
 /// The FAR chain (`permanent_core::chain::far`) on every particle that is
-/// not over, for at most `budget` steps of this dispatch.
+/// not over, for at most `budget` steps of this dispatch. With `fresh`,
+/// every particle starts a chain on the stream keyed by its two `seeds`.
 ///
 /// `tables`: the packed row alias table, the column one, the move
 /// thresholds and the entry energies, each entry 64 bits. `scratch`: the
-/// matching and its inverse, 2 n words a particle. `tally`: chains still
-/// running, then for each column the 64-bit energy sum of the visits to
-/// its hole class, then the visits of each group to each class.
+/// matching and its inverse, 2 n words a particle. `tally`: see `LATE`;
+/// its list holds at most `listed` of the particles still running.
 #[cube(launch_unchecked)]
 pub fn far(
     tables: &[u32],
@@ -136,6 +198,7 @@ pub fn far(
     scratch: &mut [u32],
     state: &mut [u32],
     tally: &[Atomic<u32>],
+    seeds: &[u32],
     n: u32,
     count: u32,
     anchor: u32,
@@ -143,13 +206,15 @@ pub fn far(
     cycles: u32,
     budget: u32,
     max_steps: u32,
+    fresh: u32,
+    listed: u32,
 ) {
     let particle = ABSOLUTE_POS;
     let size = n as usize;
     let at = particle * STATE;
     let mut active = false;
     if particle < count as usize {
-        active = (state[at + FLAGS] & OVER) == 0;
+        active = fresh != 0 || (state[at + FLAGS] & OVER) == 0;
     }
     if active {
         let rows = particle * 2 * size;
@@ -158,10 +223,14 @@ pub fn far(
         let moves = 4 * size * size;
         let energies = 8 * size * size;
         let mut rng = Array::<u32>::new(9usize);
-        let mut i = 0usize;
-        while i < 9 {
-            rng[i] = state[at + i];
-            i += 1;
+        if fresh != 0 {
+            rng[0] = seeds[2 * particle];
+            rng[1] = seeds[2 * particle + 1];
+            rng[2] = 0;
+            rng[3] = 0;
+            rng[8] = 0;
+        } else {
+            load_stream(state, at, &mut rng);
         }
         let mut hole_u = NONE.runtime();
         let mut hole_v = 0u32;
@@ -171,7 +240,7 @@ pub fn far(
         let mut h_high = 0u32;
         let mut sum_low = 0u32;
         let mut sum_high = 0u32;
-        if (state[at + FLAGS] & STARTED) == 0 {
+        if fresh != 0 {
             let mut v = 0usize;
             while v < size {
                 scratch[cols + v] = NONE;
@@ -203,7 +272,8 @@ pub fn far(
             sum_high = state[at + PERFECT_ENERGY + 1];
         }
         let group = (particle as u32) % groups;
-        let visits = 1 + 2 * size + group as usize * size;
+        let visits = CLASSES + 2 * size + group as usize * size;
+        let ended = CLASSES + 2 * size + groups as usize * size;
         let mut taken = 0u32;
         let mut running = true;
         while running {
@@ -243,15 +313,7 @@ pub fn far(
             } else {
                 if hole_u == anchor {
                     tally[visits + hole_v as usize].fetch_add(1);
-                    // 64-bit sum from two words: the previous low word tells
-                    // this thread whether its addition carried
-                    let before = tally[1 + 2 * hole_v as usize].fetch_add(h_low);
-                    let after = before + h_low;
-                    let mut carry = 0u32;
-                    if after < before {
-                        carry = 1;
-                    }
-                    tally[2 + 2 * hole_v as usize].fetch_add(h_high + carry);
+                    add64(tally, CLASSES + 2 * hole_v as usize, h_low, h_high);
                 }
                 steps += 1;
                 taken += 1;
@@ -353,14 +415,19 @@ pub fn far(
         } else if steps >= max_steps {
             // out of steps: the particle stays where it was
             flags = STARTED | OVER | CAPPED;
+            tally[CAPPED_CHAINS].fetch_add(1);
+        }
+        if (flags & OVER) != 0 {
+            tally[ended + group as usize].fetch_add(done);
+            add64(tally, STEPS_TOTAL, steps, 0u32);
+            add64(tally, ENERGY_TOTAL, sum_low, sum_high);
         } else {
-            tally[0].fetch_add(1);
+            let slot = tally[LATE].fetch_add(1);
+            if slot < listed {
+                tally[ended + groups as usize + slot as usize].store(particle as u32);
+            }
         }
-        let mut i = 0usize;
-        while i < 9 {
-            state[at + i] = rng[i];
-            i += 1;
-        }
+        store_stream(state, at, &mut rng);
         state[at + FLAGS] = flags;
         state[at + HOLE_U] = hole_u;
         state[at + HOLE_V] = hole_v;
@@ -596,11 +663,7 @@ pub fn mutate(
     if active {
         let rows = particle * (2 * size + CONFLICTS);
         let mut rng = Array::<u32>::new(9usize);
-        let mut i = 0usize;
-        while i < 9 {
-            rng[i] = state[at + i];
-            i += 1;
-        }
+        load_stream(state, at, &mut rng);
         let mut counts = Array::<u32>::new(3usize);
         counts[0] = 0;
         counts[1] = 0;
@@ -685,11 +748,7 @@ pub fn mutate(
         if (flags & OVER) == 0 {
             tally[0].fetch_add(1);
         }
-        let mut i = 0usize;
-        while i < 9 {
-            state[at + i] = rng[i];
-            i += 1;
-        }
+        store_stream(state, at, &mut rng);
         state[at + FLAGS] = flags;
         state[at + CONFLICTED] = counts[0];
         state[at + UNASSIGNED] = counts[1];
@@ -735,11 +794,7 @@ pub fn anneal(
         let rows = particle * (2 * size + CONFLICTS);
         let thresholds = 2 * size * size;
         let mut rng = Array::<u32>::new(9usize);
-        let mut i = 0usize;
-        while i < 9 {
-            rng[i] = state[at + i];
-            i += 1;
-        }
+        load_stream(state, at, &mut rng);
         let mut counts = Array::<u32>::new(3usize);
         counts[0] = 0;
         counts[1] = n;
@@ -834,11 +889,7 @@ pub fn anneal(
         if (flags & OVER) == 0 {
             tally[0].fetch_add(1);
         }
-        let mut i = 0usize;
-        while i < 9 {
-            state[at + i] = rng[i];
-            i += 1;
-        }
+        store_stream(state, at, &mut rng);
         state[at + FLAGS] = flags;
         state[at + CONFLICTED] = counts[0];
         state[at + UNASSIGNED] = counts[1];
@@ -915,6 +966,48 @@ pub fn gather(sigma: &[u32], ancestors: &[u32], next: &mut [u32], n: u32, count:
         let mut u = 0usize;
         while u < size {
             next[particle * size + u] = sigma[from + u];
+            u += 1;
+        }
+    }
+}
+
+/// Words `collect` writes for a chain: its state, then its matching.
+pub const fn collected(n: usize) -> usize {
+    STATE + n
+}
+
+/// Copy the state and the matching of the FAR chains of `targets` to `out`,
+/// so the host can continue them.
+#[cube(launch_unchecked)]
+pub fn collect(targets: &[u32], scratch: &[u32], state: &[u32], out: &mut [u32], n: u32, count: u32) {
+    let slot = ABSOLUTE_POS;
+    let size = n as usize;
+    if slot < count as usize {
+        let particle = targets[slot] as usize;
+        let to = slot * (STATE + size);
+        let mut i = 0usize;
+        while i < STATE {
+            out[to + i] = state[particle * STATE + i];
+            i += 1;
+        }
+        let mut u = 0usize;
+        while u < size {
+            out[to + STATE + u] = scratch[particle * 2 * size + u];
+            u += 1;
+        }
+    }
+}
+
+/// Row p of `rows` replaces particle `targets[p]` of `sigma`.
+#[cube(launch_unchecked)]
+pub fn scatter(rows: &[u32], targets: &[u32], sigma: &mut [u32], n: u32, count: u32) {
+    let slot = ABSOLUTE_POS;
+    let size = n as usize;
+    if slot < count as usize {
+        let to = targets[slot] as usize * size;
+        let mut u = 0usize;
+        while u < size {
+            sigma[to + u] = rows[slot * size + u];
             u += 1;
         }
     }

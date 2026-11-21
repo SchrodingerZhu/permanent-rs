@@ -17,24 +17,35 @@
 pub mod kernels;
 
 use anyhow::{Context, Result, anyhow, ensure};
+// the browser target has no clock in std
 use cubecl::prelude::*;
 use cubecl::server::Handle;
 use fixed::types::I32F32;
 use permanent_core::chain::dynamics::STAGE_TICKS;
-use permanent_core::chain::lane::MAX_N;
+use permanent_core::chain::far::{self as far_chain, FarChain};
+use permanent_core::chain::lane::{Lane, MAX_N, NONE};
+use permanent_core::chain::stream::Stream as Philox;
 use permanent_core::chain::{Energy, EnergySum};
-use permanent_core::engine::{FarRound, Stream};
+use permanent_core::engine::{ChainTally, FarRound, Stream};
 use permanent_core::sampler::{MutateCost, SampleCost, StageSchedule, mutate_event_cap, penalty};
 use permanent_core::scaling::Scaled;
 use permanent_core::stats::{mix, stream_seed};
 use permanent_core::tables::{Tables, fraction};
+use rayon::prelude::*;
+// std's clock, or the browser's where std has none
+use web_time::Instant;
 
-use kernels::{CAPPED, CYCLES, EVENTS, FLAGS, MEASURED, OVER, PERFECT, PERFECT_ENERGY, STATE, STEPS, lane_words};
+use kernels::{
+    CAPPED, CAPPED_CHAINS, CLASSES, CYCLES, ENERGY_TOTAL, EVENTS, FLAGS, HOLE_U, HOLE_V, LATE, MEASURED, OVER, PERFECT,
+    PERFECT_ENERGY, STATE, STEPS, STEPS_TOTAL, collected, lane_words,
+};
 
 /// Threads of a workgroup.
 const GROUP: u32 = 64;
 /// Most particles resident at once.
 const MAX_PARTICLES: usize = 1 << 20;
+/// Chains a FAR dispatch can hand to the host.
+const LISTED: usize = 1 << 14;
 
 /// The population on one wgpu device.
 pub struct Wgpu<'a> {
@@ -53,8 +64,35 @@ pub struct Wgpu<'a> {
     rows: (u64, Handle),
     /// Likewise the FAR tables.
     far: (u64, Handle),
-    /// Steps or events one dispatch runs a chain for.
+    /// The chains' working memory and state, kept from call to call, with
+    /// the words they hold.
+    scratch: (usize, Handle),
+    state: (usize, Handle),
+    /// Events one dispatch runs a move or an annealing trial for.
     pub budget: u32,
+    /// Steps per cycle a FAR dispatch allows before a chain is handed to
+    /// the host; tuned so that about half a percent of the chains overrun.
+    pub far_budget: f64,
+    /// Seconds spent in each part of the FAR calls, for the debug log.
+    far_seconds: FarSeconds,
+}
+
+#[derive(Debug, Default)]
+struct FarSeconds {
+    calls: u64,
+    dispatches: u64,
+    late_chains: u64,
+    setup: f64,
+    device: f64,
+    host_chains: f64,
+}
+
+impl Drop for Wgpu<'_> {
+    fn drop(&mut self) {
+        if self.far_seconds.calls > 0 {
+            tracing::debug!(far = ?self.far_seconds, budget_per_cycle = self.far_budget, "wgpu engine FAR calls");
+        }
+    }
 }
 
 /// A buffer of `len` words as a kernel argument.
@@ -117,7 +155,11 @@ impl<'a> Wgpu<'a> {
             count: 0,
             sigma: placeholder.clone(),
             rows: (0, placeholder.clone()),
-            far: (0, placeholder),
+            far: (0, placeholder.clone()),
+            scratch: (0, placeholder.clone()),
+            state: (0, placeholder),
+            far_budget: 64.0,
+            far_seconds: FarSeconds::default(),
             // long enough that most chains finish in one dispatch, short
             // enough that a dispatch stays well under a second
             budget: 1 << 16,
@@ -143,6 +185,18 @@ impl<'a> Wgpu<'a> {
 
     fn grid(&self) -> CubeCount {
         CubeCount::Static((self.count as u32).div_ceil(GROUP), 1, 1)
+    }
+
+    /// The working memory, `words` a particle, and the chain states, grown
+    /// when the population needs more.
+    fn working(&mut self, words: usize) -> (Handle, Handle) {
+        if self.scratch.0 < self.count * words {
+            self.scratch = (self.count * words, self.client.empty(self.count * words * size_of::<u32>()));
+        }
+        if self.state.0 < self.count * STATE {
+            self.state = (self.count * STATE, self.client.empty(self.count * STATE * size_of::<u32>()));
+        }
+        (self.scratch.1.clone(), self.state.1.clone())
     }
 
     async fn read(&self, handle: &Handle) -> Result<Vec<u32>> {
@@ -387,9 +441,10 @@ impl<'a> Wgpu<'a> {
     ) -> Result<FarRound> {
         let n = self.scaled.n;
         let count = self.count;
-        let cycles = u32::try_from(cycles).context("too many cycles for one call")?;
+        let clock = Instant::now();
+        let cycles32 = u32::try_from(cycles).context("too many cycles for one call")?;
         // steps are counted in a word; a chain that long is capped anyway
-        let max_steps = max_steps.min(u32::MAX as u64 - 1) as u32;
+        let max_steps = max_steps.min(u32::MAX as u64 - 1);
         if self.far.0 != tables.id {
             // every entry is 64 bits: two words, low first
             let mut entries: Vec<u64> = Vec::with_capacity(5 * n * n);
@@ -399,16 +454,30 @@ impl<'a> Wgpu<'a> {
             entries.extend(self.energy_bits.iter().map(|&bits| bits as u64));
             self.far = (tables.id, self.client.create_from_slice(u64::as_bytes(&entries)));
         }
-        let state = self.states(|particle| Some(self.seed(stream, particle)));
-        let scratch = self.client.empty(count * 2 * n * size_of::<u32>());
-        let tally_len = 1 + 2 * n + groups * n;
-        // a group's visits to a class are counted in a word per dispatch
-        let budget = self.budget.min((u32::MAX as usize / count.div_ceil(groups)) as u32);
+        let seeds: Vec<u64> = (0..count).map(|particle| self.seed(stream, particle)).collect();
+        let device_seeds = self.client.create_from_slice(u64::as_bytes(&seeds));
+        let (scratch, state) = self.working(2 * n);
+        // A dispatch lasts as long as its longest chain, and FAR chains have
+        // a long tail: stop them at a budget and continue the few that
+        // overran on the host. A group's visits to a class are counted in a
+        // word per dispatch.
+        let budget = ((self.far_budget * cycles as f64).ceil() as u64 + 32)
+            .min(max_steps)
+            .min((u32::MAX as usize / count.div_ceil(groups)) as u64) as u32;
+        let listed = LISTED.min(count);
+        let classes = CLASSES + 2 * n;
+        let ended = classes + groups * n;
+        let tally_len = ended + groups + listed;
         let mut round = FarRound::new(n, groups);
-        loop {
+        let mut fresh = 1;
+        self.far_seconds.calls += 1;
+        self.far_seconds.setup += clock.elapsed().as_secs_f64();
+        let clock = Instant::now();
+        let late = loop {
             let tally = self.client.create_from_slice(u32::as_bytes(&vec![0u32; tally_len]));
             // SAFETY: the buffers have the lengths the kernel indexes them
-            // with: n x n tables, `count` particles, `groups` rows of visits.
+            // with: n x n tables, `count` particles, `groups` rows of
+            // visits and a list of `listed` particles.
             unsafe {
                 kernels::far::launch_unchecked(
                     &self.client,
@@ -419,36 +488,148 @@ impl<'a> Wgpu<'a> {
                     buffer(&scratch, count * 2 * n),
                     buffer(&state, count * STATE),
                     buffer(&tally, tally_len),
+                    buffer(&device_seeds, 2 * count),
                     n as u32,
                     count as u32,
                     tables.anchor as u32,
                     groups as u32,
-                    cycles,
+                    cycles32,
                     budget,
-                    max_steps,
+                    max_steps as u32,
+                    fresh,
+                    listed as u32,
                 );
             }
+            fresh = 0;
+            self.far_seconds.dispatches += 1;
             let tally = self.read(&tally).await?;
+            round.capped += tally[CAPPED_CHAINS] as u64;
+            round.steps += whole(tally[STEPS_TOTAL], tally[STEPS_TOTAL + 1]);
+            let bits = whole(tally[ENERGY_TOTAL], tally[ENERGY_TOTAL + 1]) as i64;
+            round.perfect_energy += EnergySum::from(Energy::from_bits(bits));
             for v in 0..n {
-                let bits = whole(tally[1 + 2 * v], tally[2 + 2 * v]) as i64;
+                let bits = whole(tally[CLASSES + 2 * v], tally[CLASSES + 2 * v + 1]) as i64;
                 round.visit_energy[v] += EnergySum::from(Energy::from_bits(bits));
             }
-            for (group, visits) in tally[1 + 2 * n..].chunks(n).enumerate() {
+            for (group, visits) in tally[classes..ended].chunks(n).enumerate() {
                 for (total, &visits) in round.visits[group].iter_mut().zip(visits) {
                     *total += visits as u64;
                 }
             }
-            if tally[0] == 0 {
-                break;
+            for (total, &cycles) in round.cycles.iter_mut().zip(&tally[ended..ended + groups]) {
+                *total += cycles as u64;
+            }
+            // dispatch again only while more chains run than the list holds
+            let running = tally[LATE] as usize;
+            if running <= listed {
+                break tally[ended + groups..][..running].to_vec();
+            }
+        };
+        // aim for about half a percent of late chains: fewer makes the
+        // dispatch wait for the slowest, more moves the work to the host
+        let share = late.len() as f64 / count as f64;
+        if share > 0.01 {
+            self.far_budget *= 1.5;
+        } else if share < 0.002 {
+            self.far_budget = (self.far_budget / 1.2).max(8.0);
+        }
+        self.far_seconds.device += clock.elapsed().as_secs_f64();
+        self.far_seconds.late_chains += late.len() as u64;
+        if late.is_empty() {
+            return Ok(round);
+        }
+        let clock = Instant::now();
+
+        // Continue the late chains on the host: the same chain on the same
+        // stream, from where the device stopped it.
+        let width = collected(n);
+        let targets = self.client.create_from_slice(u32::as_bytes(&late));
+        let chains = self.client.empty(late.len() * width * size_of::<u32>());
+        let small = CubeCount::Static((late.len() as u32).div_ceil(GROUP), 1, 1);
+        // SAFETY: every target is a particle, and `chains` holds one state
+        // and one matching per target.
+        unsafe {
+            kernels::collect::launch_unchecked(
+                &self.client,
+                small.clone(),
+                CubeDim::new_1d(GROUP),
+                buffer(&targets, late.len()),
+                buffer(&scratch, count * 2 * n),
+                buffer(&state, count * STATE),
+                buffer(&chains, late.len() * width),
+                n as u32,
+                late.len() as u32,
+            );
+        }
+        let chains = self.read(&chains).await?;
+        let far_tables = tables.far(&self.energy_bits);
+        let anchor = tables.anchor as u32;
+        // one small record per chain: a round's tables are too large to
+        // build for every task of the pool
+        let finished: Vec<(FarChain, ChainTally, Option<Vec<u32>>)> = chains
+            .par_chunks(width)
+            .map_init(
+                || (vec![0u16; n], vec![0u16; 2 * n]),
+                |(stored, memory), chain| {
+                    let (state, row) = chain.split_at(STATE);
+                    for (word, &v) in stored.iter_mut().zip(row) {
+                        *word = v as u16;
+                    }
+                    let seed = whole(state[0], state[1]);
+                    let mut rng = Philox::at(seed, whole(state[2], state[3]), state[8]);
+                    let lane = Lane::on(memory, n);
+                    let mut tally = ChainTally::new(n);
+                    // SAFETY: `stored` holds n words, the lane two arrays of
+                    // n, and the tables are n x n.
+                    let run = unsafe {
+                        let mut run = far_chain::begin(&lane, stored.as_ptr(), &far_tables);
+                        run.hole_u = state[HOLE_U];
+                        run.hole_v = state[HOLE_V];
+                        run.perfect_steps = state[CYCLES] as u64;
+                        run.steps = state[STEPS] as u64;
+                        far_chain::run(&lane, &far_tables, anchor, cycles, max_steps, &mut rng, &mut run, &mut tally);
+                        far_chain::store(&lane, stored.as_mut_ptr());
+                        run
+                    };
+                    // the device had already summed part of the perfect energy
+                    let before = Energy::from_bits(whole(state[PERFECT_ENERGY], state[PERFECT_ENERGY + 1]) as i64);
+                    let run = FarChain { perfect_energy: run.perfect_energy + before, ..run };
+                    let complete = run.hole_u == NONE && run.perfect_steps == cycles;
+                    (run, tally, complete.then(|| stored.iter().map(|&v| v as u32).collect()))
+                },
+            )
+            .collect();
+        // a chain that ran out of steps leaves its particle where it was
+        let mut moved: Vec<u32> = Vec::new();
+        let mut rows: Vec<u32> = Vec::new();
+        for ((run, tally, row), &particle) in finished.iter().zip(&late) {
+            let group = particle as usize % groups;
+            round.add(group, tally);
+            round.close(group, run, 0, 0, row.is_none());
+            if let Some(row) = row {
+                moved.push(particle);
+                rows.extend_from_slice(row);
             }
         }
-        for (particle, state) in self.read(&state).await?.chunks(STATE).enumerate() {
-            round.cycles[particle % groups] += state[CYCLES] as u64;
-            round.steps += state[STEPS] as u64;
-            let bits = whole(state[PERFECT_ENERGY], state[PERFECT_ENERGY + 1]) as i64;
-            round.perfect_energy += EnergySum::from(Energy::from_bits(bits));
-            round.capped += (state[FLAGS] & CAPPED != 0) as u64;
+        if !moved.is_empty() {
+            let device_rows = self.client.create_from_slice(u32::as_bytes(&rows));
+            let targets = self.client.create_from_slice(u32::as_bytes(&moved));
+            // SAFETY: `device_rows` holds one row per target, and the
+            // targets are distinct particles.
+            unsafe {
+                kernels::scatter::launch_unchecked(
+                    &self.client,
+                    small,
+                    CubeDim::new_1d(GROUP),
+                    buffer(&device_rows, rows.len()),
+                    buffer(&targets, moved.len()),
+                    buffer(&self.sigma, count * n),
+                    n as u32,
+                    moved.len() as u32,
+                );
+            }
         }
+        self.far_seconds.host_chains += clock.elapsed().as_secs_f64();
         Ok(round)
     }
 }
@@ -716,9 +897,10 @@ mod test {
             let expected = rayon.far(&tables, 50, 2000, 16, stream).unwrap();
             assert!(expected.capped > 0 && expected.capped < 4096);
             let energies = rayon.energies().unwrap();
-            for budget in [1 << 16, 300] {
+            // dispatches that finish most chains, and ones that hand most to the host
+            for budget in [64.0, 0.5] {
                 let mut wgpu = engine(&scaled).await;
-                wgpu.budget = budget;
+                wgpu.far_budget = budget;
                 wgpu.load(&identity, 100);
                 assert_eq!(wgpu.far(&tables, 50, 2000, 16, stream).await.unwrap(), expected, "budget {budget}");
                 let measured = wgpu.energies().await.unwrap();
