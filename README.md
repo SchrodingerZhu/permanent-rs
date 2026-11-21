@@ -150,8 +150,12 @@ over, since a browser resets a device whose dispatch runs too long.
 
     cargo run --release -- data/dimer-16x16.mtx --backend wgpu
 
-On an RTX 4090 through Vulkan it is about as fast as the cuda engine on the
-128 x 128 dimer matrix and about 2.2 times slower on the 512 x 512 one.
+On an RTX 4090 through Vulkan it runs the 128 x 128 dimer matrix in 18 s
+(the cuda engine: 19 s) and Phase 1 of the 512 x 512 one in 125 s (115 s).
+Two things decide its speed on large matrices, both measured with
+`cargo run --release -p permanent-wgpu --example far_throughput`: chains
+run in batches whose working memory fits the device's cache, and a chain's
+random blocks are generated at one place per step.
 
 ## WebAssembly
 
