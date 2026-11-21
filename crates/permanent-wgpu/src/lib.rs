@@ -27,7 +27,7 @@ use permanent_core::chain::lane::{Lane, MAX_N, NONE};
 use permanent_core::chain::matching::{Matching, words};
 use permanent_core::chain::stream::Stream as Philox;
 use permanent_core::chain::{Energy, EnergySum};
-use permanent_core::engine::{ChainTally, FarRound, Stream};
+use permanent_core::engine::{FarRound, Stream, VisitList};
 use permanent_core::sampler::{MutateCost, SampleCost, StageSchedule, mutate_event_cap, penalty};
 use permanent_core::scaling::Scaled;
 use permanent_core::stats::{mix, stream_seed};
@@ -647,7 +647,7 @@ impl<'a> Wgpu<'a> {
         let anchor = tables.anchor as u32;
         // one small record per chain: a round's tables are too large to
         // build for every task of the pool
-        let finished: Vec<(FarChain, ChainTally, Option<Vec<u32>>)> = records
+        let finished: Vec<(FarChain, VisitList, Option<Vec<u32>>)> = records
             .par_chunks(record)
             .map_init(
                 || (vec![0u16; n], vec![0u16; 2 * n]),
@@ -662,7 +662,7 @@ impl<'a> Wgpu<'a> {
                     let seed = whole(chain[HANDED_KEY], chain[HANDED_KEY + 1]);
                     let mut rng = Philox::at(seed, blocks, (4 * blocks - drawn) as u32);
                     let lane = Lane::on(memory, n);
-                    let mut tally = ChainTally::new(n);
+                    let mut tally = VisitList::default();
                     // SAFETY: `stored` holds n words, the lane two arrays of
                     // n, and the tables are n x n.
                     let run = unsafe {

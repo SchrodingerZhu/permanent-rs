@@ -62,12 +62,10 @@ impl FarRound {
     }
 
     /// Add the visits of a chain of `group`.
-    pub fn add(&mut self, group: usize, tally: &ChainTally) {
-        for (total, visits) in self.visits[group].iter_mut().zip(&tally.visits) {
-            *total += visits;
-        }
-        for (total, energy) in self.visit_energy.iter_mut().zip(&tally.visit_energy) {
-            *total += *energy;
+    pub fn add(&mut self, group: usize, visits: &VisitList) {
+        for &(v, energy) in &visits.0 {
+            self.visits[group][v as usize] += 1;
+            self.visit_energy[v as usize] += EnergySum::from(energy);
         }
     }
 
@@ -104,23 +102,16 @@ impl Tally for GroupTally<'_> {
     }
 }
 
-/// The visits of one chain, kept apart until it is added to a round.
-pub struct ChainTally {
-    visits: Vec<u64>,
-    visit_energy: Vec<EnergySum>,
-}
+/// The visits of one chain, in order, kept apart until it is added to a
+/// round. A chain is at the anchor row's hole classes for few of its steps,
+/// so the list is short where a count for every class would be mostly zeros.
+#[derive(Default)]
+pub struct VisitList(Vec<(u32, Energy)>);
 
-impl ChainTally {
-    pub fn new(n: usize) -> Self {
-        ChainTally { visits: vec![0; n], visit_energy: vec![EnergySum::ZERO; n] }
-    }
-}
-
-impl Tally for ChainTally {
+impl Tally for VisitList {
     #[inline]
     fn visit(&mut self, v: u32, energy: Energy) {
-        self.visits[v as usize] += 1;
-        self.visit_energy[v as usize] += EnergySum::from(energy);
+        self.0.push((v, energy));
     }
 }
 
