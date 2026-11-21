@@ -147,6 +147,10 @@ Ranks split the segments and islands of Phase 2, which share nothing, and
 pool their learning statistics in Phase 1. Results do not depend on the
 number of ranks beyond the split of the Phase 1 population.
 
+With the `cuda` backend the ranks on a node take its GPUs in turn, starting
+at `--device`: start as many ranks on each node as it has GPUs. A rank that
+fails stops the whole run.
+
 ## Nix
 
     nix build              # the program with the rayon backend, tests included

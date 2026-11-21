@@ -25,8 +25,8 @@ enum Backend {
     /// The CPU thread pool.
     #[cfg(feature = "rayon")]
     Rayon,
-    /// An NVIDIA GPU; under MPI rank r uses device `--device` + r, modulo
-    /// the number of devices on its node.
+    /// An NVIDIA GPU; under MPI the ranks of a node use its devices in
+    /// turn, starting at `--device`.
     #[cfg(feature = "cuda")]
     Cuda,
 }
@@ -251,8 +251,9 @@ fn run<C: Comm>(cli: &Cli, problem: &Problem, comm: &C, reporter: &Reporter) -> 
             use permanent_cuda::Cuda;
             let devices = permanent_cuda::device_count()?;
             anyhow::ensure!(devices > 0, "no CUDA device");
-            // one GPU per rank, wrapping around when there are fewer GPUs
-            let device = (cli.device + comm.rank()) % devices;
+            // one GPU per rank of this node, wrapping around when it has fewer
+            let device = (cli.device + comm.node_rank()) % devices;
+            debug!(rank = comm.rank(), device, devices, "cuda device");
             match cli.precision.unwrap_or(Precision::F32) {
                 Precision::F32 => estimate(cli, &scaled, &config, exact, Cuda::<f32>::new(&scaled, device)?, comm, reporter),
                 Precision::F64 => estimate(cli, &scaled, &config, exact, Cuda::<f64>::new(&scaled, device)?, comm, reporter),
@@ -476,14 +477,27 @@ pub fn main() -> anyhow::Result<()> {
     let comm = permanent_core::comm::Mpi::new().ok_or_else(|| anyhow::anyhow!("MPI could not be initialized"))?;
     #[cfg(not(feature = "mpi"))]
     let comm = Solo;
+    let outcome = run_ranks(cli, &comm);
+    if let Err(error) = &outcome
+        && comm.size() > 1
+    {
+        eprintln!("Error on rank {}: {error:#}", comm.rank());
+        comm.abort();
+    }
+    outcome
+}
+
+/// What one rank does: the whole run, with the dashboard on rank 0 if asked.
+fn run_ranks<C: Comm>(cli: Cli, comm: &C) -> anyhow::Result<()> {
     let root = comm.rank() == 0;
     init_logging(&cli, root)?;
+    debug!(rank = comm.rank(), node_rank = comm.node_rank(), ranks = comm.size(), "rank started");
     if let Some(threads) = cli.threads {
         rayon::ThreadPoolBuilder::new().num_threads(threads).build_global()?;
     }
     let problem = Problem::load(&cli.input)?;
     if !cli.tui || !root {
-        return run(&cli, &problem, &comm, &Reporter { dashboard: None, quiet: !root });
+        return run(&cli, &problem, comm, &Reporter { dashboard: None, quiet: !root });
     }
     anyhow::ensure!(comm.size() == 1, "--tui runs in a single process; drop it under mpirun");
     let (sender, receiver) = channel();
