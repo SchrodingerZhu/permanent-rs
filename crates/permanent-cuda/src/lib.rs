@@ -46,7 +46,7 @@ use permanent_core::chain::lane::{Lane, MAX_N, NONE};
 use permanent_core::chain::matching::{Matching, words as lane_words};
 use permanent_core::chain::stream::Stream as Stream32;
 use permanent_core::chain::{Energy, EnergySum};
-use permanent_core::engine::{ChainTally, Engine, FarRound, Stream};
+use permanent_core::engine::{Engine, FarRound, Stream};
 use permanent_core::sampler::{MutateCost, SampleCost, StageSchedule, mutate_event_cap, penalty};
 use permanent_core::scaling::Scaled;
 use permanent_core::stats::{mix, stream_seed};
@@ -90,6 +90,18 @@ impl Tally for DeviceTally<'_> {
             self.visits.get_unchecked(self.first + v as usize).fetch_add(1, AtomicOrdering::Relaxed);
             self.visit_energy.get_unchecked(v as usize).fetch_add(energy.to_bits(), AtomicOrdering::Relaxed);
         }
+    }
+}
+
+/// The visits of one chain finished on the host, in order. A chain is at
+/// the anchor row's hole classes for few of its steps, so the list is short
+/// where a count for every class would be mostly zeros.
+struct VisitList(Vec<(u32, Energy)>);
+
+impl Tally for VisitList {
+    #[inline]
+    fn visit(&mut self, v: u32, energy: Energy) {
+        self.0.push((v, energy));
     }
 }
 
@@ -1099,7 +1111,7 @@ where
         let anchor = tables.anchor as u32;
         // one small record per chain: a round's tables are too large to
         // build for every task of the pool
-        let finished: Vec<(FarChain, ChainTally)> = rows
+        let finished: Vec<(FarChain, VisitList)> = rows
             .par_chunks_mut(n)
             .zip(&late)
             .map_init(
@@ -1110,7 +1122,7 @@ where
                     let position = positions[particle];
                     let mut rng = Stream32::at(seeds[particle], position >> 3, (position & 7) as u32);
                     let lane = Lane::on(words, n);
-                    let mut tally = ChainTally::new(n);
+                    let mut tally = VisitList(Vec::new());
                     // SAFETY: `row` holds n words, the lane two arrays of n,
                     // and the tables are n x n.
                     let chain = unsafe {
@@ -1132,7 +1144,10 @@ where
         for (index, ((chain, tally), &particle)) in finished.iter().zip(&late).enumerate() {
             let particle = particle as usize;
             let complete = chain.hole_u == NONE && chain.perfect_steps == cycles;
-            round.add(particle % groups, tally);
+            for &(v, energy) in &tally.0 {
+                round.visits[particle % groups][v as usize] += 1;
+                round.visit_energy[v as usize] += EnergySum::from(energy);
+            }
             round.close(particle % groups, chain, done[particle], steps_of(status[particle]), !complete);
             if !complete {
                 capped.push(index as u32);
