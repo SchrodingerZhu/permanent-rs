@@ -1,0 +1,38 @@
+[package]
+name = "permanent-web"
+description = "Interactive Dioxus static web application for permanent-rs"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+dioxus = { version = "0.7", features = ["web"] }
+futures-channel = "0.3"
+permanent-demo.workspace = true
+permanent-wasm = { workspace = true, default-features = false }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1"
+js-sys = "0.3"
+wasm-bindgen = "=0.2.130"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = [
+    "Blob",
+    "BlobPropertyBag",
+    "Clipboard",
+    "Document",
+    "DomRect",
+    "Element",
+    "HtmlAnchorElement",
+    "HtmlElement",
+    "MediaQueryList",
+    "MessageEvent",
+    "Navigator",
+    "Storage",
+    "Url",
+    "Window",
+    "Worker",
+    "WorkerOptions",
+    "WorkerType",
+] }
+
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
+talc = "5"

@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Weighted Permanent Counting — permanent-rs</title>
+  <meta
+    name="description"
+    content="Interactive WebGPU permanent estimator and 2D/3D dimer partition function explorer powered by Rust and WebAssembly."
+  />
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem("permanent-theme") || "system";
+        var prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+        var resolved = saved === "dark" || saved === "light" ? saved : (prefersDark ? "dark" : "light");
+        document.documentElement.dataset.theme = resolved;
+        document.documentElement.dataset.themeMode = saved;
+      } catch (_) {
+        document.documentElement.dataset.theme = "light";
+      }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="./assets/styles/tokens.css" />
+  <link rel="stylesheet" href="./assets/styles/app.css" />
+</head>
+<body>
+  <div id="main"></div>
+  <script type="module" src="./assets/js/hero-canvas.js"></script>
+  <script type="module" src="./assets/js/three-viewport.js"></script>
+  <script type="module">
+    import init from "./pkg/permanent_web.js";
+    init().catch((err) => {
+      console.error("Failed to initialize permanent-web:", err);
+      const root = document.getElementById("main");
+      if (root) {
+        root.innerHTML =
+          '<div style="max-width:42rem;margin:4rem auto;padding:1.5rem;font-family:system-ui,sans-serif;border:1px solid #cbd5e1;border-radius:10px">' +
+          '<h2 style="margin:0 0 0.5rem">WebAssembly initialization failed</h2>' +
+          '<p style="margin:0;color:#475569">' + String(err) + '</p></div>';
+      }
+    });
+  </script>
+</body>
+</html>

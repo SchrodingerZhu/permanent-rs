@@ -5,10 +5,15 @@
 //! asynchronous telemetry driver ([`runner`]) and browser `#[wasm_bindgen]`
 //! exports ([`wasm`] on `wasm32-unknown-unknown`).
 
+#[cfg(all(feature = "engine", target_family = "wasm", target_os = "unknown", not(target_feature = "atomics")))]
+#[global_allocator]
+static ALLOCATOR: talc::wasm::WasmDynamicTalc = talc::wasm::new_wasm_dynamic_allocator();
+
+#[cfg(feature = "engine")]
 pub mod runner;
 pub mod types;
 
-#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+#[cfg(all(feature = "engine", target_family = "wasm", target_os = "unknown"))]
 pub mod wasm;
 
 use types::{PresetInfo, WebRunConfig};

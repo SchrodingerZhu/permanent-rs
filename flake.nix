@@ -193,6 +193,7 @@
             pinnedToolchain
             pkgs.rust-analyzer
             pkgs.mpi
+            pkgs.binaryen
           ]
           ++ pkgs.lib.optionals withCuda [
             cudaEnv
@@ -241,6 +242,7 @@
             pkgs.wasmer
             denoForWasmTests
             wasmBindgenCli
+            pkgs.binaryen
           ];
           env.CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER = "wasm-bindgen-test-runner";
           env.WASM_BINDGEN_USE_DENO = "1";

@@ -1,0 +1,186 @@
+/* University of Rochester visual identity palette + adaptive monograph tokens.
+ *
+ * Brand anchors:
+ *   URochester Navy      #001E5F    Dandelion Yellow     #FFD82B
+ *   Meliora Blue         #021BC3    Yellowjacket Gold    #FFC200
+ *   Arpeggio Azure       #0066FD    Bright Lemon         #FFE95F
+ *   Connective Cornflower #66A2FF   Ever Butter          #FFF3B1
+ *   Wondrous Sky         #B7D3FF
+ *   Granite Gray         #414141    Meridian Gray        #C0C0C0
+ *   Cloud Gray           #E7E7E7
+ */
+
+:root {
+  /* Brand scale */
+  --ur-navy: #001E5F;
+  --ur-navy-deep: #00133D;
+  --ur-meliora: #021BC3;
+  --ur-cobalt: #003EFF;
+  --ur-azure: #0066FD;
+  --ur-cornflower: #66A2FF;
+  --ur-sky: #B7D3FF;
+
+  --ur-dandelion: #FFD82B;
+  --ur-gold: #FFC200;
+  --ur-lemon: #FFE95F;
+  --ur-butter: #FFF3B1;
+
+  --ur-granite: #414141;
+  --ur-meridian: #C0C0C0;
+  --ur-cloud: #E7E7E7;
+
+  /* Typography */
+  --font-serif: "Newsreader", "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* Radii & geometry */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+
+  /* Motion */
+  --ease-calm: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Light Mode — Academic Monograph */
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+
+  --bg-page: #FAFBFD;
+  --bg-surface: #FFFFFF;
+  --bg-subtle: #F1F5FA;
+  --bg-hover: #E8EFF8;
+  --bg-nav: rgba(250, 251, 253, 0.88);
+  --bg-hud: rgba(255, 255, 255, 0.92);
+
+  --border-hairline: #DCE3EE;
+  --border-strong: #B9C7DC;
+
+  --text-primary: #0B152C;
+  --text-secondary: #414141;
+  --text-muted: #52627A;
+
+  --accent-primary: #001E5F;
+  --accent-primary-hover: #002D8A;
+  --accent-primary-ink: #FFFFFF;
+
+  --accent-link: #0050CC;
+  --accent-focus: #0066FD;
+
+  --accent-gold-fill: #FFD82B;
+  --accent-gold-fill-hover: #FFC200;
+  --accent-gold-ink-on-fill: #001E5F;
+  --accent-gold-text: #8A5A00;
+  --accent-gold-tint: #FFF7CC;
+  --accent-blue-tint: #EAF1FF;
+
+  /* Diagram / visualization colors */
+  --dimer-x: #001E5F;
+  --dimer-y: #0066FD;
+  --dimer-z: #C27D00;
+  --lattice-wire: #CBD5E1;
+  --node-row-fill: #001E5F;
+  --node-col-fill: #FFFFFF;
+  --node-col-stroke: #001E5F;
+  --chart-grid: #E6ECF5;
+  --chart-muted: #B6C3D8;
+
+  /* Hero light surface */
+  --hero-bg: #FAFBFD;
+  --hero-scrim-start: rgba(250, 251, 253, 0.97);
+  --hero-scrim-mid: rgba(250, 251, 253, 0.84);
+  --hero-scrim-end: rgba(250, 251, 253, 0.10);
+  --hero-title: #001E5F;
+  --hero-sub: #2B3B58;
+  --hero-eyebrow-bg: #FFF3B1;
+  --hero-eyebrow-ink: #001E5F;
+  --hero-formula-bg: rgba(255, 255, 255, 0.92);
+  --hero-formula-border: #C7D4EA;
+  --hero-formula-ink: #001E5F;
+
+  /* Status */
+  --status-ok: #146C43;
+  --status-ok-bg: #E7F6EE;
+  --status-warn: #9A5B00;
+  --status-warn-bg: #FFF6D6;
+  --status-err: #B42318;
+  --status-err-bg: #FEECEB;
+  --danger-fill: #B42318;
+  --danger-hover: #912018;
+  --danger-ink: #FFFFFF;
+
+  --shadow-subtle: 0 1px 2px rgba(0, 30, 95, 0.04), 0 6px 20px rgba(0, 30, 95, 0.04);
+}
+
+/* Dark Mode — Midnight Rochester Observatory */
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg-page: #060D21;
+  --bg-surface: #0C1736;
+  --bg-subtle: #13224C;
+  --bg-hover: #1A2D62;
+  --bg-nav: rgba(6, 13, 33, 0.88);
+  --bg-hud: rgba(12, 23, 54, 0.92);
+
+  --border-hairline: #22366B;
+  --border-strong: #345096;
+
+  --text-primary: #F4F7FC;
+  --text-secondary: #B4C6E6;
+  --text-muted: #86A0CC;
+
+  --accent-primary: #FFD82B;
+  --accent-primary-hover: #FFE462;
+  --accent-primary-ink: #001E5F;
+
+  --accent-link: #66A2FF;
+  --accent-focus: #FFD82B;
+
+  --accent-gold-fill: #FFD82B;
+  --accent-gold-fill-hover: #FFE462;
+  --accent-gold-ink-on-fill: #001E5F;
+  --accent-gold-text: #FFD82B;
+  --accent-gold-tint: rgba(255, 216, 43, 0.14);
+  --accent-blue-tint: rgba(102, 162, 255, 0.15);
+
+  /* Diagram / visualization colors */
+  --dimer-x: #66A2FF;
+  --dimer-y: #B7D3FF;
+  --dimer-z: #FFD82B;
+  --lattice-wire: #283F7A;
+  --node-row-fill: #E6EEFF;
+  --node-col-fill: #0C1736;
+  --node-col-stroke: #8DB8FF;
+  --chart-grid: #1D3060;
+  --chart-muted: #3A538F;
+
+  /* Hero dark surface */
+  --hero-bg: #050C22;
+  --hero-scrim-start: rgba(5, 12, 34, 0.95);
+  --hero-scrim-mid: rgba(5, 12, 34, 0.80);
+  --hero-scrim-end: rgba(5, 12, 34, 0.18);
+  --hero-title: #F4F7FC;
+  --hero-sub: #C6D6F2;
+  --hero-eyebrow-bg: rgba(255, 216, 43, 0.16);
+  --hero-eyebrow-ink: #FFD82B;
+  --hero-formula-bg: rgba(12, 23, 54, 0.90);
+  --hero-formula-border: #2C4688;
+  --hero-formula-ink: #FFD82B;
+
+  /* Status */
+  --status-ok: #5CE099;
+  --status-ok-bg: rgba(24, 152, 92, 0.18);
+  --status-warn: #FFD82B;
+  --status-warn-bg: rgba(255, 216, 43, 0.16);
+  --status-err: #FF8A80;
+  --status-err-bg: rgba(220, 53, 69, 0.20);
+  --danger-fill: #D9483B;
+  --danger-hover: #E55B4E;
+  --danger-ink: #FFFFFF;
+
+  --shadow-subtle: 0 1px 2px rgba(0, 0, 0, 0.25), 0 10px 28px rgba(0, 0, 0, 0.28);
+}

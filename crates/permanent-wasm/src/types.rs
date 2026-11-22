@@ -8,7 +8,7 @@ pub use permanent_demo::types::{
 };
 
 /// Estimator and engine configuration exposed to front ends. Runs are on WebGPU (`permanent-wgpu`).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct WebRunConfig {
     pub epsilon: f64,
@@ -59,7 +59,7 @@ impl Default for WebRunConfig {
 }
 
 /// Phase 1 (schedule learning) diagnostics and work totals.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Phase1Summary {
     pub temperatures: usize,
     pub seconds: f64,
@@ -78,7 +78,7 @@ pub struct Phase1Summary {
 }
 
 /// Phase 2 execution plan computed from the learned temperature schedule.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlanSummary {
     pub segments: Vec<[usize; 2]>,
     pub ln_scale: f64,
@@ -94,7 +94,7 @@ pub struct PlanSummary {
 }
 
 /// Result of the segment-boundary consistency check.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum VerdictInfo {
     Consistent { max_gap_se: f64 },
@@ -103,7 +103,7 @@ pub enum VerdictInfo {
 }
 
 /// Structured Phase 2 estimation result.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EstimateSummary {
     pub ln_permanent: f64,
     pub std_error: f64,
@@ -135,7 +135,7 @@ pub struct EstimateSummary {
 }
 
 /// Final structured summary emitted on `WebEvent::Done` and returned from `run`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunSummary {
     pub n: usize,
     pub nnz: usize,
@@ -159,7 +159,7 @@ pub struct RunSummary {
 
 /// Structured live telemetry event stream mirroring `permanent-cli`'s TUI
 /// dashboard without pre-formatted prose lines.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum WebEvent {
     Init {
@@ -217,7 +217,7 @@ pub enum WebEvent {
 }
 
 /// One entry of the curated demo catalog.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PresetInfo {
     pub id: String,
     pub title: String,
@@ -227,7 +227,7 @@ pub struct PresetInfo {
 }
 
 /// Browser WebGPU capability report.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Capabilities {
     pub webgpu_available: bool,
     pub adapter_name: Option<String>,
